@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type { WidgetInstance, WidgetLayout } from "@/src/shared/types";
+import { BASE_COLS } from "@/src/shared/lib/grid";
 import { widgetRegistry } from "@/src/widgets/widget-registry";
 
 type DashboardState = {
@@ -23,7 +24,7 @@ function findAvailablePosition(
   existingWidgets: WidgetInstance[],
   width: number,
   height: number,
-  cols: number = 12
+  cols: number = BASE_COLS
 ): { x: number; y: number } {
   const grid: boolean[][] = [];
 
