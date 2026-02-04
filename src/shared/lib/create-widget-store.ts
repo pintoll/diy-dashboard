@@ -39,7 +39,7 @@ export function createWidgetStore<T extends object>(
 export function clearWidgetStore(name: string, instanceId: string) {
   const cacheKey = `${name}-${instanceId}`;
   storeCache.delete(cacheKey);
-  if (typeof window !== "undefined") {
-    localStorage.removeItem(cacheKey);
-  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- safe: guarded runtime check for SSR
+  const g = globalThis as any;
+  if (g.localStorage) g.localStorage.removeItem(cacheKey);
 }
