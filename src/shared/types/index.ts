@@ -1,4 +1,5 @@
 export type {
+  BreakpointKey,
   WidgetCategory,
   WidgetSize,
   WidgetMeta,
