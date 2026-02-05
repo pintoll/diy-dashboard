@@ -1,5 +1,3 @@
-"use client";
-
 import { useMemo } from "react";
 import { createWidgetStore } from "@/src/shared/lib/create-widget-store";
 import type {
@@ -10,6 +8,8 @@ import type {
 } from "./pomodoro.types";
 
 type PomodoroStore = PomodoroState & PomodoroActions & { config: PomodoroConfig };
+
+const STORE_VERSION = 2;
 
 function getNextPhase(
   currentPhase: PomodoroPhase,
@@ -35,13 +35,60 @@ function getDurationForPhase(phase: PomodoroPhase, config: PomodoroConfig): numb
   }
 }
 
+function computeTimeRemaining(
+  state: Pick<PomodoroState, "isRunning" | "startedAt" | "pausedTimeRemaining" | "phase">,
+  config: PomodoroConfig
+): number {
+  const phaseDuration = getDurationForPhase(state.phase, config);
+
+  if (!state.isRunning) {
+    return state.pausedTimeRemaining ?? phaseDuration;
+  }
+
+  if (state.startedAt === null) {
+    return phaseDuration;
+  }
+
+  const elapsed = Math.floor((Date.now() - state.startedAt) / 1000);
+  return Math.max(0, phaseDuration - elapsed);
+}
+
+type OldPomodoroState = {
+  phase: PomodoroPhase;
+  timeRemaining: number;
+  isRunning: boolean;
+  completedPomodoros: number;
+  config: PomodoroConfig;
+};
+
+function migrateState(persistedState: unknown, version: number): PomodoroStore {
+  if (version === 0 || version === 1) {
+    const old = persistedState as OldPomodoroState;
+    return {
+      ...old,
+      startedAt: null,
+      pausedTimeRemaining: old.timeRemaining,
+      isRunning: false,
+      start: () => {},
+      pause: () => {},
+      reset: () => {},
+      skip: () => {},
+      tick: () => {},
+      syncTime: () => {},
+      getTimeRemaining: () => 0,
+    };
+  }
+  return persistedState as PomodoroStore;
+}
+
 export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
   const store = useMemo(() => {
     const initialState: PomodoroStore = {
       phase: "work",
-      timeRemaining: config.workDuration * 60,
       isRunning: false,
       completedPomodoros: 0,
+      startedAt: null,
+      pausedTimeRemaining: null,
       config,
 
       start: () => {},
@@ -49,6 +96,8 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       reset: () => {},
       skip: () => {},
       tick: () => {},
+      syncTime: () => {},
+      getTimeRemaining: () => 0,
     };
 
     return createWidgetStore<PomodoroStore>(
@@ -57,15 +106,40 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       (set, get) => ({
         ...initialState,
 
-        start: () => set({ isRunning: true }),
+        getTimeRemaining: () => {
+          const state = get();
+          return computeTimeRemaining(state, state.config);
+        },
 
-        pause: () => set({ isRunning: false }),
+        start: () => {
+          const state = get();
+          const currentRemaining = computeTimeRemaining(state, state.config);
+          const phaseDuration = getDurationForPhase(state.phase, state.config);
+          const elapsedBeforePause = phaseDuration - currentRemaining;
+          const startedAt = Date.now() - elapsedBeforePause * 1000;
+
+          set({
+            isRunning: true,
+            startedAt,
+            pausedTimeRemaining: null,
+          });
+        },
+
+        pause: () => {
+          const state = get();
+          const remaining = computeTimeRemaining(state, state.config);
+          set({
+            isRunning: false,
+            pausedTimeRemaining: remaining,
+            startedAt: null,
+          });
+        },
 
         reset: () => {
-          const { config, phase } = get();
           set({
-            timeRemaining: getDurationForPhase(phase, config),
             isRunning: false,
+            startedAt: null,
+            pausedTimeRemaining: null,
           });
         },
 
@@ -80,16 +154,21 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           );
           set({
             phase: nextPhase,
-            timeRemaining: getDurationForPhase(nextPhase, config),
             isRunning: false,
             completedPomodoros: newCompleted,
+            startedAt: null,
+            pausedTimeRemaining: null,
           });
         },
 
         tick: () => {
-          const { timeRemaining, phase, completedPomodoros, config } = get();
+          const state = get();
+          if (!state.isRunning) return;
 
-          if (timeRemaining <= 1) {
+          const remaining = computeTimeRemaining(state, state.config);
+
+          if (remaining <= 0) {
+            const { phase, completedPomodoros, config } = state;
             const newCompleted =
               phase === "work" ? completedPomodoros + 1 : completedPomodoros;
             const nextPhase = getNextPhase(
@@ -99,16 +178,45 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             );
             set({
               phase: nextPhase,
-              timeRemaining: getDurationForPhase(nextPhase, config),
               isRunning: false,
               completedPomodoros: newCompleted,
+              startedAt: null,
+              pausedTimeRemaining: null,
             });
-          } else {
-            set({ timeRemaining: timeRemaining - 1 });
+          }
+        },
+
+        syncTime: () => {
+          const state = get();
+          if (!state.isRunning) return;
+
+          const remaining = computeTimeRemaining(state, state.config);
+
+          if (remaining <= 0) {
+            const { phase, completedPomodoros, config } = state;
+            const newCompleted =
+              phase === "work" ? completedPomodoros + 1 : completedPomodoros;
+            const nextPhase = getNextPhase(
+              phase,
+              completedPomodoros,
+              config.pomodorosUntilLongBreak
+            );
+            set({
+              phase: nextPhase,
+              isRunning: false,
+              completedPomodoros: newCompleted,
+              startedAt: null,
+              pausedTimeRemaining: null,
+            });
           }
         },
       }),
-      { name: "pomodoro", persist: true }
+      {
+        name: "pomodoro",
+        persist: true,
+        version: STORE_VERSION,
+        migrate: migrateState,
+      }
     );
   }, [instanceId, config]);
 
