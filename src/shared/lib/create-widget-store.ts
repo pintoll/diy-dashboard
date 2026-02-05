@@ -6,16 +6,18 @@ type StoreCache = Map<string, WidgetStore<unknown>>;
 
 const storeCache: StoreCache = new Map();
 
-type CreateWidgetStoreOptions = {
+type CreateWidgetStoreOptions<T> = {
   name: string;
   persist?: boolean;
+  version?: number;
+  migrate?: (persistedState: unknown, version: number) => T;
 };
 
 export function createWidgetStore<T extends object>(
   instanceId: string,
   _initialState: T,
   stateCreator: StateCreator<T>,
-  options: CreateWidgetStoreOptions
+  options: CreateWidgetStoreOptions<T>
 ): WidgetStore<T> {
   const cacheKey = `${options.name}-${instanceId}`;
 
@@ -24,12 +26,20 @@ export function createWidgetStore<T extends object>(
     return cached as WidgetStore<T>;
   }
 
+  const persistOptions: PersistOptions<T> = {
+    name: cacheKey,
+  };
+
+  if (options.version !== undefined) {
+    persistOptions.version = options.version;
+  }
+
+  if (options.migrate) {
+    persistOptions.migrate = options.migrate;
+  }
+
   const store = options.persist
-    ? create<T>()(
-        persist(stateCreator, {
-          name: cacheKey,
-        } as PersistOptions<T>)
-      )
+    ? create<T>()(persist(stateCreator, persistOptions))
     : create<T>()(stateCreator);
 
   storeCache.set(cacheKey, store as WidgetStore<unknown>);
