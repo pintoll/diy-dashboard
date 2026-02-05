@@ -1,5 +1,3 @@
-"use client";
-
 import type { WidgetProps } from "@/src/shared/types";
 
 type TestWidgetConfig = {
