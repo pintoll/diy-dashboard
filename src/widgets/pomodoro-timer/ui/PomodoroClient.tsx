@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useSyncExternalStore, useCallback } from "react";
 import { Play, Pause, RotateCcw, SkipForward } from "lucide-react";
 import { Button } from "@/src/shared/ui/button";

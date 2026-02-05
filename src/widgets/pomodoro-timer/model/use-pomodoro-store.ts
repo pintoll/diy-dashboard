@@ -1,5 +1,3 @@
-"use client";
-
 import { useMemo } from "react";
 import { createWidgetStore } from "@/src/shared/lib/create-widget-store";
 import type {
