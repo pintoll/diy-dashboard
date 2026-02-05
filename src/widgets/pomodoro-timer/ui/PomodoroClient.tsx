@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore, useCallback } from "react";
 import { Play, Pause, RotateCcw, SkipForward } from "lucide-react";
 import { Button } from "@/src/shared/ui/button";
 import type { WidgetProps } from "@/src/shared/types";
@@ -25,23 +25,62 @@ function formatTime(seconds: number): string {
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
+function useTimeDisplay(
+  getTimeRemaining: () => number,
+  isRunning: boolean,
+  syncTime: () => void,
+  tick: () => void
+) {
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      let intervalId: ReturnType<typeof setInterval> | null = null;
+
+      const handleVisibilityChange = () => {
+        if (typeof document !== "undefined" && document.visibilityState === "visible") {
+          syncTime();
+          onStoreChange();
+        }
+      };
+
+      if (typeof document !== "undefined") {
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+      }
+
+      if (isRunning) {
+        intervalId = setInterval(() => {
+          tick();
+          onStoreChange();
+        }, 100);
+      }
+
+      return () => {
+        if (typeof document !== "undefined") {
+          document.removeEventListener("visibilitychange", handleVisibilityChange);
+        }
+        if (intervalId !== null) {
+          clearInterval(intervalId);
+        }
+      };
+    },
+    [isRunning, syncTime, tick]
+  );
+
+  return useSyncExternalStore(subscribe, getTimeRemaining, getTimeRemaining);
+}
+
 export function PomodoroClient({
   instanceId,
   config,
 }: WidgetProps<PomodoroConfig>) {
   const store = usePomodoroStore(instanceId, config);
-  const { phase, timeRemaining, isRunning, completedPomodoros } = store();
-  const { start, pause, reset, skip, tick } = store();
+  const { phase, isRunning, completedPomodoros } = store();
+  const { start, pause, reset, skip, tick, syncTime, getTimeRemaining } = store();
+
+  const displayTime = useTimeDisplay(getTimeRemaining, isRunning, syncTime, tick);
 
   useEffect(() => {
-    if (!isRunning) return;
-
-    const interval = setInterval(() => {
-      tick();
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isRunning, tick]);
+    syncTime();
+  }, [syncTime]);
 
   return (
     <div className="flex flex-col items-center justify-center h-full gap-4">
@@ -50,7 +89,7 @@ export function PomodoroClient({
       </div>
 
       <div className="text-5xl font-mono font-bold tabular-nums">
-        {formatTime(timeRemaining)}
+        {formatTime(displayTime)}
       </div>
 
       <div className="flex items-center gap-2">
