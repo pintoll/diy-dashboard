@@ -1,5 +1,3 @@
-"use client";
-
 import { GripVertical, Settings, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
