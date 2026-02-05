@@ -9,9 +9,10 @@ export type PomodoroConfig = {
 
 export type PomodoroState = {
   phase: PomodoroPhase;
-  timeRemaining: number;
   isRunning: boolean;
   completedPomodoros: number;
+  startedAt: number | null;
+  pausedTimeRemaining: number | null;
 };
 
 export type PomodoroActions = {
@@ -20,4 +21,6 @@ export type PomodoroActions = {
   reset: () => void;
   skip: () => void;
   tick: () => void;
+  syncTime: () => void;
+  getTimeRemaining: () => number;
 };

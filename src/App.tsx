@@ -1,10 +1,10 @@
-"use client";
-
 import { useEffect, useState } from "react";
+import { Routes, Route } from "react-router-dom";
 import { DashboardGrid } from "@/src/widgets/dashboard-grid/client";
 import { registerAllWidgets } from "@/src/widgets/widget-registry";
+import OfflinePage from "./pages/OfflinePage";
 
-export default function Home() {
+function HomePage() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -21,4 +21,13 @@ export default function Home() {
   }
 
   return <DashboardGrid />;
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<HomePage />} />
+      <Route path="/offline" element={<OfflinePage />} />
+    </Routes>
+  );
 }
