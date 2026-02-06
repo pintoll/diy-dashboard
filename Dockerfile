@@ -8,6 +8,7 @@ RUN pnpm build
 
 FROM joseluisq/static-web-server:2-alpine
 COPY --from=builder /app/dist /public
+ENV SERVER_ROOT=/public
 ENV SERVER_PORT=3000
-ENV SERVER_FALLBACK_PAGE=/public/index.html
+ENV SERVER_FALLBACK_PAGE=/index.html
 EXPOSE 3000
