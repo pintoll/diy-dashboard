@@ -3,13 +3,14 @@ import { createWidgetStore } from "@/src/shared/lib/create-widget-store";
 import type {
   PomodoroConfig,
   PomodoroPhase,
+  PomodoroPresetId,
   PomodoroState,
   PomodoroActions,
 } from "./pomodoro.types";
 
 type PomodoroStore = PomodoroState & PomodoroActions & { config: PomodoroConfig };
 
-const STORE_VERSION = 2;
+const STORE_VERSION = 3;
 
 function getNextPhase(
   currentPhase: PomodoroPhase,
@@ -62,9 +63,11 @@ type OldPomodoroState = {
 };
 
 function migrateState(persistedState: unknown, version: number): PomodoroStore {
+  let state = persistedState as Record<string, unknown>;
+
   if (version === 0 || version === 1) {
-    const old = persistedState as OldPomodoroState;
-    return {
+    const old = state as unknown as OldPomodoroState;
+    state = {
       ...old,
       startedAt: null,
       pausedTimeRemaining: old.timeRemaining,
@@ -76,9 +79,15 @@ function migrateState(persistedState: unknown, version: number): PomodoroStore {
       tick: () => {},
       syncTime: () => {},
       getTimeRemaining: () => 0,
+      setPreset: () => {},
     };
   }
-  return persistedState as PomodoroStore;
+
+  if (version < 3) {
+    state = { ...state, activePresetId: "25:5" as PomodoroPresetId };
+  }
+
+  return state as unknown as PomodoroStore;
 }
 
 export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
@@ -89,6 +98,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       completedPomodoros: 0,
       startedAt: null,
       pausedTimeRemaining: null,
+      activePresetId: "25:5",
       config,
 
       start: () => {},
@@ -98,6 +108,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       tick: () => {},
       syncTime: () => {},
       getTimeRemaining: () => 0,
+      setPreset: () => {},
     };
 
     return createWidgetStore<PomodoroStore>(
@@ -209,6 +220,17 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
               pausedTimeRemaining: null,
             });
           }
+        },
+
+        setPreset: (presetId: PomodoroPresetId, newConfig: PomodoroConfig) => {
+          set({
+            config: newConfig,
+            activePresetId: presetId,
+            phase: "work",
+            isRunning: false,
+            startedAt: null,
+            pausedTimeRemaining: null,
+          });
         },
       }),
       {

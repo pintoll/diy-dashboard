@@ -4,6 +4,7 @@ import { Button } from "@/src/shared/ui/button";
 import type { WidgetProps } from "@/src/shared/types";
 import type { PomodoroConfig } from "../model/pomodoro.types";
 import { usePomodoroStore } from "../model/use-pomodoro-store";
+import { PomodoroSettings } from "./PomodoroSettings";
 
 const PHASE_LABELS = {
   work: "Focus Time",
@@ -71,8 +72,9 @@ export function PomodoroClient({
   config,
 }: WidgetProps<PomodoroConfig>) {
   const store = usePomodoroStore(instanceId, config);
-  const { phase, isRunning, completedPomodoros } = store();
-  const { start, pause, reset, skip, tick, syncTime, getTimeRemaining } = store();
+  const { phase, isRunning, completedPomodoros, activePresetId } = store();
+  const { start, pause, reset, skip, tick, syncTime, getTimeRemaining, setPreset } = store();
+  const currentConfig = store().config;
 
   const displayTime = useTimeDisplay(getTimeRemaining, isRunning, syncTime, tick);
 
@@ -81,7 +83,14 @@ export function PomodoroClient({
   }, [syncTime]);
 
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-4">
+    <div className="relative flex flex-col items-center justify-center h-full gap-4">
+      <div className="absolute top-0 right-0">
+        <PomodoroSettings
+          activePresetId={activePresetId}
+          config={currentConfig}
+          onPresetChange={setPreset}
+        />
+      </div>
       <div className={`text-sm font-medium ${PHASE_COLORS[phase]}`}>
         {PHASE_LABELS[phase]}
       </div>
