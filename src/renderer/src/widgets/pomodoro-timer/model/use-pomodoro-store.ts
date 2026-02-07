@@ -10,7 +10,7 @@ import type {
 
 type PomodoroStore = PomodoroState & PomodoroActions & { config: PomodoroConfig };
 
-const STORE_VERSION = 4;
+const STORE_VERSION = 5;
 
 function getNextPhase(
   currentPhase: PomodoroPhase,
@@ -92,6 +92,10 @@ function migrateState(persistedState: unknown, version: number): PomodoroStore {
     state = { ...state, notificationsEnabled: false };
   }
 
+  if (version < 5) {
+    state = { ...state, notificationsEnabled: true };
+  }
+
   return state as unknown as PomodoroStore;
 }
 
@@ -104,7 +108,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       startedAt: null,
       pausedTimeRemaining: null,
       activePresetId: "25:5",
-      notificationsEnabled: false,
+      notificationsEnabled: true,
       config,
 
       start: () => {},
