@@ -50,6 +50,7 @@ function createWindow(): void {
       preload: path.join(__dirname, "../preload/index.mjs"),
       contextIsolation: true,
       sandbox: false,
+      backgroundThrottling: false,
     },
   });
 
