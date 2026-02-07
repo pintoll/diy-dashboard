@@ -30,6 +30,7 @@ export type PomodoroState = {
   startedAt: number | null;
   pausedTimeRemaining: number | null;
   activePresetId: PomodoroPresetId;
+  notificationsEnabled: boolean;
 };
 
 export type PomodoroActions = {
@@ -38,7 +39,8 @@ export type PomodoroActions = {
   reset: () => void;
   skip: () => void;
   tick: () => void;
-  syncTime: () => void;
+  syncTime: () => PomodoroPhase | null;
   getTimeRemaining: () => number;
   setPreset: (presetId: PomodoroPresetId, config: PomodoroConfig) => void;
+  setNotificationsEnabled: (enabled: boolean) => void;
 };
