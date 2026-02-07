@@ -10,7 +10,7 @@ import type {
 
 type PomodoroStore = PomodoroState & PomodoroActions & { config: PomodoroConfig };
 
-const STORE_VERSION = 3;
+const STORE_VERSION = 4;
 
 function getNextPhase(
   currentPhase: PomodoroPhase,
@@ -77,14 +77,19 @@ function migrateState(persistedState: unknown, version: number): PomodoroStore {
       reset: () => {},
       skip: () => {},
       tick: () => {},
-      syncTime: () => {},
+      syncTime: () => null,
       getTimeRemaining: () => 0,
       setPreset: () => {},
+      setNotificationsEnabled: () => {},
     };
   }
 
   if (version < 3) {
     state = { ...state, activePresetId: "25:5" as PomodoroPresetId };
+  }
+
+  if (version < 4) {
+    state = { ...state, notificationsEnabled: false };
   }
 
   return state as unknown as PomodoroStore;
@@ -99,6 +104,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       startedAt: null,
       pausedTimeRemaining: null,
       activePresetId: "25:5",
+      notificationsEnabled: false,
       config,
 
       start: () => {},
@@ -106,9 +112,10 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       reset: () => {},
       skip: () => {},
       tick: () => {},
-      syncTime: () => {},
+      syncTime: () => null,
       getTimeRemaining: () => 0,
       setPreset: () => {},
+      setNotificationsEnabled: () => {},
     };
 
     return createWidgetStore<PomodoroStore>(
@@ -197,9 +204,9 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           }
         },
 
-        syncTime: () => {
+        syncTime: (): PomodoroPhase | null => {
           const state = get();
-          if (!state.isRunning) return;
+          if (!state.isRunning) return null;
 
           const remaining = computeTimeRemaining(state, state.config);
 
@@ -219,7 +226,9 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
               startedAt: null,
               pausedTimeRemaining: null,
             });
+            return phase;
           }
+          return null;
         },
 
         setPreset: (presetId: PomodoroPresetId, newConfig: PomodoroConfig) => {
@@ -231,6 +240,10 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             startedAt: null,
             pausedTimeRemaining: null,
           });
+        },
+
+        setNotificationsEnabled: (enabled: boolean) => {
+          set({ notificationsEnabled: enabled });
         },
       }),
       {

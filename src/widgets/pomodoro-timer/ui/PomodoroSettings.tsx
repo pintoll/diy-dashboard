@@ -19,23 +19,41 @@ import {
 } from "@/src/shared/ui/dialog";
 import { Input } from "@/src/shared/ui/input";
 import { Label } from "@/src/shared/ui/label";
+import { Switch } from "@/src/shared/ui/switch";
 import type { PomodoroPresetId, PomodoroConfig } from "../model/pomodoro.types";
 import { POMODORO_PRESETS } from "../model/pomodoro.types";
+import {
+  isNotificationSupported,
+  requestNotificationPermission,
+} from "../model/notifications";
 
 type PomodoroSettingsProps = {
   activePresetId: PomodoroPresetId;
   config: PomodoroConfig;
   onPresetChange: (presetId: PomodoroPresetId, config: PomodoroConfig) => void;
+  notificationsEnabled: boolean;
+  onNotificationsChange: (enabled: boolean) => void;
 };
 
 export function PomodoroSettings({
   activePresetId,
   config,
   onPresetChange,
+  notificationsEnabled,
+  onNotificationsChange,
 }: PomodoroSettingsProps) {
   const [customDialogOpen, setCustomDialogOpen] = useState(false);
   const [workMinutes, setWorkMinutes] = useState(config.workDuration);
   const [breakMinutes, setBreakMinutes] = useState(config.shortBreakDuration);
+
+  async function handleNotificationToggle(checked: boolean) {
+    if (checked) {
+      const granted = await requestNotificationPermission();
+      onNotificationsChange(granted);
+    } else {
+      onNotificationsChange(false);
+    }
+  }
 
   function handlePresetSelect(value: string) {
     if (value === "custom") {
@@ -92,6 +110,22 @@ export function PomodoroSettings({
               Custom…
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
+          {isNotificationSupported() && (
+            <>
+              <DropdownMenuSeparator />
+              <div className="flex items-center justify-between px-2 py-1.5">
+                <Label htmlFor="notifications-toggle" className="text-sm font-normal cursor-pointer">
+                  Notifications
+                </Label>
+                <Switch
+                  id="notifications-toggle"
+                  size="sm"
+                  checked={notificationsEnabled}
+                  onCheckedChange={handleNotificationToggle}
+                />
+              </div>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
