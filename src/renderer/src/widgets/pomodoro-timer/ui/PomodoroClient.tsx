@@ -2,8 +2,13 @@ import { useEffect, useSyncExternalStore, useCallback } from "react";
 import { Play, Pause, RotateCcw, SkipForward } from "lucide-react";
 import { Button } from "@/src/shared/ui/button";
 import type { WidgetProps } from "@/src/shared/types";
-import type { PomodoroConfig } from "../model/pomodoro.types";
+import type { PomodoroConfig, PomodoroPhase } from "../model/pomodoro.types";
 import { usePomodoroStore } from "../model/use-pomodoro-store";
+import {
+  showPhaseNotification,
+  schedulePhaseEndNotification,
+} from "../model/notifications";
+import { PomodoroSettings } from "./PomodoroSettings";
 
 const PHASE_LABELS = {
   work: "Focus Time",
@@ -26,16 +31,22 @@ function formatTime(seconds: number): string {
 function useTimeDisplay(
   getTimeRemaining: () => number,
   isRunning: boolean,
-  syncTime: () => void,
-  tick: () => void
+  syncTime: () => PomodoroPhase | null,
+  tick: () => void,
+  notificationsEnabled: boolean,
+  phase: PomodoroPhase
 ) {
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
       let intervalId: ReturnType<typeof setInterval> | null = null;
+      let cancelScheduled: (() => void) | null = null;
 
       const handleVisibilityChange = () => {
         if (typeof document !== "undefined" && document.visibilityState === "visible") {
-          syncTime();
+          const completedPhase = syncTime();
+          if (completedPhase && notificationsEnabled) {
+            showPhaseNotification(completedPhase);
+          }
           onStoreChange();
         }
       };
@@ -45,6 +56,13 @@ function useTimeDisplay(
       }
 
       if (isRunning) {
+        if (notificationsEnabled) {
+          const remaining = getTimeRemaining();
+          if (remaining > 0) {
+            cancelScheduled = schedulePhaseEndNotification(remaining, phase);
+          }
+        }
+
         intervalId = setInterval(() => {
           tick();
           onStoreChange();
@@ -58,9 +76,12 @@ function useTimeDisplay(
         if (intervalId !== null) {
           clearInterval(intervalId);
         }
+        if (cancelScheduled) {
+          cancelScheduled();
+        }
       };
     },
-    [isRunning, syncTime, tick]
+    [isRunning, syncTime, tick, notificationsEnabled, phase, getTimeRemaining]
   );
 
   return useSyncExternalStore(subscribe, getTimeRemaining, getTimeRemaining);
@@ -71,17 +92,30 @@ export function PomodoroClient({
   config,
 }: WidgetProps<PomodoroConfig>) {
   const store = usePomodoroStore(instanceId, config);
-  const { phase, isRunning, completedPomodoros } = store();
-  const { start, pause, reset, skip, tick, syncTime, getTimeRemaining } = store();
+  const { phase, isRunning, completedPomodoros, activePresetId, notificationsEnabled } = store();
+  const { start, pause, reset, skip, tick, syncTime, getTimeRemaining, setPreset, setNotificationsEnabled } = store();
+  const currentConfig = store().config;
 
-  const displayTime = useTimeDisplay(getTimeRemaining, isRunning, syncTime, tick);
+  const displayTime = useTimeDisplay(getTimeRemaining, isRunning, syncTime, tick, notificationsEnabled, phase);
 
   useEffect(() => {
-    syncTime();
-  }, [syncTime]);
+    const completedPhase = syncTime();
+    if (completedPhase && notificationsEnabled) {
+      showPhaseNotification(completedPhase);
+    }
+  }, [syncTime, notificationsEnabled]);
 
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-4">
+    <div className="relative flex flex-col items-center justify-center h-full gap-4">
+      <div className="absolute top-0 right-0">
+        <PomodoroSettings
+          activePresetId={activePresetId}
+          config={currentConfig}
+          onPresetChange={setPreset}
+          notificationsEnabled={notificationsEnabled}
+          onNotificationsChange={setNotificationsEnabled}
+        />
+      </div>
       <div className={`text-sm font-medium ${PHASE_COLORS[phase]}`}>
         {PHASE_LABELS[phase]}
       </div>
