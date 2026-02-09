@@ -6,10 +6,18 @@ directories:
 files:
   - out/**/*
   - resources/**/*
+publish:
+  provider: github
+  owner: pintoll
+  repo: diy-dashboard
 win:
   target:
     - nsis
   icon: resources/icon.png
+nsis:
+  oneClick: true
+  perMachine: false
+  deleteAppDataOnUninstall: false
 linux:
   target:
     - AppImage
