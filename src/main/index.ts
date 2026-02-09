@@ -8,6 +8,7 @@ import {
   nativeImage,
 } from "electron";
 import path from "path";
+import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./auto-updater";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -86,6 +87,14 @@ ipcMain.handle("is-notification-supported", () => {
   return Notification.isSupported();
 });
 
+ipcMain.handle("check-for-updates", () => {
+  return checkForUpdates();
+});
+
+ipcMain.handle("quit-and-install-update", () => {
+  quitAndInstall();
+});
+
 let isQuitting = false;
 
 app.on("before-quit", () => {
@@ -96,7 +105,12 @@ app.on("window-all-closed", () => {
   // No-op: keep app alive in tray
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   createTray();
   createWindow();
+
+  if (app.isPackaged && mainWindow) {
+    await initAutoUpdater(mainWindow);
+    setTimeout(() => checkForUpdates(), 5000);
+  }
 });

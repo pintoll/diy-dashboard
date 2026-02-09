@@ -26,16 +26,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Build & package
-        run: pnpm build && pnpm electron:build
+      - name: Build & publish
+        run: pnpm build && pnpm electron:build --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: build-${{ github.sha }}
-          name: Build ${{ github.sha }}
-          files: |
-            dist-electron/*.exe
-          draft: false
