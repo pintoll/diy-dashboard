@@ -1,6 +1,6 @@
 {
   "name": "diy-dashboard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "packageManager": "pnpm@10.28.0",
   "type": "module",
@@ -15,6 +15,7 @@
   "dependencies": {
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "electron-updater": "^6.7.3",
     "lucide-react": "^0.562.0",
     "nanoid": "^5.1.6",
     "radix-ui": "^1.4.3",

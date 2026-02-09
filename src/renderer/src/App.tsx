@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Routes, Route } from "react-router-dom";
 import { DashboardGrid } from "@/src/widgets/dashboard-grid/client";
 import { registerAllWidgets } from "@/src/widgets/widget-registry";
+import { UpdateToast } from "@/src/features/check-app-update/client";
 
 function HomePage() {
   const [ready, setReady] = useState(false);
@@ -24,8 +25,11 @@ function HomePage() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<HomePage />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+      </Routes>
+      <UpdateToast />
+    </>
   );
 }
