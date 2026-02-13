@@ -6,6 +6,7 @@ import {
   Tray,
   Menu,
   nativeImage,
+  shell,
 } from "electron";
 import path from "path";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./auto-updater";
@@ -53,6 +54,11 @@ function createWindow(): void {
       sandbox: false,
       backgroundThrottling: false,
     },
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: "deny" };
   });
 
   mainWindow.on("close", (event) => {

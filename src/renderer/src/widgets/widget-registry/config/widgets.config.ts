@@ -1,5 +1,6 @@
 import { widgetRegistry } from "../lib/registry";
 import { pomodoroTimerWidget } from "@/src/widgets/pomodoro-timer";
+import { dailyNewsWidget } from "@/src/widgets/daily-news";
 import {
   testSmallWidget,
   testWideWidget,
@@ -9,6 +10,7 @@ import {
 
 export function registerAllWidgets() {
   widgetRegistry.register(pomodoroTimerWidget);
+  widgetRegistry.register(dailyNewsWidget);
 
   // Test widgets (for layout testing)
   widgetRegistry.register(testSmallWidget);
