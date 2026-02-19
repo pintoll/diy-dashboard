@@ -4,7 +4,7 @@ import type {
   DailyNewsState,
   DailyNewsActions,
   DailyNewsResponse,
-  NewsTopic,
+  NewsCategory,
 } from "./daily-news.types";
 import { MOCK_NEWS_ITEMS, MOCK_FETCHED_AT } from "./daily-news.mock";
 
@@ -12,7 +12,7 @@ type DailyNewsStore = DailyNewsState & DailyNewsActions;
 
 const STORE_VERSION = 1;
 
-const DEFAULT_COLLAPSED: Record<NewsTopic, boolean> = {
+const DEFAULT_COLLAPSED: Record<NewsCategory, boolean> = {
   tech: false,
   finance: false,
   growth: false,
@@ -75,7 +75,7 @@ export function useDailyNewsStore(instanceId: string) {
           }
         },
 
-        toggleSection: (topic: NewsTopic) => {
+        toggleSection: (category: NewsCategory) => {
           const { collapsedSections } = get();
           set({
             collapsedSections: {

@@ -4,7 +4,7 @@ import type { DailyNewsConfig } from "./model/daily-news.types";
 import { DailyNewsClient } from "./ui/DailyNewsClient";
 
 export type { DailyNewsConfig } from "./model/daily-news.types";
-export type { NewsItem, NewsTopic, DailyNewsState } from "./model/daily-news.types";
+export type { NewsItem, NewsCategory, DailyNewsState } from "./model/daily-news.types";
 
 export const dailyNewsWidget = defineWidget<DailyNewsConfig>({
   meta: {

@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import { Code, TrendingUp, Sprout, Globe } from "lucide-react";
 
-export type NewsTopic = "tech" | "finance" | "growth" | "world";
+export type NewsCategory = "tech" | "finance" | "growth" | "world";
 
 export type NewsItem = {
   id: string;
@@ -9,7 +9,7 @@ export type NewsItem = {
   summary: string;
   url: string;
   source: string;
-  topic: NewsTopic;
+  category: NewsCategory;
   publishedAt: string;
   relevanceScore: number;
 };
@@ -28,25 +28,25 @@ export type DailyNewsState = {
   fetchedAt: string | null;
   fetchStatus: "idle" | "loading" | "success" | "error";
   errorMessage: string | null;
-  collapsedSections: Record<NewsTopic, boolean>;
+  collapsedSections: Record<NewsCategory, boolean>;
 };
 
 export type DailyNewsActions = {
   fetchNews: (webhookUrl: string) => Promise<void>;
-  toggleSection: (topic: NewsTopic) => void;
+  toggleSection: (category: NewsCategory) => void;
   collapseAll: () => void;
   expandAll: () => void;
 };
 
-export type TopicMeta = {
+export type CategoryMeta = {
   label: string;
   icon: LucideIcon;
   color: string;
 };
 
-export const TOPICS: NewsTopic[] = ["tech", "finance", "growth", "world"];
+export const CATEGORIES: NewsCategory[] = ["tech", "finance", "growth", "world"];
 
-export const TOPIC_META: Record<NewsTopic, TopicMeta> = {
+export const CATEGORY_META: Record<NewsCategory, CategoryMeta> = {
   tech: { label: "Tech & Dev", icon: Code, color: "text-blue-400" },
   finance: { label: "Finance", icon: TrendingUp, color: "text-emerald-400" },
   growth: { label: "Personal Growth", icon: Sprout, color: "text-amber-400" },

@@ -4,8 +4,8 @@ import { cn } from "@/src/shared/lib/utils";
 import { Button } from "@/src/shared/ui/button";
 import type { WidgetProps } from "@/src/shared/types";
 import { useDashboardStore } from "@/src/widgets/dashboard-grid";
-import type { DailyNewsConfig, NewsTopic, NewsItem } from "../model/daily-news.types";
-import { TOPICS } from "../model/daily-news.types";
+import type { DailyNewsConfig, NewsCategory, NewsItem } from "../model/daily-news.types";
+import { CATEGORIES } from "../model/daily-news.types";
 import { useDailyNewsStore } from "../model/use-daily-news-store";
 import { NewsSection } from "./NewsSection";
 import { DailyNewsEmpty } from "./DailyNewsEmpty";
@@ -22,15 +22,15 @@ function formatTimeAgo(isoString: string): string {
   return `${days}d ago`;
 }
 
-function groupByTopic(items: NewsItem[]): Record<NewsTopic, NewsItem[]> {
-  const grouped: Record<NewsTopic, NewsItem[]> = {
+function groupByCategory(items: NewsItem[]): Record<NewsCategory, NewsItem[]> {
+  const grouped: Record<NewsCategory, NewsItem[]> = {
     tech: [],
     finance: [],
     growth: [],
     world: [],
   };
   for (const item of items) {
-    grouped[item.topic]?.push(item);
+    grouped[item.category]?.push(item);
   }
   return grouped;
 }
@@ -69,7 +69,7 @@ export function DailyNewsClient({
     [updateConfig, instanceId, config]
   );
 
-  const grouped = groupByTopic(items);
+  const grouped = groupByCategory(items);
   const hasItems = items.length > 0;
   const showEmpty = !hasItems && fetchStatus !== "success";
 
@@ -106,13 +106,13 @@ export function DailyNewsClient({
         <DailyNewsEmpty status={fetchStatus} errorMessage={errorMessage} />
       ) : (
         <div className="flex flex-col gap-1 overflow-y-auto px-1 pb-2">
-          {TOPICS.map((topic) => (
+          {CATEGORIES.map((category) => (
             <NewsSection
-              key={topic}
-              topic={topic}
-              items={grouped[topic]}
-              collapsed={collapsedSections[topic]}
-              onToggle={() => toggleSection(topic)}
+              key={category}
+              category={category}
+              items={grouped[category]}
+              collapsed={collapsedSections[category]}
+              onToggle={() => toggleSection(category)}
             />
           ))}
 
