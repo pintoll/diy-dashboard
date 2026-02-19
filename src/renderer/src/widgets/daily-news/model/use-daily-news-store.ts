@@ -6,10 +6,10 @@ import type {
   DailyNewsResponse,
   NewsCategory,
 } from "./daily-news.types";
-import { MOCK_NEWS_ITEMS, MOCK_FETCHED_AT } from "./daily-news.mock";
 
 type DailyNewsStore = DailyNewsState & DailyNewsActions;
 
+const NEWS_WEBHOOK_URL = "https://pintomate.duckdns.org/webhook/daily-news";
 const STORE_VERSION = 1;
 
 const DEFAULT_COLLAPSED: Record<NewsCategory, boolean> = {
@@ -40,24 +40,14 @@ export function useDailyNewsStore(instanceId: string) {
       (set, get) => ({
         ...initialState,
 
-        fetchNews: async (webhookUrl: string) => {
-          if (!webhookUrl) {
-            set({
-              items: MOCK_NEWS_ITEMS,
-              fetchedAt: MOCK_FETCHED_AT,
-              fetchStatus: "success",
-              errorMessage: null,
-            });
-            return;
-          }
-
-          const hadCachedItems = get().items.length > 0;
+        fetchNews: async () => {
+          const hadCachedItems = (get().items ?? []).length > 0;
           set({ fetchStatus: "loading", errorMessage: null });
-
           try {
-            const res = await fetch(webhookUrl);
+            const res = await fetch(NEWS_WEBHOOK_URL);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data: DailyNewsResponse = await res.json();
+            const raw = await res.json();
+            const data: DailyNewsResponse = Array.isArray(raw) ? raw[0] : raw;
             set({
               items: data.items,
               fetchedAt: data.fetchedAt,
@@ -80,7 +70,7 @@ export function useDailyNewsStore(instanceId: string) {
           set({
             collapsedSections: {
               ...collapsedSections,
-              [topic]: !collapsedSections[topic],
+              [category]: !collapsedSections[category],
             },
           });
         },

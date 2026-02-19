@@ -3,13 +3,11 @@ import { RefreshCw } from "lucide-react";
 import { cn } from "@/src/shared/lib/utils";
 import { Button } from "@/src/shared/ui/button";
 import type { WidgetProps } from "@/src/shared/types";
-import { useDashboardStore } from "@/src/widgets/dashboard-grid";
 import type { DailyNewsConfig, NewsCategory, NewsItem } from "../model/daily-news.types";
 import { CATEGORIES } from "../model/daily-news.types";
 import { useDailyNewsStore } from "../model/use-daily-news-store";
 import { NewsSection } from "./NewsSection";
 import { DailyNewsEmpty } from "./DailyNewsEmpty";
-import { DailyNewsSettings } from "./DailyNewsSettings";
 
 function formatTimeAgo(isoString: string): string {
   const diff = Date.now() - new Date(isoString).getTime();
@@ -40,34 +38,19 @@ export function DailyNewsClient({
   config,
 }: WidgetProps<DailyNewsConfig>) {
   const store = useDailyNewsStore(instanceId);
-  const {
-    items,
-    fetchedAt,
-    fetchStatus,
-    errorMessage,
-    collapsedSections,
-    fetchNews,
-    toggleSection,
-  } = store();
-
-  const updateConfig = useDashboardStore((s) => s.updateConfig);
+  const state = store();
+  const items = state.items ?? [];
+  const { fetchedAt, fetchStatus, errorMessage, collapsedSections, fetchNews, toggleSection } = state;
 
   const handleFetch = useCallback(() => {
-    fetchNews(config.webhookUrl);
-  }, [fetchNews, config.webhookUrl]);
+    fetchNews();
+  }, [fetchNews]);
 
   useEffect(() => {
     if (items.length === 0) {
       handleFetch();
     }
   }, [handleFetch, items.length]);
-
-  const handleSaveWebhookUrl = useCallback(
-    (webhookUrl: string) => {
-      updateConfig(instanceId, { ...config, webhookUrl });
-    },
-    [updateConfig, instanceId, config]
-  );
 
   const grouped = groupByCategory(items);
   const hasItems = items.length > 0;
@@ -94,10 +77,6 @@ export function DailyNewsClient({
               )}
             />
           </Button>
-          <DailyNewsSettings
-            webhookUrl={config.webhookUrl}
-            onSave={handleSaveWebhookUrl}
-          />
         </div>
       </div>
 

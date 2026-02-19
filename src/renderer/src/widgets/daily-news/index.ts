@@ -22,8 +22,6 @@ export const dailyNewsWidget = defineWidget<DailyNewsConfig>({
       defaultH: 5,
     },
   },
-  defaultConfig: {
-    webhookUrl: "",
-  },
+  defaultConfig: {},
   ClientComponent: DailyNewsClient,
 });

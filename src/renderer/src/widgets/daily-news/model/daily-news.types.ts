@@ -19,9 +19,7 @@ export type DailyNewsResponse = {
   items: NewsItem[];
 };
 
-export type DailyNewsConfig = {
-  webhookUrl: string;
-};
+export type DailyNewsConfig = Record<string, never>;
 
 export type DailyNewsState = {
   items: NewsItem[];
@@ -32,7 +30,7 @@ export type DailyNewsState = {
 };
 
 export type DailyNewsActions = {
-  fetchNews: (webhookUrl: string) => Promise<void>;
+  fetchNews: () => Promise<void>;
   toggleSection: (category: NewsCategory) => void;
   collapseAll: () => void;
   expandAll: () => void;
