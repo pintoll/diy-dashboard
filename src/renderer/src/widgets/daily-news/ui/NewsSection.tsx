@@ -1,18 +1,18 @@
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/src/shared/lib/utils";
-import type { NewsItem as NewsItemType, NewsTopic } from "../model/daily-news.types";
-import { TOPIC_META } from "../model/daily-news.types";
+import type { NewsItem as NewsItemType, NewsCategory } from "../model/daily-news.types";
+import { CATEGORY_META } from "../model/daily-news.types";
 import { NewsItem } from "./NewsItem";
 
 type NewsSectionProps = {
-  topic: NewsTopic;
+  category: NewsCategory;
   items: NewsItemType[];
   collapsed: boolean;
   onToggle: () => void;
 };
 
-export function NewsSection({ topic, items, collapsed, onToggle }: NewsSectionProps) {
-  const meta = TOPIC_META[topic];
+export function NewsSection({ category, items, collapsed, onToggle }: NewsSectionProps) {
+  const meta = CATEGORY_META[category];
   const Icon = meta.icon;
 
   if (items.length === 0) return null;
