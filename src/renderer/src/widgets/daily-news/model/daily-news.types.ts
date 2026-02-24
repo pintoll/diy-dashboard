@@ -1,27 +1,18 @@
-import type { LucideIcon } from "lucide-react";
-import { Code, TrendingUp, Sprout, Globe } from "lucide-react";
+// Domain types — re-exported from entities
+export type {
+  NewsCategory,
+  NewsItem,
+  DailyNewsResponse,
+  FeedbackAction,
+  CategoryMeta,
+} from "@/src/entities/news-article";
 
-export type NewsCategory = "tech" | "finance" | "growth" | "world";
+export { CATEGORIES, CATEGORY_META } from "@/src/entities/news-article";
 
-export type NewsItem = {
-  id: string;
-  title: string;
-  summary: string;
-  url: string;
-  source: string;
-  category: NewsCategory;
-  publishedAt: string;
-  relevanceScore: number;
-};
-
-export type DailyNewsResponse = {
-  fetchedAt: string;
-  items: NewsItem[];
-};
+// Widget-specific state types (local to this widget)
+import type { NewsCategory, NewsItem, FeedbackAction } from "@/src/entities/news-article";
 
 export type DailyNewsConfig = Record<string, never>;
-
-export type FeedbackAction = "like" | "dislike";
 
 export type DailyNewsState = {
   items: NewsItem[];
@@ -38,19 +29,4 @@ export type DailyNewsActions = {
   collapseAll: () => void;
   expandAll: () => void;
   sendFeedback: (articleId: string, action: FeedbackAction | "click") => void;
-};
-
-export type CategoryMeta = {
-  label: string;
-  icon: LucideIcon;
-  color: string;
-};
-
-export const CATEGORIES: NewsCategory[] = ["tech", "finance", "growth", "world"];
-
-export const CATEGORY_META: Record<NewsCategory, CategoryMeta> = {
-  tech: { label: "Tech & Dev", icon: Code, color: "text-blue-400" },
-  finance: { label: "Finance", icon: TrendingUp, color: "text-emerald-400" },
-  growth: { label: "Personal Growth", icon: Sprout, color: "text-amber-400" },
-  world: { label: "World & Politics", icon: Globe, color: "text-rose-400" },
 };

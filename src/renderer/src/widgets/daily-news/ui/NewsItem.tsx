@@ -1,21 +1,11 @@
 import { ExternalLink, ThumbsUp, ThumbsDown } from "lucide-react";
 import { cn } from "@/src/shared/lib/utils";
+import { formatTimeAgo } from "@/src/shared/lib/format-time-ago";
 import { Button } from "@/src/shared/ui/button";
 import type {
   NewsItem as NewsItemType,
   FeedbackAction,
 } from "../model/daily-news.types";
-
-function formatTimeAgo(isoString: string): string {
-  const diff = Date.now() - new Date(isoString).getTime();
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 type NewsItemProps = {
   item: NewsItemType;

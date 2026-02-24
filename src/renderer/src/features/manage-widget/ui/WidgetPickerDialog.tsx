@@ -9,18 +9,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/src/shared/ui/tabs";
 import { Card, CardDescription, CardTitle } from "@/src/shared/ui/card";
 import { widgetRegistry } from "@/src/widgets/widget-registry";
 import { useDashboardStore } from "@/src/widgets/dashboard-grid";
+import { WIDGET_CATEGORY_LABELS } from "@/src/shared/types";
 import type { WidgetCategory, WidgetMeta } from "@/src/shared/types";
 
 type WidgetPickerDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-};
-
-const CATEGORY_LABELS: Record<WidgetCategory, string> = {
-  productivity: "Productivity",
-  data: "Data",
-  media: "Media",
-  utility: "Utility",
 };
 
 export function WidgetPickerDialog({
@@ -73,7 +67,7 @@ export function WidgetPickerDialog({
             <TabsList className="w-full justify-start">
               {availableCategories.map((category) => (
                 <TabsTrigger key={category} value={category}>
-                  {CATEGORY_LABELS[category]}
+                  {WIDGET_CATEGORY_LABELS[category]}
                 </TabsTrigger>
               ))}
             </TabsList>

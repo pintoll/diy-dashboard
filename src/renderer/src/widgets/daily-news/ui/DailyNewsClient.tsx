@@ -1,6 +1,7 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useMemo } from "react";
 import { RefreshCw } from "lucide-react";
 import { cn } from "@/src/shared/lib/utils";
+import { formatTimeAgo } from "@/src/shared/lib/format-time-ago";
 import { Button } from "@/src/shared/ui/button";
 import type { WidgetProps } from "@/src/shared/types";
 import type { DailyNewsConfig, NewsCategory, NewsItem } from "../model/daily-news.types";
@@ -8,17 +9,6 @@ import { CATEGORIES } from "../model/daily-news.types";
 import { useDailyNewsStore } from "../model/use-daily-news-store";
 import { NewsSection } from "./NewsSection";
 import { DailyNewsEmpty } from "./DailyNewsEmpty";
-
-function formatTimeAgo(isoString: string): string {
-  const diff = Date.now() - new Date(isoString).getTime();
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 function groupByCategory(items: NewsItem[]): Record<NewsCategory, NewsItem[]> {
   const grouped: Record<NewsCategory, NewsItem[]> = {
@@ -38,7 +28,8 @@ export function DailyNewsClient({
 }: WidgetProps<DailyNewsConfig>) {
   const store = useDailyNewsStore(instanceId);
   const state = store();
-  const items = state.items ?? [];
+  const stateItems = state.items;
+  const items = useMemo(() => stateItems ?? [], [stateItems]);
   const { fetchedAt, fetchStatus, errorMessage, collapsedSections, feedback, fetchNews, toggleSection, sendFeedback } = state;
 
   const handleFetch = useCallback(() => {
@@ -51,7 +42,7 @@ export function DailyNewsClient({
     }
   }, [handleFetch, items.length]);
 
-  const grouped = groupByCategory(items);
+  const grouped = useMemo(() => groupByCategory(items), [items]);
   const hasItems = items.length > 0;
   const showEmpty = !hasItems && fetchStatus !== "success";
 
