@@ -21,12 +21,15 @@ export type DailyNewsResponse = {
 
 export type DailyNewsConfig = Record<string, never>;
 
+export type FeedbackAction = "like" | "dislike";
+
 export type DailyNewsState = {
   items: NewsItem[];
   fetchedAt: string | null;
   fetchStatus: "idle" | "loading" | "success" | "error";
   errorMessage: string | null;
   collapsedSections: Record<NewsCategory, boolean>;
+  feedback: Record<string, FeedbackAction>;
 };
 
 export type DailyNewsActions = {
@@ -34,6 +37,7 @@ export type DailyNewsActions = {
   toggleSection: (category: NewsCategory) => void;
   collapseAll: () => void;
   expandAll: () => void;
+  sendFeedback: (articleId: string, action: FeedbackAction | "click") => void;
 };
 
 export type CategoryMeta = {

@@ -1,6 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/src/shared/lib/utils";
-import type { NewsItem as NewsItemType, NewsCategory } from "../model/daily-news.types";
+import type { NewsItem as NewsItemType, NewsCategory, FeedbackAction } from "../model/daily-news.types";
 import { CATEGORY_META } from "../model/daily-news.types";
 import { NewsItem } from "./NewsItem";
 
@@ -9,9 +9,11 @@ type NewsSectionProps = {
   items: NewsItemType[];
   collapsed: boolean;
   onToggle: () => void;
+  feedback: Record<string, FeedbackAction>;
+  onFeedback: (articleId: string, action: FeedbackAction | "click") => void;
 };
 
-export function NewsSection({ category, items, collapsed, onToggle }: NewsSectionProps) {
+export function NewsSection({ category, items, collapsed, onToggle, feedback, onFeedback }: NewsSectionProps) {
   const meta = CATEGORY_META[category];
   const Icon = meta.icon;
 
@@ -42,7 +44,12 @@ export function NewsSection({ category, items, collapsed, onToggle }: NewsSectio
       {!collapsed && (
         <div className="flex flex-col gap-0.5 mt-0.5">
           {items.map((item) => (
-            <NewsItem key={item.id} item={item} />
+            <NewsItem
+              key={item.id}
+              item={item}
+              feedbackState={feedback[item.id]}
+              onFeedback={onFeedback}
+            />
           ))}
         </div>
       )}
