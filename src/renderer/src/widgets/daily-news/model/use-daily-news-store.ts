@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { createWidgetStore } from "@/src/shared/lib/create-widget-store";
+import { API_ENDPOINTS } from "@/src/shared/lib/api-config";
 import type {
   DailyNewsState,
   DailyNewsActions,
@@ -10,9 +11,6 @@ import type {
 
 type DailyNewsStore = DailyNewsState & DailyNewsActions;
 
-const NEWS_WEBHOOK_URL = "https://pintomate.duckdns.org/webhook/daily-news";
-const FEEDBACK_WEBHOOK_URL =
-  "https://pintomate.duckdns.org/webhook/daily-news-feedback";
 const STORE_VERSION = 2;
 
 const DEFAULT_COLLAPSED: Record<NewsCategory, boolean> = {
@@ -49,7 +47,7 @@ export function useDailyNewsStore(instanceId: string) {
           const hadCachedItems = (get().items ?? []).length > 0;
           set({ fetchStatus: "loading", errorMessage: null });
           try {
-            const res = await fetch(NEWS_WEBHOOK_URL);
+            const res = await fetch(API_ENDPOINTS.dailyNews.fetch);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const raw = await res.json();
             const data: DailyNewsResponse = Array.isArray(raw) ? raw[0] : raw;
@@ -110,7 +108,7 @@ export function useDailyNewsStore(instanceId: string) {
             set({ feedback: next });
           }
 
-          fetch(FEEDBACK_WEBHOOK_URL, {
+          fetch(API_ENDPOINTS.dailyNews.feedback, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

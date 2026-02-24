@@ -1,27 +1,15 @@
-export type PomodoroPhase = "work" | "shortBreak" | "longBreak";
+// Domain types — re-exported from entities
+export type {
+  PomodoroPhase,
+  PomodoroPresetId,
+  PomodoroPreset,
+  PomodoroConfig,
+} from "@/src/entities/pomodoro-session";
 
-export type PomodoroPresetId = "25:5" | "50:10" | "120:30" | "custom";
+export { POMODORO_PRESETS } from "@/src/entities/pomodoro-session";
 
-export type PomodoroPreset = {
-  id: PomodoroPresetId;
-  label: string;
-  workDuration: number;
-  shortBreakDuration: number;
-  longBreakDuration: number;
-};
-
-export const POMODORO_PRESETS: PomodoroPreset[] = [
-  { id: "25:5", label: "25 : 5", workDuration: 25, shortBreakDuration: 5, longBreakDuration: 15 },
-  { id: "50:10", label: "50 : 10", workDuration: 50, shortBreakDuration: 10, longBreakDuration: 30 },
-  { id: "120:30", label: "120 : 30", workDuration: 120, shortBreakDuration: 30, longBreakDuration: 90 },
-];
-
-export type PomodoroConfig = {
-  workDuration: number;
-  shortBreakDuration: number;
-  longBreakDuration: number;
-  pomodorosUntilLongBreak: number;
-};
+// Widget-specific state types (local to this widget)
+import type { PomodoroPhase, PomodoroPresetId, PomodoroConfig } from "@/src/entities/pomodoro-session";
 
 export type PomodoroState = {
   phase: PomodoroPhase;

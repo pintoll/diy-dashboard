@@ -5,6 +5,13 @@ export type BreakpointKey = "xxl" | "xl" | "lg" | "md" | "sm" | "xs" | "xxs";
 
 export type WidgetCategory = "productivity" | "data" | "media" | "utility";
 
+export const WIDGET_CATEGORY_LABELS: Record<WidgetCategory, string> = {
+  productivity: "Productivity",
+  data: "Data",
+  media: "Media",
+  utility: "Utility",
+};
+
 export type WidgetSize = {
   minW: number;
   minH: number;

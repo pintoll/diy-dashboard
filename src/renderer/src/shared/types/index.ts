@@ -9,3 +9,5 @@ export type {
   WidgetClientComponent,
   WidgetDefinition,
 } from "./widget";
+
+export { WIDGET_CATEGORY_LABELS } from "./widget";

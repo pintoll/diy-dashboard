@@ -12,9 +12,10 @@ export function registerAllWidgets() {
   widgetRegistry.register(pomodoroTimerWidget);
   widgetRegistry.register(dailyNewsWidget);
 
-  // Test widgets (for layout testing)
-  widgetRegistry.register(testSmallWidget);
-  widgetRegistry.register(testWideWidget);
-  widgetRegistry.register(testTallWidget);
-  widgetRegistry.register(testLargeWidget);
+  if (import.meta.env.DEV) {
+    widgetRegistry.register(testSmallWidget);
+    widgetRegistry.register(testWideWidget);
+    widgetRegistry.register(testTallWidget);
+    widgetRegistry.register(testLargeWidget);
+  }
 }

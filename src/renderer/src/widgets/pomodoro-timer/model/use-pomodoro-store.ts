@@ -54,6 +54,19 @@ function computeTimeRemaining(
   return Math.max(0, phaseDuration - elapsed);
 }
 
+function completePhase(state: Pick<PomodoroState, "phase" | "completedPomodoros"> & { config: PomodoroConfig }) {
+  const { phase, completedPomodoros, config } = state;
+  const newCompleted = phase === "work" ? completedPomodoros + 1 : completedPomodoros;
+  const nextPhase = getNextPhase(phase, completedPomodoros, config.pomodorosUntilLongBreak);
+  return {
+    phase: nextPhase,
+    isRunning: false,
+    completedPomodoros: newCompleted,
+    startedAt: null,
+    pausedTimeRemaining: null,
+  } as const;
+}
+
 type OldPomodoroState = {
   phase: PomodoroPhase;
   timeRemaining: number;
@@ -166,21 +179,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
         },
 
         skip: () => {
-          const { phase, completedPomodoros, config } = get();
-          const newCompleted =
-            phase === "work" ? completedPomodoros + 1 : completedPomodoros;
-          const nextPhase = getNextPhase(
-            phase,
-            completedPomodoros,
-            config.pomodorosUntilLongBreak
-          );
-          set({
-            phase: nextPhase,
-            isRunning: false,
-            completedPomodoros: newCompleted,
-            startedAt: null,
-            pausedTimeRemaining: null,
-          });
+          set(completePhase(get()));
         },
 
         tick: () => {
@@ -190,21 +189,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           const remaining = computeTimeRemaining(state, state.config);
 
           if (remaining <= 0) {
-            const { phase, completedPomodoros, config } = state;
-            const newCompleted =
-              phase === "work" ? completedPomodoros + 1 : completedPomodoros;
-            const nextPhase = getNextPhase(
-              phase,
-              completedPomodoros,
-              config.pomodorosUntilLongBreak
-            );
-            set({
-              phase: nextPhase,
-              isRunning: false,
-              completedPomodoros: newCompleted,
-              startedAt: null,
-              pausedTimeRemaining: null,
-            });
+            set(completePhase(state));
           }
         },
 
@@ -215,22 +200,8 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           const remaining = computeTimeRemaining(state, state.config);
 
           if (remaining <= 0) {
-            const { phase, completedPomodoros, config } = state;
-            const newCompleted =
-              phase === "work" ? completedPomodoros + 1 : completedPomodoros;
-            const nextPhase = getNextPhase(
-              phase,
-              completedPomodoros,
-              config.pomodorosUntilLongBreak
-            );
-            set({
-              phase: nextPhase,
-              isRunning: false,
-              completedPomodoros: newCompleted,
-              startedAt: null,
-              pausedTimeRemaining: null,
-            });
-            return phase;
+            set(completePhase(state));
+            return state.phase;
           }
           return null;
         },
