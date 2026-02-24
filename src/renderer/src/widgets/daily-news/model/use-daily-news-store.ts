@@ -4,13 +4,16 @@ import type {
   DailyNewsState,
   DailyNewsActions,
   DailyNewsResponse,
+  FeedbackAction,
   NewsCategory,
 } from "./daily-news.types";
 
 type DailyNewsStore = DailyNewsState & DailyNewsActions;
 
 const NEWS_WEBHOOK_URL = "https://pintomate.duckdns.org/webhook/daily-news";
-const STORE_VERSION = 1;
+const FEEDBACK_WEBHOOK_URL =
+  "https://pintomate.duckdns.org/webhook/daily-news-feedback";
+const STORE_VERSION = 2;
 
 const DEFAULT_COLLAPSED: Record<NewsCategory, boolean> = {
   tech: false,
@@ -27,11 +30,13 @@ export function useDailyNewsStore(instanceId: string) {
       fetchStatus: "idle",
       errorMessage: null,
       collapsedSections: { ...DEFAULT_COLLAPSED },
+      feedback: {},
 
       fetchNews: async () => {},
       toggleSection: () => {},
       collapseAll: () => {},
       expandAll: () => {},
+      sendFeedback: () => {},
     };
 
     return createWidgetStore<DailyNewsStore>(
@@ -89,11 +94,43 @@ export function useDailyNewsStore(instanceId: string) {
         expandAll: () => {
           set({ collapsedSections: { ...DEFAULT_COLLAPSED } });
         },
+
+        sendFeedback: (articleId: string, action: FeedbackAction | "click") => {
+          if (action !== "click") {
+            const { feedback } = get();
+            const current = feedback[articleId];
+            const next = { ...feedback };
+
+            if (current === action) {
+              delete next[articleId];
+            } else {
+              next[articleId] = action;
+            }
+
+            set({ feedback: next });
+          }
+
+          fetch(FEEDBACK_WEBHOOK_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              articleId: Number(articleId),
+              action,
+            }),
+          }).catch(() => {});
+        },
       }),
       {
         name: "daily-news",
         persist: true,
         version: STORE_VERSION,
+        migrate: (persisted, version) => {
+          const state = persisted as DailyNewsStore;
+          if (version < 2) {
+            return { ...state, feedback: {} };
+          }
+          return state;
+        },
       }
     );
   }, [instanceId]);

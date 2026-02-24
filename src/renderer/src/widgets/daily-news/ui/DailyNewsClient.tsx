@@ -35,12 +35,11 @@ function groupByCategory(items: NewsItem[]): Record<NewsCategory, NewsItem[]> {
 
 export function DailyNewsClient({
   instanceId,
-  config,
 }: WidgetProps<DailyNewsConfig>) {
   const store = useDailyNewsStore(instanceId);
   const state = store();
   const items = state.items ?? [];
-  const { fetchedAt, fetchStatus, errorMessage, collapsedSections, fetchNews, toggleSection } = state;
+  const { fetchedAt, fetchStatus, errorMessage, collapsedSections, feedback, fetchNews, toggleSection, sendFeedback } = state;
 
   const handleFetch = useCallback(() => {
     fetchNews();
@@ -92,6 +91,8 @@ export function DailyNewsClient({
               items={grouped[category]}
               collapsed={collapsedSections[category]}
               onToggle={() => toggleSection(category)}
+              feedback={feedback}
+              onFeedback={sendFeedback}
             />
           ))}
 
