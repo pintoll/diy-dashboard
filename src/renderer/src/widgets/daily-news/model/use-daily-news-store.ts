@@ -50,7 +50,11 @@ export function useDailyNewsStore(instanceId: string) {
             const res = await fetch(API_ENDPOINTS.dailyNews.fetch);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const raw = await res.json();
-            const data: DailyNewsResponse = Array.isArray(raw) ? raw[0] : raw;
+            const data: DailyNewsResponse | undefined = Array.isArray(raw) ? raw[0] : raw;
+            if (!data?.items) {
+              set({ fetchStatus: hadCachedItems ? "success" : "error", errorMessage: hadCachedItems ? null : "No news available" });
+              return;
+            }
             set({
               items: data.items,
               fetchedAt: data.fetchedAt,
