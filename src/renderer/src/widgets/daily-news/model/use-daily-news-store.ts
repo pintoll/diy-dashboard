@@ -98,9 +98,10 @@ export function useDailyNewsStore(instanceId: string) {
         },
 
         sendFeedback: (articleId: string, action: FeedbackAction | "click") => {
+          const { feedback } = get();
+          const current = feedback[articleId];
+
           if (action !== "click") {
-            const { feedback } = get();
-            const current = feedback[articleId];
             const next = { ...feedback };
 
             if (current === action) {
@@ -112,12 +113,15 @@ export function useDailyNewsStore(instanceId: string) {
             set({ feedback: next });
           }
 
+          const parsedId = Number(articleId.replace(/\D/g, ""));
+          const isCancel = action !== "click" && current === action;
+
           fetch(API_ENDPOINTS.dailyNews.feedback, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              articleId: Number(articleId),
-              action,
+              articleId: parsedId,
+              action: isCancel ? `un${action}` : action,
             }),
           }).catch(() => {});
         },
