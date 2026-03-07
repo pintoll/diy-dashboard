@@ -106,6 +106,15 @@ user_profile
 ├── profile_type  TEXT UNIQUE NOT NULL  ← "core" / "short_term"
 ├── content       TEXT NOT NULL         ← LLM 프롬프트에 주입되는 텍스트
 └── updated_at    TIMESTAMP DEFAULT NOW()
+
+interest_signals                        ← Pipeline C signal accumulation
+├── id            SERIAL PRIMARY KEY
+├── topic         TEXT UNIQUE NOT NULL  ← "rust-lang", "llm-agents", etc.
+├── category      TEXT                  ← "tech", "finance", "growth", "world"
+├── score         REAL DEFAULT 0        ← 축적값 (like +1, dislike -1, weekly ×0.9 decay)
+├── hit_count     INTEGER DEFAULT 0     ← 총 피드백 횟수
+├── last_seen     DATE DEFAULT CURRENT_DATE
+└── created_at    TIMESTAMP DEFAULT NOW()
 ```
 
 ## TODO: Pipeline B — Feedback Loop (Webhook, 실시간)
@@ -151,17 +160,70 @@ Content-Type: application/json
 
 ## TODO: Pipeline C — Weekly Profile Update (Cron, 주 1회)
 
+Signal accumulation 기반 점진적 프로필 업데이트.
+피드백을 직접 프로필에 반영하지 않고, `interest_signals` 테이블에 신호를 축적한 뒤
+임계값을 넘은 안정적인 신호만 프로필에 반영한다.
+
+### interest_signals 테이블
+
+```sql
+CREATE TABLE interest_signals (
+  id          SERIAL PRIMARY KEY,
+  topic       TEXT UNIQUE NOT NULL,   -- "rust-lang", "llm-agents", "macro-economy"
+  category    TEXT,                   -- "tech", "finance", "growth", "world"
+  score       REAL DEFAULT 0,        -- 축적값: like +1 / dislike -1, 매주 decay
+  hit_count   INTEGER DEFAULT 0,     -- 총 피드백 횟수
+  last_seen   DATE DEFAULT CURRENT_DATE,
+  created_at  TIMESTAMP DEFAULT NOW()
+);
+```
+
+### Signal 축적 흐름
+
+```
+Week 1: "Rust async runtime" 기사 like
+  → topic "rust-lang" 추출, score = +1.0
+
+Week 2: "Rust in Linux kernel" 기사 like
+  → decay: 1.0 × 0.9 = 0.9, then +1 → score = 1.9
+
+Week 3: rust 관련 피드백 없음
+  → decay: 1.9 × 0.9 = 1.71 (서서히 감소)
+
+Week 4: "Rust GUI frameworks" 기사 like
+  → decay: 1.71 × 0.9 = 1.54, then +1 → score = 2.54 ← 임계값 초과!
+```
+
+- **프로필 반영 조건**: `score >= 2.0` AND `hit_count >= 2`
+- 일회성 클릭은 프로필에 도달하지 않음
+- 꾸준한 관심사만 2~3주에 걸쳐 축적됨
+- 무시된 토픽은 자연스럽게 0으로 감소
+
 ### n8n Workflow
 
 ```
 Schedule Trigger (매주 일요일)
-  → Postgres: SELECT 최근 1주 피드백 + 기사 제목
-  → Code: Build prompt for LLM
-  → HTTP Request: LLM에게 "이 피드백 기반으로 단기 관심사 업데이트해줘"
+
+  ── Stage 1: Extract Signals ──
+  → Postgres: SELECT 최근 7일 피드백 + 기사 제목/카테고리 (bypass 제외)
+  → Code: Build extraction prompt
+  → HTTP Request: LLM에게 "이 기사들에서 토픽 키워드 추출해줘"
+  → Code: Parse LLM response → [{ topic, category, direction }]
+
+  ── Stage 2: Update Signal Table ──
+  → Postgres: 전체 signal decay (UPDATE interest_signals SET score = score * 0.9)
+  → Code: Build UPSERT queries
+  → Postgres: UPSERT each signal (like → +1, dislike → -1, hit_count++, last_seen 갱신)
+
+  ── Stage 3: Synthesize Profile ──
+  → Postgres: SELECT * FROM interest_signals WHERE score >= 2.0 AND hit_count >= 2
+  → Postgres: SELECT content FROM user_profile WHERE profile_type = 'short_term'
+  → Code: Build synthesis prompt (stable signals + current profile)
+  → HTTP Request: LLM에게 "이 안정적인 신호 기반으로 단기 관심사 합성해줘"
   → Postgres: UPDATE user_profile SET content = ... WHERE profile_type = 'short_term'
 ```
 
-### Query for Feedback Summary
+### Stage 1 Query — 주간 피드백 수집
 
 ```sql
 SELECT a.title, a.category, f.action
@@ -172,21 +234,130 @@ WHERE f.created_at > NOW() - INTERVAL '7 days'
 ORDER BY f.created_at DESC;
 ```
 
-### LLM Prompt
+### Stage 2 Queries — Signal Decay & Upsert
+
+```sql
+-- 매주 실행: 전체 decay 적용
+UPDATE interest_signals SET score = score * 0.9;
+
+-- 각 추출된 signal에 대해 UPSERT
+INSERT INTO interest_signals (topic, category, score, hit_count, last_seen)
+VALUES ($1, $2, $3, 1, CURRENT_DATE)
+ON CONFLICT (topic) DO UPDATE SET
+  score = interest_signals.score + $3,
+  hit_count = interest_signals.hit_count + 1,
+  category = COALESCE($2, interest_signals.category),
+  last_seen = CURRENT_DATE;
+-- $3: like → +1.0, dislike → -1.0
+```
+
+### Stage 1 LLM Prompt — Topic 추출
 
 ```
-Based on the user's recent feedback:
+Given these articles the user interacted with this week:
 
-Liked articles:
-- [titles...]
+Liked:
+- "Rust async runtime deep dive" (tech)
+- "S&P 500 hits all-time high" (finance)
 
-Disliked articles:
-- [titles...]
+Disliked:
+- "Top 10 crypto coins for 2026" (finance)
 
-Current short-term interests: "..."
+Extract the key topic keywords from each article.
+Return a JSON array:
+[
+  { "topic": "rust-lang", "category": "tech", "direction": "like" },
+  { "topic": "us-stock-market", "category": "finance", "direction": "like" },
+  { "topic": "cryptocurrency", "category": "finance", "direction": "dislike" }
+]
 
-Rewrite the short-term interests as a concise 2-3 sentence description
-reflecting what the user is currently interested in.
+Rules:
+- Use lowercase kebab-case for topic names
+- Be specific but not too granular (e.g., "rust-lang" not "rust-async-runtime")
+- One topic per article, pick the most representative keyword
+- direction must match the user's feedback action
+```
+
+### Stage 3 LLM Prompt — Profile 합성
+
+```
+These are the user's confirmed interest signals that passed the stability threshold
+(score >= 2.0, seen at least twice):
+
+- rust-lang (tech): score 3.2, seen 5 times
+- macro-economy (finance): score 2.4, seen 3 times
+- llm-agents (tech): score 2.1, seen 2 times
+
+Current short-term interests:
+"Interested in systems programming with Rust and macroeconomic trends..."
+
+Rewrite the short-term interests incorporating these stable signals.
+Rules:
+- Only reflect topics present in the signal data above
+- Remove topics no longer in the signal list
+- Keep the tone concise (2-3 sentences)
+- Do NOT invent interests that aren't backed by signals
+```
+
+## Profile Management
+
+### Update Core Profile (n8n Manual Workflow)
+
+Core 프로필은 n8n UI에서 직접 수정. 외부 API 노출 없이 n8n 내부에서 관리.
+
+```
+Manual Trigger (n8n UI에서 실행)
+  → Edit Fields (content: "수정할 프로필 텍스트 직접 입력")
+  → Postgres: UPDATE user_profile
+              SET content = {{ $json.content }}, updated_at = NOW()
+              WHERE profile_type = 'core'
+```
+
+- n8n UI에서 워크플로우 열고 Edit Fields의 content 값을 수정 후 실행
+- Short-term 프로필은 Pipeline C가 자동 관리하므로 별도 수정 불필요
+
+### Serve Profile (Webhook GET)
+
+Widget에서 현재 프로필 상태를 조회 (읽기 전용).
+
+```
+Webhook (GET /profile)
+  → Postgres: SELECT profile_type, content, updated_at FROM user_profile ORDER BY id
+  → Code: Format Response
+  → Respond to Webhook (200 OK)
+```
+
+**Endpoint**: `GET https://pintomate.duckdns.org/webhook/profile`
+
+**Response**:
+
+```json
+{
+  "core": {
+    "content": "Frontend developer interested in React, TypeScript...",
+    "updatedAt": "2026-03-01T12:00:00Z"
+  },
+  "shortTerm": {
+    "content": "Recently exploring Rust async runtime and macro-economy...",
+    "updatedAt": "2026-03-05T09:00:00Z"
+  }
+}
+```
+
+### n8n Code Node — Format GET Response
+
+```javascript
+const rows = $input.all();
+const result = {};
+for (const row of rows) {
+  const type = row.json.profile_type;
+  const key = type === 'short_term' ? 'shortTerm' : type;
+  result[key] = {
+    content: row.json.content,
+    updatedAt: row.json.updated_at
+  };
+}
+return [{ json: result }];
 ```
 
 ## RSS Sources

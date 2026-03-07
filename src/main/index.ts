@@ -111,7 +111,28 @@ app.on("window-all-closed", () => {
   // No-op: keep app alive in tray
 });
 
+function createAppMenu(): void {
+  const template: Electron.MenuItemConstructorOptions[] = [
+    { role: "fileMenu" },
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { role: "windowMenu" },
+    {
+      role: "help",
+      submenu: [
+        {
+          label: `Version ${app.getVersion()}`,
+          enabled: false,
+        },
+      ],
+    },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 app.whenReady().then(async () => {
+  createAppMenu();
   createTray();
   createWindow();
 
