@@ -113,8 +113,10 @@ export function useDailyNewsStore(instanceId: string) {
             set({ feedback: next });
           }
 
-          const parsedId = Number(articleId.replace(/\D/g, ""));
+          const parsedId = Number(String(articleId).replace(/\D/g, ""));
           const isCancel = action !== "click" && current === action;
+
+          if (!parsedId) return;
 
           fetch(API_ENDPOINTS.dailyNews.feedback, {
             method: "POST",
