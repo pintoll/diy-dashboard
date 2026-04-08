@@ -18,6 +18,7 @@ export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> 
     provider: "github",
     owner: "pintoll",
     repo: "diy-dashboard",
+    private: true,
     token: "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",
   });
   updater.autoDownload = true;
