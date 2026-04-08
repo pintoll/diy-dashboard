@@ -19,14 +19,12 @@ export type DailyNewsState = {
   fetchedAt: string | null;
   fetchStatus: "idle" | "loading" | "success" | "error";
   errorMessage: string | null;
-  collapsedSections: Record<NewsCategory, boolean>;
+  activeTab: NewsCategory;
   feedback: Record<string, FeedbackAction>;
 };
 
 export type DailyNewsActions = {
   fetchNews: () => Promise<void>;
-  toggleSection: (category: NewsCategory) => void;
-  collapseAll: () => void;
-  expandAll: () => void;
+  setActiveTab: (category: NewsCategory) => void;
   sendFeedback: (articleId: string, action: FeedbackAction | "click") => void;
 };

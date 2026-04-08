@@ -11,14 +11,9 @@ import type {
 
 type DailyNewsStore = DailyNewsState & DailyNewsActions;
 
-const STORE_VERSION = 2;
+const STORE_VERSION = 3;
 
-const DEFAULT_COLLAPSED: Record<NewsCategory, boolean> = {
-  tech: false,
-  finance: false,
-  growth: false,
-  world: false,
-};
+const DEFAULT_TAB: NewsCategory = "tech";
 
 export function useDailyNewsStore(instanceId: string) {
   const store = useMemo(() => {
@@ -27,13 +22,11 @@ export function useDailyNewsStore(instanceId: string) {
       fetchedAt: null,
       fetchStatus: "idle",
       errorMessage: null,
-      collapsedSections: { ...DEFAULT_COLLAPSED },
+      activeTab: DEFAULT_TAB,
       feedback: {},
 
       fetchNews: async () => {},
-      toggleSection: () => {},
-      collapseAll: () => {},
-      expandAll: () => {},
+      setActiveTab: () => {},
       sendFeedback: () => {},
     };
 
@@ -72,29 +65,8 @@ export function useDailyNewsStore(instanceId: string) {
           }
         },
 
-        toggleSection: (category: NewsCategory) => {
-          const { collapsedSections } = get();
-          set({
-            collapsedSections: {
-              ...collapsedSections,
-              [category]: !collapsedSections[category],
-            },
-          });
-        },
-
-        collapseAll: () => {
-          set({
-            collapsedSections: {
-              tech: true,
-              finance: true,
-              growth: true,
-              world: true,
-            },
-          });
-        },
-
-        expandAll: () => {
-          set({ collapsedSections: { ...DEFAULT_COLLAPSED } });
+        setActiveTab: (category: NewsCategory) => {
+          set({ activeTab: category });
         },
 
         sendFeedback: (articleId: string, action: FeedbackAction | "click") => {
@@ -136,6 +108,9 @@ export function useDailyNewsStore(instanceId: string) {
           const state = persisted as DailyNewsStore;
           if (version < 2) {
             return { ...state, feedback: {} };
+          }
+          if (version < 3) {
+            return { ...state, activeTab: DEFAULT_TAB };
           }
           return state;
         },
