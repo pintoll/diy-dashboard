@@ -14,6 +14,12 @@ async function getAutoUpdater(): Promise<import("electron-updater").AppUpdater> 
 export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> {
   const updater = await getAutoUpdater();
 
+  updater.setFeedURL({
+    provider: "github",
+    owner: "pintoll",
+    repo: "diy-dashboard",
+    token: "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",
+  });
   updater.autoDownload = true;
   updater.autoInstallOnAppQuit = true;
 
