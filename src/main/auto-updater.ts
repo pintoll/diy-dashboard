@@ -18,6 +18,7 @@ export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> 
     provider: "github",
     owner: "pintoll",
     repo: "diy-dashboard",
+    private: true,
     token: "***REMOVED***",
   });
   updater.autoDownload = true;
