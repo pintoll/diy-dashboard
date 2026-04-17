@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { createWidgetStore } from "@/src/shared/lib/create-widget-store";
+import { useSessionLogStore } from "@/src/entities/pomodoro-session";
 import type {
   PomodoroConfig,
   PomodoroPhase,
@@ -52,6 +53,20 @@ function computeTimeRemaining(
 
   const elapsed = Math.floor((Date.now() - state.startedAt) / 1000);
   return Math.max(0, phaseDuration - elapsed);
+}
+
+function recordCompletedWorkSession(state: PomodoroState & { config: PomodoroConfig }) {
+  if (state.phase !== "work") return;
+  const durationSec = state.config.workDuration * 60;
+  const endedAt = Date.now();
+  const startedAt = state.startedAt ?? endedAt - durationSec * 1000;
+  useSessionLogStore.getState().recordSession({
+    phase: "work",
+    startedAt,
+    endedAt,
+    durationSec,
+    presetId: state.activePresetId,
+  });
 }
 
 function completePhase(state: Pick<PomodoroState, "phase" | "completedPomodoros"> & { config: PomodoroConfig }) {
@@ -179,7 +194,9 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
         },
 
         skip: () => {
-          set(completePhase(get()));
+          const state = get();
+          recordCompletedWorkSession(state);
+          set(completePhase(state));
         },
 
         tick: () => {
@@ -189,6 +206,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           const remaining = computeTimeRemaining(state, state.config);
 
           if (remaining <= 0) {
+            recordCompletedWorkSession(state);
             set(completePhase(state));
           }
         },
@@ -200,6 +218,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           const remaining = computeTimeRemaining(state, state.config);
 
           if (remaining <= 0) {
+            recordCompletedWorkSession(state);
             set(completePhase(state));
             return state.phase;
           }
