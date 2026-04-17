@@ -1,0 +1,45 @@
+import { useMemo } from "react";
+import {
+  useSessionLogStore,
+  countToday,
+  countThisWeek,
+  computeCurrentStreak,
+  buildHeatmapCells,
+} from "@/src/entities/pomodoro-session";
+import { StatTile } from "./StatTile";
+import { Heatmap } from "./Heatmap";
+
+const HEATMAP_WEEKS = 12;
+
+export type PomodoroStatsConfig = Record<string, never>;
+
+export function PomodoroStatsClient() {
+  const sessions = useSessionLogStore((s) => s.sessions);
+
+  const { today, week, streak, cells } = useMemo(() => {
+    const now = Date.now();
+    return {
+      today: countToday(sessions, now),
+      week: countThisWeek(sessions, now),
+      streak: computeCurrentStreak(sessions, now),
+      cells: buildHeatmapCells(sessions, HEATMAP_WEEKS, now),
+    };
+  }, [sessions]);
+
+  return (
+    <div className="flex flex-col h-full w-full gap-2 min-h-0">
+      <div className="flex items-stretch divide-x divide-border shrink-0">
+        <StatTile label="Today" value={today} accent="primary" />
+        <StatTile label="This Week" value={week} accent="accent" />
+        <StatTile
+          label="Streak"
+          value={streak > 0 ? `${streak}d` : "—"}
+          accent="chart"
+        />
+      </div>
+      <div className="flex-1 min-h-0">
+        <Heatmap cells={cells} weeks={HEATMAP_WEEKS} />
+      </div>
+    </div>
+  );
+}

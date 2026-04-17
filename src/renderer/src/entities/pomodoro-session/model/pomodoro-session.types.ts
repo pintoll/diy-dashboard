@@ -22,3 +22,12 @@ export type PomodoroConfig = {
   longBreakDuration: number;
   pomodorosUntilLongBreak: number;
 };
+
+export type PomodoroSessionRecord = {
+  id: string;
+  phase: "work";
+  startedAt: number;
+  endedAt: number;
+  durationSec: number;
+  presetId: PomodoroPresetId;
+};
