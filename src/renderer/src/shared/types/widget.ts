@@ -1,8 +1,6 @@
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 
-export type BreakpointKey = "xxl" | "xl" | "lg" | "md" | "sm" | "xs" | "xxs";
-
 export type WidgetCategory = "productivity" | "data" | "media" | "utility";
 
 export const WIDGET_CATEGORY_LABELS: Record<WidgetCategory, string> = {

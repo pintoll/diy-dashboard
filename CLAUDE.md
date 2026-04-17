@@ -41,7 +41,7 @@ To add a widget:
 
 - **Styling**: Tailwind 4 with CVA variants, `cn()` = clsx + tailwind-merge. Dark theme with CSS custom properties in `globals.css`
 - **State**: Zustand stores cached by `instanceId` key. Global dashboard state persisted to `dashboard-storage` in localStorage
-- **Grid**: 12-column base, 7 responsive breakpoints (xxl→xxs). Layout scaling + constraint maps per widget
+- **Grid**: Fixed 12-column fluid grid (`GridLayout` from react-grid-layout). Cell width scales continuously with container width; widget `w/h` values are constant grid units regardless of window size. Per-widget `minW/maxW/minH/maxH` constraints declared in `defineWidget`
 - **Path alias**: `@/` → `src/renderer` (use `@/src/...` for imports in renderer code)
 - **Notifications**: `window.electronAPI` for native OS notifications via IPC, browser Notification API fallback
 

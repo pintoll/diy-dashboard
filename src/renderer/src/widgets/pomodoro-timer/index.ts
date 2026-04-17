@@ -13,9 +13,9 @@ export const pomodoroTimerWidget = defineWidget<PomodoroConfig>({
     category: "productivity",
     icon: Timer,
     size: {
-      minW: 2,
+      minW: 3,
       minH: 2,
-      maxW: 4,
+      maxW: 3,
       maxH: 4,
       defaultW: 3,
       defaultH: 3,

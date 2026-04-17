@@ -1,23 +1,16 @@
 import { useCallback, useEffect, useState, useMemo } from "react";
 import {
-  ResponsiveGridLayout,
+  GridLayout,
   useContainerWidth,
   type Layout,
   type LayoutItem,
-  type ResponsiveLayouts,
 } from "react-grid-layout";
 import { Edit, Lock, Plus } from "lucide-react";
 import { Button } from "@/src/shared/ui/button";
-import type { BreakpointKey } from "@/src/shared/types";
 import {
   GRID_COLS,
-  GRID_BREAKPOINTS,
   GRID_ROW_HEIGHT,
   GRID_MARGIN,
-  BASE_COLS,
-  computeAllBreakpointLayouts,
-  reverseScaleLayoutItems,
-  buildConstraintsMap,
 } from "@/src/shared/lib/grid";
 import { useDashboardStore } from "../model/use-dashboard-store";
 import { WidgetWrapper } from "./WidgetWrapper";
@@ -30,8 +23,6 @@ export function DashboardGrid() {
     useDashboardStore();
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [clientMounted, setClientMounted] = useState(false);
-  const [currentBreakpoint, setCurrentBreakpoint] =
-    useState<BreakpointKey>("lg");
   const { width, containerRef } = useContainerWidth({
     initialWidth: 1280,
   });
@@ -40,12 +31,7 @@ export function DashboardGrid() {
     setClientMounted(true);
   }, []);
 
-  const constraintsMap = useMemo(
-    () => buildConstraintsMap(widgets, widgetRegistry),
-    [widgets]
-  );
-
-  const baseLayout: LayoutItem[] = useMemo(
+  const layout: LayoutItem[] = useMemo(
     () =>
       widgets.map((w) => {
         const definition = widgetRegistry.get(w.widgetId);
@@ -68,38 +54,15 @@ export function DashboardGrid() {
     [widgets, isEditMode]
   );
 
-  const layouts: ResponsiveLayouts<BreakpointKey> = useMemo(
-    () => computeAllBreakpointLayouts(baseLayout, constraintsMap),
-    [baseLayout, constraintsMap]
-  );
-
-  const handleBreakpointChange = useCallback(
-    (newBreakpoint: BreakpointKey) => {
-      setCurrentBreakpoint(newBreakpoint);
-    },
-    []
-  );
-
   const handleInteractionStop = useCallback(
-    (layout: Layout) => {
-      const currentCols = GRID_COLS[currentBreakpoint];
-      const items =
-        currentCols === BASE_COLS
-          ? layout
-          : reverseScaleLayoutItems(
-              layout,
-              currentCols,
-              BASE_COLS,
-              constraintsMap
-            );
-
-      const updates = items.map((item) => ({
+    (nextLayout: Layout) => {
+      const updates = nextLayout.map((item) => ({
         instanceId: item.i,
         layout: { x: item.x, y: item.y, w: item.w, h: item.h },
       }));
       updateLayouts(updates);
     },
-    [updateLayouts, currentBreakpoint, constraintsMap]
+    [updateLayouts]
   );
 
   return (
@@ -148,27 +111,27 @@ export function DashboardGrid() {
             </Button>
           </div>
         ) : (
-          <ResponsiveGridLayout
+          <GridLayout
             className="layout"
-            layouts={layouts}
-            breakpoints={GRID_BREAKPOINTS}
-            cols={GRID_COLS}
-            rowHeight={GRID_ROW_HEIGHT}
+            layout={layout}
             width={width}
+            gridConfig={{
+              cols: GRID_COLS,
+              rowHeight: GRID_ROW_HEIGHT,
+              margin: GRID_MARGIN,
+            }}
             dragConfig={{
               handle: ".drag-handle",
             }}
-            onBreakpointChange={handleBreakpointChange}
             onDragStop={handleInteractionStop}
             onResizeStop={handleInteractionStop}
-            margin={GRID_MARGIN}
           >
             {widgets.map((widget) => (
               <div key={widget.instanceId} className="h-full">
                 <WidgetWrapper instance={widget} />
               </div>
             ))}
-          </ResponsiveGridLayout>
+          </GridLayout>
         )}
       </div>
 
