@@ -14,6 +14,25 @@ interface ElectronAPI {
   quitAndInstallUpdate: () => Promise<void>;
 }
 
+interface MarketSeriesPoint {
+  date: string;
+  value: number;
+}
+
+interface MarketSeriesSnapshot {
+  id: string;
+  points: MarketSeriesPoint[];
+  fetchedAt: string;
+}
+
+interface MarketAPI {
+  fred: {
+    getSeries: (seriesId: string, limit?: number) => Promise<MarketSeriesSnapshot>;
+    getMany: (seriesIds: string[], limit?: number) => Promise<MarketSeriesSnapshot[]>;
+  };
+}
+
 interface Window {
   electronAPI?: ElectronAPI;
+  marketAPI?: MarketAPI;
 }

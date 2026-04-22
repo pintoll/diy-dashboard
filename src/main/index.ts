@@ -10,6 +10,7 @@ import {
 } from "electron";
 import path from "path";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./auto-updater";
+import { registerMarketIpc } from "./market/ipc";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -134,6 +135,7 @@ function createAppMenu(): void {
 app.whenReady().then(async () => {
   createAppMenu();
   createTray();
+  registerMarketIpc();
   createWindow();
 
   if (app.isPackaged && mainWindow) {

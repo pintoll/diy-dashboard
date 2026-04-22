@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+contextBridge.exposeInMainWorld("marketAPI", {
+  fred: {
+    getSeries: (seriesId: string, limit?: number) =>
+      ipcRenderer.invoke("market:fred:getSeries", { seriesId, limit }),
+    getMany: (seriesIds: string[], limit?: number) =>
+      ipcRenderer.invoke("market:fred:getMany", { seriesIds, limit }),
+  },
+});
+
 contextBridge.exposeInMainWorld("electronAPI", {
   showNotification: (payload: { title: string; body: string }) =>
     ipcRenderer.invoke("show-notification", payload),
