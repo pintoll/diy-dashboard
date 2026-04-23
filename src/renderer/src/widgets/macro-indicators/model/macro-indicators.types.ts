@@ -1,4 +1,5 @@
 import type { SeriesSnapshot } from "@/src/entities/market-indicator";
+import type { Timeframe } from "./timeframe";
 
 export type MacroIndicatorsConfig = Record<string, never>;
 
@@ -10,8 +11,10 @@ export type MacroIndicatorsState = {
   status: FetchStatus;
   errorMessage: string | null;
   missingApiKey: boolean;
+  timeframe: Timeframe;
 };
 
 export type MacroIndicatorsActions = {
   fetchAll: () => Promise<void>;
+  setTimeframe: (timeframe: Timeframe) => void;
 };

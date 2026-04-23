@@ -6,6 +6,7 @@ import { Button } from "@/src/shared/ui/button";
 import type { WidgetProps } from "@/src/shared/types";
 import type { MacroIndicatorsConfig } from "../model/macro-indicators.types";
 import { MACRO_INDICATORS } from "../model/indicators-catalog";
+import { TIMEFRAMES } from "../model/timeframe";
 import {
   isStale,
   useMacroIndicatorsStore,
@@ -23,38 +24,66 @@ export function MacroIndicatorsClient({
     status,
     errorMessage,
     missingApiKey,
+    timeframe,
     fetchAll,
+    setTimeframe,
   } = state;
 
   const handleFetch = useCallback(() => {
     fetchAll();
   }, [fetchAll]);
 
+  const hasSnapshots = Object.keys(snapshots).length > 0;
+
   useEffect(() => {
-    if (isStale(lastFetchedAt)) {
+    if (missingApiKey) return;
+    if (status === "loading" || status === "error") return;
+    if (!hasSnapshots || isStale(lastFetchedAt)) {
       handleFetch();
     }
-    // intentionally only on mount per instance
+    // re-run when migration clears snapshots or after a successful fetch updates them
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hasSnapshots, missingApiKey]);
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-2 py-1.5 shrink-0">
-        <div className="text-[10px] text-muted-foreground/60">
-          {lastFetchedAt ? `Updated ${formatTimeAgo(lastFetchedAt)}` : "Not loaded"}
+      <div className="flex items-center justify-between gap-2 px-2 py-1.5 shrink-0">
+        <div className="flex items-center gap-0.5">
+          {TIMEFRAMES.map((tf) => {
+            const isActive = tf === timeframe;
+            return (
+              <button
+                key={tf}
+                type="button"
+                onClick={() => setTimeframe(tf)}
+                className={cn(
+                  "px-1.5 py-0.5 rounded text-[10px] font-medium tabular-nums transition-colors",
+                  isActive
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/40"
+                )}
+              >
+                {tf}
+              </button>
+            );
+          })}
         </div>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={handleFetch}
-          disabled={status === "loading"}
-          title="Refresh"
-        >
-          <RefreshCw
-            className={cn("size-3.5", status === "loading" && "animate-spin")}
-          />
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-muted-foreground/60">
+            {lastFetchedAt ? `Updated ${formatTimeAgo(lastFetchedAt)}` : "Not loaded"}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={handleFetch}
+            disabled={status === "loading"}
+            title="Refresh"
+          >
+            <RefreshCw
+              className={cn("size-3.5", status === "loading" && "animate-spin")}
+            />
+          </Button>
+        </div>
       </div>
 
       {missingApiKey ? (
@@ -82,6 +111,8 @@ export function MacroIndicatorsClient({
                 key={meta.seriesId}
                 meta={meta}
                 snapshot={snapshots[meta.seriesId]}
+                timeframe={timeframe}
+                isLoading={status === "loading"}
               />
             ))}
           </div>

@@ -1,6 +1,8 @@
 import { cn } from "@/src/shared/lib/utils";
 import type { SeriesSnapshot } from "@/src/entities/market-indicator";
 import type { IndicatorMeta } from "../model/indicators-catalog";
+import type { Timeframe } from "../model/timeframe";
+import { getTimeframeWindow } from "../model/timeframe";
 import { Sparkline } from "./Sparkline";
 
 function formatValue(value: number, meta: IndicatorMeta): string {
@@ -25,16 +27,24 @@ function formatDelta(delta: number, meta: IndicatorMeta): string {
 type IndicatorCardProps = {
   meta: IndicatorMeta;
   snapshot: SeriesSnapshot | undefined;
+  timeframe: Timeframe;
+  isLoading: boolean;
 };
 
-export function IndicatorCard({ meta, snapshot }: IndicatorCardProps) {
+export function IndicatorCard({
+  meta,
+  snapshot,
+  timeframe,
+  isLoading,
+}: IndicatorCardProps) {
   const points = snapshot?.points ?? [];
-  const hasData = points.length > 0;
-  const latest = hasData ? points[points.length - 1].value : null;
-  const prev = points.length > 1 ? points[points.length - 2].value : latest;
-  const delta = latest !== null && prev !== null ? latest - prev : 0;
+  const { windowPoints, anchor, latest } = getTimeframeWindow(points, timeframe);
+
+  const delta = latest && anchor ? latest.value - anchor.value : 0;
   const deltaPct =
-    latest !== null && prev !== null && prev !== 0 ? (delta / prev) * 100 : 0;
+    latest && anchor && anchor.value !== 0
+      ? (delta / anchor.value) * 100
+      : 0;
   const direction = delta > 0 ? "up" : delta < 0 ? "down" : "flat";
 
   const colorClass =
@@ -64,19 +74,21 @@ export function IndicatorCard({ meta, snapshot }: IndicatorCardProps) {
         </span>
       </div>
 
-      {hasData && latest !== null ? (
+      {latest ? (
         <>
           <div className="text-base font-medium tabular-nums">
-            {formatValue(latest, meta)}
+            {formatValue(latest.value, meta)}
           </div>
           <div className={cn("text-[10px] tabular-nums", colorClass)}>
             {formatDelta(delta, meta)} ({deltaPct >= 0 ? "+" : ""}
             {deltaPct.toFixed(2)}%)
           </div>
-          <Sparkline points={points} color={strokeColor} />
+          <Sparkline points={windowPoints} color={strokeColor} />
         </>
       ) : (
-        <div className="text-sm text-muted-foreground/40">—</div>
+        <div className="text-xs text-muted-foreground/40 py-2">
+          {isLoading ? "Loading…" : "—"}
+        </div>
       )}
     </div>
   );
