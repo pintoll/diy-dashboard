@@ -6,11 +6,13 @@ import type {
   MacroIndicatorsActions,
   MacroIndicatorsState,
 } from "./macro-indicators.types";
+import type { Timeframe } from "./timeframe";
 
 type MacroIndicatorsStore = MacroIndicatorsState & MacroIndicatorsActions;
 
-const STORE_VERSION = 1;
-const POINTS_LIMIT = 90;
+const STORE_VERSION = 2;
+const POINTS_LIMIT = 1300;
+const DEFAULT_TIMEFRAME: Timeframe = "1M";
 export const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
 
 export function isStale(lastFetchedAt: string | null): boolean {
@@ -26,8 +28,10 @@ export function useMacroIndicatorsStore(instanceId: string) {
       status: "idle",
       errorMessage: null,
       missingApiKey: false,
+      timeframe: DEFAULT_TIMEFRAME,
 
       fetchAll: async () => {},
+      setTimeframe: () => {},
     };
 
     return createWidgetStore<MacroIndicatorsStore>(
@@ -73,11 +77,30 @@ export function useMacroIndicatorsStore(instanceId: string) {
             });
           }
         },
+
+        setTimeframe: (timeframe: Timeframe) => {
+          set({ timeframe });
+        },
       }),
       {
         name: "macro-indicators",
         persist: true,
         version: STORE_VERSION,
+        migrate: (persisted, version) => {
+          const state = persisted as MacroIndicatorsStore;
+          if (version < 2) {
+            return {
+              ...state,
+              timeframe: DEFAULT_TIMEFRAME,
+              snapshots: {},
+              lastFetchedAt: null,
+              status: "idle",
+              errorMessage: null,
+              missingApiKey: false,
+            };
+          }
+          return state;
+        },
       }
     );
   }, [instanceId]);
