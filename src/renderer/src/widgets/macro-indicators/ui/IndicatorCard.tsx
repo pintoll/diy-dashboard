@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { cn } from "@/src/shared/lib/utils";
 import type { SeriesPoint, SeriesSnapshot } from "@/src/entities/market-indicator";
 import type { IndicatorMeta } from "../model/indicators-catalog";
@@ -29,10 +30,18 @@ function formatPct(pct: number): string {
   return `${sign}${pct.toFixed(2)}%`;
 }
 
+type Direction = "up" | "down" | "flat";
+
 type Change = {
   delta: number;
   pct: number;
-  direction: "up" | "down" | "flat";
+  direction: Direction;
+};
+
+const DIRECTION_STYLE: Record<Direction, { class: string; stroke: string; arrow: string }> = {
+  up: { class: "text-emerald-500", stroke: "#10b981", arrow: "▲" },
+  down: { class: "text-rose-500", stroke: "#f43f5e", arrow: "▼" },
+  flat: { class: "text-muted-foreground/60", stroke: "#94a3b8", arrow: "·" },
 };
 
 function computeChange(latest: SeriesPoint, anchor: SeriesPoint): Change {
@@ -42,39 +51,6 @@ function computeChange(latest: SeriesPoint, anchor: SeriesPoint): Change {
   return { delta, pct, direction };
 }
 
-function directionClass(direction: Change["direction"]): string {
-  switch (direction) {
-    case "up":
-      return "text-emerald-500";
-    case "down":
-      return "text-rose-500";
-    default:
-      return "text-muted-foreground/60";
-  }
-}
-
-function directionStroke(direction: Change["direction"]): string {
-  switch (direction) {
-    case "up":
-      return "#10b981";
-    case "down":
-      return "#f43f5e";
-    default:
-      return "#94a3b8";
-  }
-}
-
-function directionArrow(direction: Change["direction"]): string {
-  switch (direction) {
-    case "up":
-      return "▲";
-    case "down":
-      return "▼";
-    default:
-      return "·";
-  }
-}
-
 type IndicatorCardProps = {
   meta: IndicatorMeta;
   snapshot: SeriesSnapshot | undefined;
@@ -82,7 +58,7 @@ type IndicatorCardProps = {
   isLoading: boolean;
 };
 
-export function IndicatorCard({
+function IndicatorCardComponent({
   meta,
   snapshot,
   timeframe,
@@ -94,6 +70,8 @@ export function IndicatorCard({
 
   const windowChange = latest && anchor ? computeChange(latest, anchor) : null;
   const dayChange = latest && prevDay ? computeChange(latest, prevDay) : null;
+  const windowStyle = DIRECTION_STYLE[windowChange?.direction ?? "flat"];
+  const dayStyle = dayChange ? DIRECTION_STYLE[dayChange.direction] : null;
 
   return (
     <div className="@container flex flex-col gap-1.5 rounded-md border border-border/40 bg-card/40 p-2.5 min-w-0">
@@ -115,15 +93,14 @@ export function IndicatorCard({
             <span className="text-base font-medium tabular-nums">
               {formatValue(latest.value, meta)}
             </span>
-            {dayChange && (
+            {dayChange && dayStyle && (
               <span
                 className={cn(
                   "text-[10px] tabular-nums whitespace-nowrap",
-                  directionClass(dayChange.direction)
+                  dayStyle.class
                 )}
               >
-                {directionArrow(dayChange.direction)}{" "}
-                {formatDelta(dayChange.delta, meta)}
+                {dayStyle.arrow} {formatDelta(dayChange.delta, meta)}
                 <span className="hidden @[140px]:inline">
                   {" "}
                   ({formatPct(dayChange.pct)})
@@ -137,7 +114,7 @@ export function IndicatorCard({
               {timeframe}
             </span>
             {windowChange ? (
-              <span className={directionClass(windowChange.direction)}>
+              <span className={windowStyle.class}>
                 {formatDelta(windowChange.delta, meta)} (
                 {formatPct(windowChange.pct)})
               </span>
@@ -146,10 +123,7 @@ export function IndicatorCard({
             )}
           </div>
 
-          <Sparkline
-            points={windowPoints}
-            color={directionStroke(windowChange?.direction ?? "flat")}
-          />
+          <Sparkline points={windowPoints} color={windowStyle.stroke} />
         </>
       ) : (
         <div className="text-xs text-muted-foreground/40 py-2">
@@ -159,3 +133,5 @@ export function IndicatorCard({
     </div>
   );
 }
+
+export const IndicatorCard = memo(IndicatorCardComponent);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useEffect } from "react";
 import { KeyRound, RefreshCw } from "lucide-react";
 import { cn } from "@/src/shared/lib/utils";
 import { formatTimeAgo } from "@/src/shared/lib/format-time-ago";
@@ -29,21 +29,14 @@ export function MacroIndicatorsClient({
     setTimeframe,
   } = state;
 
-  const handleFetch = useCallback(() => {
-    fetchAll();
-  }, [fetchAll]);
-
   const hasSnapshots = Object.keys(snapshots).length > 0;
 
   useEffect(() => {
-    if (missingApiKey) return;
-    if (status === "loading" || status === "error") return;
+    if (missingApiKey || status === "loading" || status === "error") return;
     if (!hasSnapshots || isStale(lastFetchedAt)) {
-      handleFetch();
+      fetchAll();
     }
-    // re-run when migration clears snapshots or after a successful fetch updates them
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasSnapshots, missingApiKey]);
+  }, [missingApiKey, status, hasSnapshots, lastFetchedAt, fetchAll]);
 
   return (
     <div className="flex flex-col h-full">
@@ -75,7 +68,7 @@ export function MacroIndicatorsClient({
           <Button
             variant="ghost"
             size="icon-xs"
-            onClick={handleFetch}
+            onClick={() => fetchAll()}
             disabled={status === "loading"}
             title="Refresh"
           >

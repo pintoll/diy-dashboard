@@ -15,6 +15,10 @@ const POINTS_LIMIT = 1300;
 const DEFAULT_TIMEFRAME: Timeframe = "1M";
 export const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
 
+// Mirrors FRED_MISSING_API_KEY_ERROR in src/main/market/fred-client.ts — the
+// main process throws this exact string and the renderer matches on equality.
+const MISSING_FRED_API_KEY_ERROR = "MISSING_FRED_API_KEY";
+
 export function isStale(lastFetchedAt: string | null): boolean {
   if (!lastFetchedAt) return true;
   return Date.now() - new Date(lastFetchedAt).getTime() > STALE_AFTER_MS;
@@ -69,7 +73,7 @@ export function useMacroIndicatorsStore(instanceId: string) {
           } catch (err) {
             const message =
               err instanceof Error ? err.message : "Failed to fetch indicators";
-            const missingKey = /MISSING_FRED_API_KEY/.test(message);
+            const missingKey = message.endsWith(MISSING_FRED_API_KEY_ERROR);
             set({
               status: "error",
               errorMessage: missingKey ? null : message,
