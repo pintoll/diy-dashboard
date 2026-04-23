@@ -47,16 +47,10 @@ export function getTimeframeWindow(
   const latestMs = new Date(latest.date).getTime();
   const cutoffMs = latestMs - TIMEFRAME_DAYS[timeframe] * 24 * 60 * 60 * 1000;
 
-  let windowStartIndex = points.length - 1;
-  for (let i = points.length - 1; i >= 0; i--) {
-    if (new Date(points[i].date).getTime() >= cutoffMs) {
-      windowStartIndex = i;
-    } else {
-      break;
-    }
-  }
-
-  const windowPoints = points.slice(windowStartIndex);
+  const startIndex = points.findIndex(
+    (p) => new Date(p.date).getTime() >= cutoffMs
+  );
+  const windowPoints = startIndex === -1 ? [latest] : points.slice(startIndex);
   const anchor = windowPoints[0] ?? latest;
 
   return { windowPoints, anchor, latest };

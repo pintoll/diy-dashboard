@@ -8,13 +8,15 @@ export type FredSeriesSnapshot = {
 
 const FRED_BASE = "https://api.stlouisfed.org/fred/series/observations";
 
+export const FRED_MISSING_API_KEY_ERROR = "MISSING_FRED_API_KEY";
+
 type FredObservation = { date: string; value: string };
 type FredResponse = { observations?: FredObservation[]; error_message?: string };
 
 function getApiKey(): string {
   const key = import.meta.env.MAIN_VITE_FRED_API_KEY;
   if (!key) {
-    throw new Error("MISSING_FRED_API_KEY");
+    throw new Error(FRED_MISSING_API_KEY_ERROR);
   }
   return key;
 }
