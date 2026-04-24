@@ -6,6 +6,12 @@ contextBridge.exposeInMainWorld("marketAPI", {
       ipcRenderer.invoke("market:fred:getSeries", { seriesId, limit }),
     getMany: (seriesIds: string[], limit?: number) =>
       ipcRenderer.invoke("market:fred:getMany", { seriesIds, limit }),
+    getReleaseDates: (releaseIds: number[], from: string, to: string) =>
+      ipcRenderer.invoke("market:fred:getReleaseDates", {
+        releaseIds,
+        from,
+        to,
+      }),
   },
 });
 

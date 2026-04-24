@@ -25,10 +25,21 @@ interface MarketSeriesSnapshot {
   fetchedAt: string;
 }
 
+interface FredReleaseDateEntry {
+  releaseId: number;
+  releaseName: string;
+  date: string;
+}
+
 interface MarketAPI {
   fred: {
     getSeries: (seriesId: string, limit?: number) => Promise<MarketSeriesSnapshot>;
     getMany: (seriesIds: string[], limit?: number) => Promise<MarketSeriesSnapshot[]>;
+    getReleaseDates: (
+      releaseIds: number[],
+      from: string,
+      to: string
+    ) => Promise<FredReleaseDateEntry[]>;
   };
 }
 

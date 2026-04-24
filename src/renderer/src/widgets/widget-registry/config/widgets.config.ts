@@ -3,6 +3,7 @@ import { pomodoroTimerWidget } from "@/src/widgets/pomodoro-timer";
 import { pomodoroStatsWidget } from "@/src/widgets/pomodoro-stats";
 import { dailyNewsWidget } from "@/src/widgets/daily-news";
 import { macroIndicatorsWidget } from "@/src/widgets/macro-indicators";
+import { economicCalendarWidget } from "@/src/widgets/economic-calendar";
 import {
   testSmallWidget,
   testWideWidget,
@@ -15,6 +16,7 @@ export function registerAllWidgets() {
   widgetRegistry.register(pomodoroStatsWidget);
   widgetRegistry.register(dailyNewsWidget);
   widgetRegistry.register(macroIndicatorsWidget);
+  widgetRegistry.register(economicCalendarWidget);
 
   if (import.meta.env.DEV) {
     widgetRegistry.register(testSmallWidget);

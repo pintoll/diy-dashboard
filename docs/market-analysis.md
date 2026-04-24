@@ -46,50 +46,75 @@ Electron Renderer
 | API 키 관리 규약 | `.env` + `MAIN_VITE_*` | 새 API 키 추가 시 동일 패턴 |
 | IPC 네이밍 | `market:<source>:<action>` | 일관된 채널 네임스페이스 |
 
-## TODO: Widget 2 — Economic Calendar 🚧
+## Widget 2 — Economic Calendar 🚧 (Phase 1 구현 완료)
 
-매크로 지표의 "시간 축 파트너". 언제 무슨 지표·이벤트가 발표되는지 + 예상치·실제치.
+매크로 지표의 "시간 축 파트너". 언제 무슨 지표가 발표되는지를 한눈에. **증분 확장 전제**로 설계 — Phase 1은 FRED 릴리스 일정만, 이후 어닝·공시를 같은 캘린더에 섞는다.
+
+**설계 철학**: 예상치·컨센서스 같은 가공된 시장 의견은 유료 API 영역이고, 투자 판단은 사용자 본인의 리서치 몫. 위젯은 "언제 발표되는지" raw fact만 제공해서 리서치 진입 장벽을 낮춘다.
 
 ### 목표
 
 ```
-┌─ Economic Calendar ───────── [This Week] [Next Week] ┐
-│ 2026-04-23  Thu  15:30 KST                           │
-│   🇺🇸 GDP Advance QoQ    exp: 2.1%  prev: 3.2%  ★★★ │
-│   🇺🇸 Jobless Claims      exp: 215K  prev: 212K  ★★  │
-│ 2026-04-24  Fri                                       │
-│   🇰🇷 한은 금통위          exp: 3.25% prev: 3.25% ★★★│
-│   🇺🇸 Core PCE YoY        exp: 2.7%  prev: 2.8%  ★★★ │
-└───────────────────────────────────────────────────────┘
+┌─ Economic Calendar ─ [All] [Macro] [Earnings] [Filings] ─ [This Week] [Next Week] ┐
+│ Apr 23 · Thu                                                                      │
+│   🇺🇸  CPI                                                     ★★★              │
+│   🇺🇸  Producer Price Index                                    ★★               │
+│ Apr 24 · Fri                                                                      │
+│   🇺🇸  Personal Income & Outlays (PCE)                         ★★★              │
+│   🇺🇸  Industrial Production                                   ★★               │
+└───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Data Sources
+### 이벤트 타입 (Discriminated Union)
 
-- **Financial Modeling Prep (FMP)** — 무료 250 req/day
-  - `GET /api/v3/economic_calendar?from=YYYY-MM-DD&to=YYYY-MM-DD`
-  - 예상치·실제치·국가·영향도 포함
-- **한은 금통위 일정** — 연초 고정 공개 → YAML 또는 하드코딩
-- 일 1~2회 페치면 충분
+```ts
+type CalendarEvent =
+  | { kind: "macro";   country, name, releaseId?, expected?, previous?, actual?, unit? }
+  | { kind: "earning"; ticker, companyName, timing: "BMO"|"AMC", epsExpected, epsActual }
+  | { kind: "filing";  ticker, formType: "10-K"|"10-Q"|"8-K"|...; title, url }
+```
 
-### New files
+세 타입 모두 `{ id, datetime, kind, country, importance }` 공통 필드 공유 → 같은 `EventRow`에서 렌더, `kind`별 분기. Phase 1은 `macro` 브랜치만 활성.
+
+### Data Sources (Phase별)
+
+| Phase | 소스 | 커버 | API | 키 |
+|---|---|---|---|---|
+| **1** ✅ | FRED `/release/dates` | 미국 주요 매크로 릴리스 일정 (CPI, NFP, GDP, PCE, PPI, IP 등 ~6개) | 120 req/min, 무료 | 기존 `MAIN_VITE_FRED_API_KEY` 재사용 |
+| 1.5 (선택) | 한은 금통위 일정 | 한국 금리 결정일 | 하드코딩 YAML (연초 공개) | — |
+| 2 | Trading Economics guest 또는 유료 FMP/Finnhub | 예상치·컨센서스·실제치 추가 | 유료 검토 시점에 | TBD |
+| 2 | FMP `/stable/earnings-calendar` 또는 대체 | 미국 상장사 어닝 | 유료 | TBD |
+| 3 | SEC EDGAR | 미국 10-K/10-Q/8-K/Form 4 | 무료, 키 불필요 | — |
+| 3 | OPEN DART | 한국 공시 (사업보고서, 주요사항보고서 등) | 무료 | `MAIN_VITE_DART_API_KEY` |
+
+**Phase 1 한계**: FRED 릴리스는 date만 주고 time은 없음 → UI는 date-only 표시. 예상치·실제치·컨센서스 없음. US 릴리스만. 본인 리서치로 보완하는 전제.
+
+### 구현된 파일 구조
 
 ```
 src/main/market/
-├── fmp-client.ts              FMP API 래퍼
-└── ipc.ts                     market:fmp:calendar 핸들러 추가
-src/preload/index.ts           marketAPI.fmp.calendar 노출
+├── fred-client.ts             fetchSeries, fetchManySeries, fetchReleaseDates
+└── ipc.ts                     market:fred:{getSeries,getMany,getReleaseDates}
+src/preload/index.ts           marketAPI.fred.getReleaseDates 노출
 src/renderer/src/entities/
-└── economic-event/            EconomicEvent 타입, 국가 플래그 매핑
+└── calendar-event/            CalendarEvent 유니언, COUNTRY_LABEL, normalizeCountry
 src/renderer/src/widgets/
 └── economic-calendar/
     ├── index.ts / client.ts
-    ├── model/{types,use-calendar-store}.ts
-    └── ui/{CalendarClient,DayGroup,EventRow}.tsx
+    ├── model/
+    │   ├── economic-calendar.types.ts
+    │   ├── range.ts                     KST 기준 주 범위·fetch 윈도우
+    │   ├── filters.ts                   필터·day grouping
+    │   ├── releases-catalog.ts          curated FRED release IDs
+    │   └── use-economic-calendar-store.ts
+    └── ui/{EconomicCalendarClient, DayGroup, EventRow, RangeSelector, TypeFilter, ImportanceFilter}.tsx
 ```
 
-### 설정
+### 다음 단계 (Phase 2/3)
 
-`.env`에 `MAIN_VITE_FMP_API_KEY` 추가.
+- **예상치·컨센서스 덧붙이기** — 본인이 유료 구독 의지 생기는 시점에. 현재 위젯에 드롭인 가능 (entity 타입이 이미 optional 필드 보유)
+- **Earnings 탭** — Watchlist 완성 + 유료 소스 결정 후
+- **Filings 탭** — 특정 회사에 관심 생긴 시점 (SEC EDGAR 무료, DART 무료)
 
 ## TODO: Widget 3 — Watchlist + Indices 🚧
 
@@ -154,18 +179,23 @@ src/renderer/src/widgets/
 
 ## Roadmap 순서 권장
 
-1. **ECOS 확장** (1~2h) — 매크로 위젯을 한국 투자자용으로 완성
-2. **Economic Calendar** (반나절~하루) — 매크로 지표와 시너지, 인프라 재사용
-3. **Watchlist** (하루~이틀) — 사용자가 실제 매수 단계 진입 시점에 맞춰 (현재는 관찰 단계)
+1. **Economic Calendar — Phase 1** ✅ — FRED 릴리스 스케줄 (구현 완료)
+2. **ECOS 확장** (1~2h) — 매크로 위젯에 한국 지표 추가 (기준금리, 한국 CPI, M2)
+3. **Watchlist + Indices** (하루~이틀) — 실제 매수 단계 진입 시점에 맞춰
+4. **Economic Calendar — Phase 2** — 예상치·실제치 보강 (유료 API 검토 시점) + 어닝 탭
+5. **Economic Calendar — Phase 3** — EDGAR·DART 공시. 관심 회사 고정되면 착수
 
 ## Cost
 
 | 소스 | 제한 | 비용 |
 |---|---|---|
 | FRED | 120 req/min | 무료 |
-| FMP | 250 req/day | 무료 |
+| ~~FMP~~ | ~~250 req/day~~ | ~~무료~~ (2025-08 기준 economic/earnings calendar는 유료 전환) |
 | Yahoo Finance | 비공식, 적정 사용 | 무료 |
 | ECOS | 사용량 제한 있음 | 무료 |
+| SEC EDGAR | 10 req/sec, UA 헤더 필수 | 무료 |
+| OPEN DART | 20,000 req/day | 무료 |
+| Finnhub economic calendar | — | 유료 (Basic $59/월~) |
 
 **총 예상 비용: $0/월**
 
