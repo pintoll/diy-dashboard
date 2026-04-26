@@ -36,3 +36,4 @@ jobs:
         run: pnpm build && pnpm electron:build --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAIN_VITE_FRED_API_KEY: ${{ secrets.MAIN_VITE_FRED_API_KEY }}
