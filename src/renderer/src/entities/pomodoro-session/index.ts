@@ -4,6 +4,8 @@ export type {
   PomodoroPreset,
   PomodoroConfig,
   PomodoroSessionRecord,
+  AttentionVerdict,
+  AttentionSource,
 } from "./model/pomodoro-session.types";
 
 export { POMODORO_PRESETS } from "./model/pomodoro-session.types";

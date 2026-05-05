@@ -23,6 +23,9 @@ export type PomodoroConfig = {
   pomodorosUntilLongBreak: number;
 };
 
+export type AttentionVerdict = "focus" | "leisure" | "mixed";
+export type AttentionSource = "auto" | "user";
+
 export type PomodoroSessionRecord = {
   id: string;
   phase: "work";
@@ -30,4 +33,10 @@ export type PomodoroSessionRecord = {
   endedAt: number;
   durationSec: number;
   presetId: PomodoroPresetId;
+  overtimeSec: number;
+  idleSec: number;
+  attention: AttentionVerdict;
+  attentionSource: AttentionSource;
+  processBuckets: Record<string, number>;
+  cappedAt60m: boolean;
 };

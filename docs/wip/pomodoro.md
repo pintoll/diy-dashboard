@@ -89,16 +89,17 @@ The work is split into 7 stages. Land and validate each before starting the next
 
 ---
 
-## Stage 1 — Schema foundations
+## Stage 1 — Schema foundations — **Done**
 
-Extend `entities/pomodoro-session` so later stages slot in without further migrations.
+Extended `entities/pomodoro-session` so later stages slot in without further migrations.
 
-- Add to session log record: `overtimeSec: number`, `idleSec: number` (idle within session), `attention: "focus" | "leisure" | "mixed"`, `attentionSource: "auto" | "user"`, `processBuckets: Record<string, number>` (exe name → seconds), `cappedAt60m: boolean`.
-- Migration: existing rows get `overtimeSec=0`, `idleSec=0`, `attention="focus"`, `attentionSource="auto"`, `processBuckets={}`, `cappedAt60m=false`.
-- Bump `STORE_VERSION` for `useSessionLogStore`.
-- No UI changes in this stage. Verify load/save round-trips, old entries still render.
+- `PomodoroSessionRecord` gained six fields: `overtimeSec`, `idleSec`, `attention` (`"focus" | "leisure" | "mixed"`), `attentionSource` (`"auto" | "user"`), `processBuckets` (`Record<string, number>`, exe name → seconds), `cappedAt60m`.
+- New type aliases `AttentionVerdict` and `AttentionSource` exported from the entity public API.
+- `useSessionLogStore` now declares `STORE_VERSION = 1` and a `migrate(persistedState, version)` that backfills the six fields on v0 → v1 (defaults: `0, 0, "focus", "auto", {}, false`).
+- `recordSession` input was softened to `Omit<…, "id" | <stage-1-fields>> & Partial<Pick<…, <stage-1-fields>>>` so the existing Stage-0 call site (`widgets/pomodoro-timer/model/use-pomodoro-store.ts`) compiles unchanged; the action spreads default values before the caller's record.
+- Stage 2+ callers can now pass real values for the new fields without further schema changes.
 
-Files: `src/renderer/src/entities/pomodoro-session/`.
+Files touched: `src/renderer/src/entities/pomodoro-session/{index.ts, model/pomodoro-session.types.ts, model/use-session-log-store.ts}`.
 
 ---
 
