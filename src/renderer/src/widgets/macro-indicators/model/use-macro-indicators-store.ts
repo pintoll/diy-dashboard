@@ -1,6 +1,9 @@
 import { useMemo } from "react";
 import { createWidgetStore } from "@/src/shared/lib/create-widget-store";
-import type { SeriesSnapshot } from "@/src/entities/market-indicator";
+import {
+  MISSING_FRED_API_KEY_ERROR,
+  type SeriesSnapshot,
+} from "@/src/entities/market-indicator";
 import { ALL_SERIES_IDS } from "./indicators-catalog";
 import type {
   MacroIndicatorsActions,
@@ -14,10 +17,6 @@ const STORE_VERSION = 2;
 const POINTS_LIMIT = 1300;
 const DEFAULT_TIMEFRAME: Timeframe = "1M";
 export const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
-
-// Mirrors FRED_MISSING_API_KEY_ERROR in src/main/market/fred-client.ts — the
-// main process throws this exact string and the renderer matches on equality.
-const MISSING_FRED_API_KEY_ERROR = "MISSING_FRED_API_KEY";
 
 export function isStale(lastFetchedAt: string | null): boolean {
   if (!lastFetchedAt) return true;

@@ -17,6 +17,15 @@ type RecordSessionInput =
   Omit<PomodoroSessionRecord, "id" | StageOneFields>
   & Partial<Pick<PomodoroSessionRecord, StageOneFields>>;
 
+const STAGE_ONE_DEFAULTS: Pick<PomodoroSessionRecord, StageOneFields> = {
+  overtimeSec: 0,
+  idleSec: 0,
+  attention: "focus",
+  attentionSource: "auto",
+  processBuckets: {},
+  cappedAt60m: false,
+};
+
 type SessionLogState = {
   sessions: PomodoroSessionRecord[];
   recordSession: (record: RecordSessionInput) => void;
@@ -27,13 +36,8 @@ function migrate(persistedState: unknown, version: number): SessionLogState {
   const state = (persistedState ?? {}) as { sessions?: Partial<PomodoroSessionRecord>[] };
   if (version < 1) {
     const sessions: PomodoroSessionRecord[] = (state.sessions ?? []).map((s) => ({
+      ...STAGE_ONE_DEFAULTS,
       ...s,
-      overtimeSec: s.overtimeSec ?? 0,
-      idleSec: s.idleSec ?? 0,
-      attention: s.attention ?? "focus",
-      attentionSource: s.attentionSource ?? "auto",
-      processBuckets: s.processBuckets ?? {},
-      cappedAt60m: s.cappedAt60m ?? false,
     })) as PomodoroSessionRecord[];
     return { ...(state as object), sessions } as SessionLogState;
   }
@@ -48,12 +52,7 @@ export const useSessionLogStore = create<SessionLogState>()(
       recordSession: (record) => {
         const entry: PomodoroSessionRecord = {
           id: nanoid(),
-          overtimeSec: 0,
-          idleSec: 0,
-          attention: "focus",
-          attentionSource: "auto",
-          processBuckets: {},
-          cappedAt60m: false,
+          ...STAGE_ONE_DEFAULTS,
           ...record,
         };
         set((state) => ({ sessions: [...state.sessions, entry] }));

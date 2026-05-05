@@ -29,16 +29,29 @@ function formatTime(seconds: number): string {
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
-function useDisplayTicker(
-  getSnapshot: () => number,
-  active: boolean,
-  syncTime: () => PomodoroPhase | null,
-  tick: () => void,
-  notificationsEnabled: boolean,
-  scheduleNotification: boolean,
-  phase: PomodoroPhase,
-  getRemaining: () => number
-) {
+type DisplayTickerOpts = {
+  getSnapshot: () => number;
+  active: boolean;
+  syncTime: () => PomodoroPhase | null;
+  tick: () => void;
+  notificationsEnabled: boolean;
+  scheduleNotification: boolean;
+  phase: PomodoroPhase;
+  getRemainingForNotification: () => number;
+};
+
+function useDisplayTicker(opts: DisplayTickerOpts) {
+  const {
+    getSnapshot,
+    active,
+    syncTime,
+    tick,
+    notificationsEnabled,
+    scheduleNotification,
+    phase,
+    getRemainingForNotification,
+  } = opts;
+
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
       let intervalId: ReturnType<typeof setInterval> | null = null;
@@ -60,7 +73,7 @@ function useDisplayTicker(
 
       if (active) {
         if (scheduleNotification && notificationsEnabled) {
-          const remaining = getRemaining();
+          const remaining = getRemainingForNotification();
           if (remaining > 0) {
             cancelScheduled = schedulePhaseEndNotification(remaining, phase);
           }
@@ -84,7 +97,7 @@ function useDisplayTicker(
         }
       };
     },
-    [active, syncTime, tick, notificationsEnabled, scheduleNotification, phase, getRemaining]
+    [active, syncTime, tick, notificationsEnabled, scheduleNotification, phase, getRemainingForNotification]
   );
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
@@ -128,16 +141,16 @@ export function PomodoroClient({
     [isOvertime, getOvertimeElapsed, getTimeRemaining]
   );
 
-  const displayTime = useDisplayTicker(
+  const displayTime = useDisplayTicker({
     getSnapshot,
     active,
     syncTime,
     tick,
     notificationsEnabled,
-    !isOvertime,
+    scheduleNotification: !isOvertime,
     phase,
-    getTimeRemaining
-  );
+    getRemainingForNotification: getTimeRemaining,
+  });
 
   useEffect(() => {
     const completedPhase = syncTime();
@@ -152,19 +165,13 @@ export function PomodoroClient({
     const api = typeof window !== "undefined" ? window.electronAPI : undefined;
     if (!api?.getIdleTime) return;
 
-    let inFlight = false;
     let cancelled = false;
 
     const runPoll = async () => {
-      if (inFlight || cancelled) return;
-      inFlight = true;
-      try {
-        const idleSec = await api.getIdleTime();
-        if (cancelled) return;
-        pollIdle(idleSec);
-      } finally {
-        inFlight = false;
-      }
+      if (cancelled) return;
+      const idleSec = await api.getIdleTime();
+      if (cancelled) return;
+      pollIdle(idleSec);
     };
 
     void runPoll();

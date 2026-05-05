@@ -17,10 +17,10 @@ export function applyFilters(
   return events
     .filter((ev) => {
       const key = kstDateKey(ev.datetime);
-      return key >= from && key <= to;
+      if (key < from || key > to) return false;
+      if (typeFilter !== "all" && ev.kind !== typeFilter) return false;
+      return ev.importance >= minImportance;
     })
-    .filter((ev) => typeFilter === "all" || ev.kind === typeFilter)
-    .filter((ev) => ev.importance >= minImportance)
     .sort((a, b) => a.datetime.localeCompare(b.datetime));
 }
 
