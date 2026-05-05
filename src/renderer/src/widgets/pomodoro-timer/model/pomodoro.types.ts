@@ -16,6 +16,7 @@ export type OvertimeState = {
   accumulatedSec: number;
   lastActiveAt: number;
   isIdle: boolean;
+  firedAlarmsSec: number[];
 };
 
 export type PomodoroState = {
@@ -28,6 +29,8 @@ export type PomodoroState = {
   notificationsEnabled: boolean;
   overtime: OvertimeState | null;
   phaseEndPulse: number;
+  overtimeAlarmPulse: number;
+  lastOvertimeAlarmThresholdSec: number | null;
 };
 
 export type PomodoroActions = {

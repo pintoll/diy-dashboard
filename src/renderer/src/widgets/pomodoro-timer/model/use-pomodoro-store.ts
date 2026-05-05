@@ -12,9 +12,10 @@ import type {
 
 type PomodoroStore = PomodoroState & PomodoroActions & { config: PomodoroConfig };
 
-const STORE_VERSION = 6;
+const STORE_VERSION = 7;
 const OVERTIME_CAP_SEC = 3600;
 const OVERTIME_IDLE_THRESHOLD_SEC = 60;
+const OVERTIME_ALARM_THRESHOLDS_SEC = [300, 600, 1200, 1800, 3600] as const;
 
 const OVERTIME_AVAILABLE =
   typeof window !== "undefined" && !!window.electronAPI?.getIdleTime;
@@ -118,7 +119,13 @@ type SetFn = (partial: Partial<PomodoroStore>) => void;
 function startOvertime(state: PomodoroStore, set: SetFn) {
   const now = Date.now();
   set({
-    overtime: { startedAt: now, accumulatedSec: 0, lastActiveAt: now, isIdle: false },
+    overtime: {
+      startedAt: now,
+      accumulatedSec: 0,
+      lastActiveAt: now,
+      isIdle: false,
+      firedAlarmsSec: [],
+    },
     phaseEndPulse: state.phaseEndPulse + 1,
   });
 }
@@ -133,6 +140,7 @@ function endOvertime(
   set: SetFn,
   capped: boolean,
   accumulatedSecOverride?: number,
+  options?: { skipPhaseEndPulse?: boolean },
 ) {
   const overtime = state.overtime;
   if (overtime === null) return;
@@ -140,7 +148,12 @@ function endOvertime(
     ? { ...overtime, accumulatedSec: accumulatedSecOverride }
     : overtime;
   recordOvertimeSession(state, final, capped);
-  set({ ...completePhase(state), phaseEndPulse: state.phaseEndPulse + 1 });
+  const next = completePhase(state);
+  if (options?.skipPhaseEndPulse) {
+    set(next);
+  } else {
+    set({ ...next, phaseEndPulse: state.phaseEndPulse + 1 });
+  }
 }
 
 type OldPomodoroState = {
@@ -180,6 +193,19 @@ function migrateState(persistedState: unknown, version: number): PomodoroStore {
     state = { ...state, overtime: null, phaseEndPulse: 0 };
   }
 
+  if (version < 7) {
+    const overtime = (state as { overtime?: OvertimeState | null }).overtime ?? null;
+    const overtimeWithAlarms = overtime
+      ? { ...overtime, firedAlarmsSec: overtime.firedAlarmsSec ?? [] }
+      : null;
+    state = {
+      ...state,
+      overtime: overtimeWithAlarms,
+      overtimeAlarmPulse: 0,
+      lastOvertimeAlarmThresholdSec: null,
+    };
+  }
+
   return state as unknown as PomodoroStore;
 }
 
@@ -195,6 +221,8 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       notificationsEnabled: true,
       overtime: null,
       phaseEndPulse: 0,
+      overtimeAlarmPulse: 0,
+      lastOvertimeAlarmThresholdSec: null,
       config,
 
       start: () => {},
@@ -353,8 +381,31 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             }
           }
 
+          const previouslyFired = overtime.firedAlarmsSec;
+          const newlyFired = OVERTIME_ALARM_THRESHOLDS_SEC.filter(
+            (t) => accumulatedSec >= t && !previouslyFired.includes(t),
+          );
+          const firedAlarmsSec =
+            newlyFired.length > 0 ? [...previouslyFired, ...newlyFired] : previouslyFired;
+          const alarmDelta = newlyFired.length > 0 ? 1 : 0;
+          const latestThreshold =
+            newlyFired.length > 0
+              ? newlyFired[newlyFired.length - 1]
+              : state.lastOvertimeAlarmThresholdSec;
+
           if (accumulatedSec >= OVERTIME_CAP_SEC) {
-            endOvertime(state, set, true, OVERTIME_CAP_SEC);
+            set({
+              overtime: {
+                startedAt: overtime.startedAt,
+                accumulatedSec,
+                lastActiveAt,
+                isIdle,
+                firedAlarmsSec,
+              },
+              overtimeAlarmPulse: state.overtimeAlarmPulse + alarmDelta,
+              lastOvertimeAlarmThresholdSec: latestThreshold,
+            });
+            endOvertime(get(), set, true, OVERTIME_CAP_SEC, { skipPhaseEndPulse: true });
             return;
           }
 
@@ -364,7 +415,10 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
               accumulatedSec,
               lastActiveAt,
               isIdle,
+              firedAlarmsSec,
             },
+            overtimeAlarmPulse: state.overtimeAlarmPulse + alarmDelta,
+            lastOvertimeAlarmThresholdSec: latestThreshold,
           });
         },
 

@@ -52,6 +52,28 @@ export function showPhaseNotification(completedPhase: PomodoroPhase): void {
   });
 }
 
+const OVERTIME_CAP_SEC = 3600;
+
+export function showOvertimeAlarmNotification(thresholdSec: number): void {
+  const minutes = Math.round(thresholdSec / 60);
+  const isCap = thresholdSec >= OVERTIME_CAP_SEC;
+  const title = isCap ? "Overtime cap reached" : `Overtime: +${minutes}m`;
+  const body = isCap
+    ? "Auto-stopped at 60 minutes."
+    : `You've been in overtime for ${minutes} minutes.`;
+
+  if (isElectron()) {
+    window.electronAPI!.showNotification({ title, body });
+    return;
+  }
+
+  if (!hasNotificationPermission()) return;
+  new Notification(title, {
+    body,
+    tag: "pomodoro-overtime-alarm",
+  });
+}
+
 export function schedulePhaseEndNotification(
   remainingSeconds: number,
   phase: PomodoroPhase
