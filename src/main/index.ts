@@ -6,6 +6,7 @@ import {
   Tray,
   Menu,
   nativeImage,
+  powerMonitor,
   shell,
 } from "electron";
 import path from "path";
@@ -92,6 +93,14 @@ ipcMain.handle(
 
 ipcMain.handle("is-notification-supported", () => {
   return Notification.isSupported();
+});
+
+ipcMain.handle("pomodoro:get-idle-time", () => {
+  return powerMonitor.getSystemIdleTime();
+});
+
+ipcMain.handle("pomodoro:flash-frame", () => {
+  mainWindow?.flashFrame(true);
 });
 
 ipcMain.handle("check-for-updates", () => {

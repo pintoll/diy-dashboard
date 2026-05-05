@@ -11,6 +11,13 @@ export { POMODORO_PRESETS } from "@/src/entities/pomodoro-session";
 // Widget-specific state types (local to this widget)
 import type { PomodoroPhase, PomodoroPresetId, PomodoroConfig } from "@/src/entities/pomodoro-session";
 
+export type OvertimeState = {
+  startedAt: number;
+  accumulatedSec: number;
+  lastActiveAt: number;
+  isIdle: boolean;
+};
+
 export type PomodoroState = {
   phase: PomodoroPhase;
   isRunning: boolean;
@@ -19,6 +26,8 @@ export type PomodoroState = {
   pausedTimeRemaining: number | null;
   activePresetId: PomodoroPresetId;
   notificationsEnabled: boolean;
+  overtime: OvertimeState | null;
+  phaseEndPulse: number;
 };
 
 export type PomodoroActions = {
@@ -31,4 +40,9 @@ export type PomodoroActions = {
   getTimeRemaining: () => number;
   setPreset: (presetId: PomodoroPresetId, config: PomodoroConfig) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
+  enterOvertime: () => void;
+  pollIdle: (idleSec: number) => void;
+  stopOvertime: () => void;
+  autoStopOvertime: () => void;
+  getOvertimeElapsed: () => number;
 };

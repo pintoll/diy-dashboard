@@ -1,5 +1,5 @@
-import { useEffect, useSyncExternalStore, useCallback } from "react";
-import { Play, Pause, RotateCcw, SkipForward } from "lucide-react";
+import { useEffect, useRef, useSyncExternalStore, useCallback } from "react";
+import { Play, Pause, RotateCcw, SkipForward, Square } from "lucide-react";
 import { Button } from "@/src/shared/ui/button";
 import type { WidgetProps } from "@/src/shared/types";
 import type { PomodoroConfig, PomodoroPhase } from "../model/pomodoro.types";
@@ -8,6 +8,7 @@ import {
   showPhaseNotification,
   schedulePhaseEndNotification,
 } from "../model/notifications";
+import { playChime } from "../model/chime";
 import { PomodoroSettings } from "./PomodoroSettings";
 
 const PHASE_LABELS = {
@@ -24,17 +25,19 @@ const PHASE_COLORS = {
 
 function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
+  const secs = Math.floor(seconds) % 60;
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
-function useTimeDisplay(
-  getTimeRemaining: () => number,
-  isRunning: boolean,
+function useDisplayTicker(
+  getSnapshot: () => number,
+  active: boolean,
   syncTime: () => PomodoroPhase | null,
   tick: () => void,
   notificationsEnabled: boolean,
-  phase: PomodoroPhase
+  scheduleNotification: boolean,
+  phase: PomodoroPhase,
+  getRemaining: () => number
 ) {
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
@@ -55,9 +58,9 @@ function useTimeDisplay(
         document.addEventListener("visibilitychange", handleVisibilityChange);
       }
 
-      if (isRunning) {
-        if (notificationsEnabled) {
-          const remaining = getTimeRemaining();
+      if (active) {
+        if (scheduleNotification && notificationsEnabled) {
+          const remaining = getRemaining();
           if (remaining > 0) {
             cancelScheduled = schedulePhaseEndNotification(remaining, phase);
           }
@@ -81,10 +84,10 @@ function useTimeDisplay(
         }
       };
     },
-    [isRunning, syncTime, tick, notificationsEnabled, phase, getTimeRemaining]
+    [active, syncTime, tick, notificationsEnabled, scheduleNotification, phase, getRemaining]
   );
 
-  return useSyncExternalStore(subscribe, getTimeRemaining, getTimeRemaining);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 export function PomodoroClient({
@@ -92,11 +95,49 @@ export function PomodoroClient({
   config,
 }: WidgetProps<PomodoroConfig>) {
   const store = usePomodoroStore(instanceId, config);
-  const { phase, isRunning, completedPomodoros, activePresetId, notificationsEnabled } = store();
-  const { start, pause, reset, skip, tick, syncTime, getTimeRemaining, setPreset, setNotificationsEnabled } = store();
+  const {
+    phase,
+    isRunning,
+    completedPomodoros,
+    activePresetId,
+    notificationsEnabled,
+    overtime,
+    phaseEndPulse,
+  } = store();
+  const {
+    start,
+    pause,
+    reset,
+    skip,
+    tick,
+    syncTime,
+    getTimeRemaining,
+    getOvertimeElapsed,
+    pollIdle,
+    stopOvertime,
+    setPreset,
+    setNotificationsEnabled,
+  } = store();
   const currentConfig = store().config;
 
-  const displayTime = useTimeDisplay(getTimeRemaining, isRunning, syncTime, tick, notificationsEnabled, phase);
+  const isOvertime = overtime !== null;
+  const active = isRunning || isOvertime;
+
+  const getSnapshot = useCallback(
+    () => (isOvertime ? getOvertimeElapsed() : getTimeRemaining()),
+    [isOvertime, getOvertimeElapsed, getTimeRemaining]
+  );
+
+  const displayTime = useDisplayTicker(
+    getSnapshot,
+    active,
+    syncTime,
+    tick,
+    notificationsEnabled,
+    !isOvertime,
+    phase,
+    getTimeRemaining
+  );
 
   useEffect(() => {
     const completedPhase = syncTime();
@@ -104,6 +145,62 @@ export function PomodoroClient({
       showPhaseNotification(completedPhase);
     }
   }, [syncTime, notificationsEnabled]);
+
+  // Idle polling during overtime
+  useEffect(() => {
+    if (!isOvertime) return;
+    const api = typeof window !== "undefined" ? window.electronAPI : undefined;
+    if (!api?.getIdleTime) return;
+
+    let inFlight = false;
+    let cancelled = false;
+
+    const runPoll = async () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
+      try {
+        const idleSec = await api.getIdleTime();
+        if (cancelled) return;
+        pollIdle(idleSec);
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void runPoll();
+    const intervalId = setInterval(runPoll, 5000);
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void runPoll();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [isOvertime, pollIdle]);
+
+  // Chime + taskbar flash on phase end
+  const lastPulseRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (lastPulseRef.current === null) {
+      lastPulseRef.current = phaseEndPulse;
+      return;
+    }
+    if (phaseEndPulse === lastPulseRef.current) return;
+    lastPulseRef.current = phaseEndPulse;
+    playChime();
+    void window.electronAPI?.flashFrame();
+  }, [phaseEndPulse]);
+
+  const phaseLabel = isOvertime ? "Overtime" : PHASE_LABELS[phase];
+  const phaseColor = isOvertime ? "text-destructive" : PHASE_COLORS[phase];
+  const timeText = isOvertime ? `+${formatTime(displayTime)}` : formatTime(displayTime);
+  const timeColor = isOvertime ? "text-destructive" : "";
 
   return (
     <div className="relative flex flex-col items-center justify-center h-full gap-4">
@@ -116,16 +213,25 @@ export function PomodoroClient({
           onNotificationsChange={setNotificationsEnabled}
         />
       </div>
-      <div className={`text-sm font-medium ${PHASE_COLORS[phase]}`}>
-        {PHASE_LABELS[phase]}
+      <div className={`text-sm font-medium ${phaseColor}`}>
+        {phaseLabel}
+        {isOvertime && overtime?.isIdle && (
+          <span className="ml-2 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground">
+            Idle — paused
+          </span>
+        )}
       </div>
 
-      <div className="text-5xl font-mono font-bold tabular-nums">
-        {formatTime(displayTime)}
+      <div className={`text-5xl font-mono font-bold tabular-nums ${timeColor}`}>
+        {timeText}
       </div>
 
       <div className="flex items-center gap-2">
-        {isRunning ? (
+        {isOvertime ? (
+          <Button variant="destructive" size="icon" onClick={stopOvertime} title="Stop and save">
+            <Square className="h-4 w-4" />
+          </Button>
+        ) : isRunning ? (
           <Button variant="outline" size="icon" onClick={pause}>
             <Pause className="h-4 w-4" />
           </Button>
@@ -134,12 +240,14 @@ export function PomodoroClient({
             <Play className="h-4 w-4" />
           </Button>
         )}
-        <Button variant="outline" size="icon" onClick={reset}>
+        <Button variant="outline" size="icon" onClick={reset} title={isOvertime ? "Discard overtime" : "Reset"}>
           <RotateCcw className="h-4 w-4" />
         </Button>
-        <Button variant="outline" size="icon" onClick={skip}>
-          <SkipForward className="h-4 w-4" />
-        </Button>
+        {!isOvertime && (
+          <Button variant="outline" size="icon" onClick={skip}>
+            <SkipForward className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
       <div className="text-xs text-muted-foreground">

@@ -30,4 +30,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
   quitAndInstallUpdate: () => ipcRenderer.invoke("quit-and-install-update"),
+  getIdleTime: () => ipcRenderer.invoke("pomodoro:get-idle-time"),
+  flashFrame: () => ipcRenderer.invoke("pomodoro:flash-frame"),
 });
