@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { createWidgetStore } from "@/src/shared/lib/create-widget-store";
 import type { CalendarEvent } from "@/src/entities/calendar-event";
+import { MISSING_FRED_API_KEY_ERROR } from "@/src/entities/market-indicator";
 import type {
   EconomicCalendarActions,
   EconomicCalendarState,
@@ -18,10 +19,6 @@ const DEFAULT_RANGE: RangeKey = "thisWeek";
 const DEFAULT_TYPE_FILTER: TypeFilter = "all";
 const DEFAULT_MIN_IMPORTANCE: MinImportanceFilter = 1;
 export const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
-
-// Mirrors FRED_MISSING_API_KEY_ERROR in src/main/market/fred-client.ts — the
-// main process throws this exact string and the renderer matches on equality.
-const MISSING_FRED_API_KEY_ERROR = "MISSING_FRED_API_KEY";
 
 export function isStale(lastFetchedAt: string | null): boolean {
   if (!lastFetchedAt) return true;

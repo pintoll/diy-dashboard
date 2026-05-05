@@ -113,6 +113,36 @@ function completePhase(state: Pick<PomodoroState, "phase" | "completedPomodoros"
   } as const;
 }
 
+type SetFn = (partial: Partial<PomodoroStore>) => void;
+
+function startOvertime(state: PomodoroStore, set: SetFn) {
+  const now = Date.now();
+  set({
+    overtime: { startedAt: now, accumulatedSec: 0, lastActiveAt: now, isIdle: false },
+    phaseEndPulse: state.phaseEndPulse + 1,
+  });
+}
+
+function finishWorkPhase(state: PomodoroStore, set: SetFn) {
+  recordCompletedWorkSession(state);
+  set({ ...completePhase(state), phaseEndPulse: state.phaseEndPulse + 1 });
+}
+
+function endOvertime(
+  state: PomodoroStore,
+  set: SetFn,
+  capped: boolean,
+  accumulatedSecOverride?: number,
+) {
+  const overtime = state.overtime;
+  if (overtime === null) return;
+  const final = accumulatedSecOverride !== undefined
+    ? { ...overtime, accumulatedSec: accumulatedSecOverride }
+    : overtime;
+  recordOvertimeSession(state, final, capped);
+  set({ ...completePhase(state), phaseEndPulse: state.phaseEndPulse + 1 });
+}
+
 type OldPomodoroState = {
   phase: PomodoroPhase;
   timeRemaining: number;
@@ -253,24 +283,11 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           if (remaining > 0) return;
 
           if (state.phase === "work" && OVERTIME_AVAILABLE) {
-            const now = Date.now();
-            set({
-              overtime: {
-                startedAt: now,
-                accumulatedSec: 0,
-                lastActiveAt: now,
-                isIdle: false,
-              },
-              phaseEndPulse: state.phaseEndPulse + 1,
-            });
+            startOvertime(state, set);
             return;
           }
 
-          recordCompletedWorkSession(state);
-          set({
-            ...completePhase(state),
-            phaseEndPulse: state.phaseEndPulse + 1,
-          });
+          finishWorkPhase(state, set);
         },
 
         syncTime: (): PomodoroPhase | null => {
@@ -282,24 +299,11 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           if (remaining > 0) return null;
 
           if (state.phase === "work" && OVERTIME_AVAILABLE) {
-            const now = Date.now();
-            set({
-              overtime: {
-                startedAt: now,
-                accumulatedSec: 0,
-                lastActiveAt: now,
-                isIdle: false,
-              },
-              phaseEndPulse: state.phaseEndPulse + 1,
-            });
+            startOvertime(state, set);
             return null;
           }
 
-          recordCompletedWorkSession(state);
-          set({
-            ...completePhase(state),
-            phaseEndPulse: state.phaseEndPulse + 1,
-          });
+          finishWorkPhase(state, set);
           return state.phase;
         },
 
@@ -322,16 +326,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
         enterOvertime: () => {
           const state = get();
           if (state.overtime !== null) return;
-          const now = Date.now();
-          set({
-            overtime: {
-              startedAt: now,
-              accumulatedSec: 0,
-              lastActiveAt: now,
-              isIdle: false,
-            },
-            phaseEndPulse: state.phaseEndPulse + 1,
-          });
+          startOvertime(state, set);
         },
 
         pollIdle: (idleSec: number) => {
@@ -359,17 +354,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           }
 
           if (accumulatedSec >= OVERTIME_CAP_SEC) {
-            const cappedOvertime: OvertimeState = {
-              ...overtime,
-              accumulatedSec: OVERTIME_CAP_SEC,
-              lastActiveAt,
-              isIdle,
-            };
-            recordOvertimeSession(state, cappedOvertime, true);
-            set({
-              ...completePhase(state),
-              phaseEndPulse: state.phaseEndPulse + 1,
-            });
+            endOvertime(state, set, true, OVERTIME_CAP_SEC);
             return;
           }
 
@@ -384,29 +369,19 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
         },
 
         stopOvertime: () => {
-          const state = get();
-          const overtime = state.overtime;
-          if (overtime === null) return;
-          recordOvertimeSession(state, overtime, false);
-          set({
-            ...completePhase(state),
-            phaseEndPulse: state.phaseEndPulse + 1,
-          });
+          endOvertime(get(), set, false);
         },
 
         autoStopOvertime: () => {
           const state = get();
           const overtime = state.overtime;
           if (overtime === null) return;
-          const cappedOvertime: OvertimeState = {
-            ...overtime,
-            accumulatedSec: Math.min(overtime.accumulatedSec, OVERTIME_CAP_SEC),
-          };
-          recordOvertimeSession(state, cappedOvertime, true);
-          set({
-            ...completePhase(state),
-            phaseEndPulse: state.phaseEndPulse + 1,
-          });
+          endOvertime(
+            state,
+            set,
+            true,
+            Math.min(overtime.accumulatedSec, OVERTIME_CAP_SEC),
+          );
         },
       }),
       {
