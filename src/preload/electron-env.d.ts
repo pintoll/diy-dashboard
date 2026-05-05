@@ -12,6 +12,8 @@ interface ElectronAPI {
   onUpdateStatus: (callback: (payload: UpdateStatusPayload) => void) => () => void;
   checkForUpdates: () => Promise<void>;
   quitAndInstallUpdate: () => Promise<void>;
+  getIdleTime: () => Promise<number>;
+  flashFrame: () => Promise<void>;
 }
 
 interface MarketSeriesPoint {
