@@ -7,6 +7,7 @@ import { usePomodoroStore } from "../model/use-pomodoro-store";
 import {
   showPhaseNotification,
   schedulePhaseEndNotification,
+  showOvertimeAlarmNotification,
 } from "../model/notifications";
 import { playChime } from "../model/chime";
 import { PomodoroSettings } from "./PomodoroSettings";
@@ -116,6 +117,8 @@ export function PomodoroClient({
     notificationsEnabled,
     overtime,
     phaseEndPulse,
+    overtimeAlarmPulse,
+    lastOvertimeAlarmThresholdSec,
   } = store();
   const {
     start,
@@ -203,6 +206,23 @@ export function PomodoroClient({
     playChime();
     void window.electronAPI?.flashFrame();
   }, [phaseEndPulse]);
+
+  // Chime + flash + OS notification on each overtime alarm threshold
+  const lastOvertimeAlarmPulseRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (lastOvertimeAlarmPulseRef.current === null) {
+      lastOvertimeAlarmPulseRef.current = overtimeAlarmPulse;
+      return;
+    }
+    if (overtimeAlarmPulse === lastOvertimeAlarmPulseRef.current) return;
+    lastOvertimeAlarmPulseRef.current = overtimeAlarmPulse;
+    if (lastOvertimeAlarmThresholdSec === null) return;
+    playChime();
+    void window.electronAPI?.flashFrame();
+    if (notificationsEnabled) {
+      showOvertimeAlarmNotification(lastOvertimeAlarmThresholdSec);
+    }
+  }, [overtimeAlarmPulse, lastOvertimeAlarmThresholdSec, notificationsEnabled]);
 
   const phaseLabel = isOvertime ? "Overtime" : PHASE_LABELS[phase];
   const phaseColor = isOvertime ? "text-destructive" : PHASE_COLORS[phase];
