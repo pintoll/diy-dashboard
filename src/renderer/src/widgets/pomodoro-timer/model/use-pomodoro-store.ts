@@ -443,16 +443,13 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
         confirmReview: (input: ConfirmReviewInput) => {
           const { pendingReview } = get();
           if (pendingReview === null) return;
-          const overtimeSec = input.overtimeSecOverride !== undefined
-            ? Math.max(0, Math.floor(input.overtimeSecOverride))
-            : pendingReview.overtimeSec;
           useSessionLogStore.getState().recordSession({
             phase: "work",
             startedAt: pendingReview.startedAt,
             endedAt: pendingReview.endedAt,
             durationSec: pendingReview.durationSec,
             presetId: pendingReview.presetId,
-            overtimeSec,
+            overtimeSec: Math.max(0, Math.floor(input.overtimeSec)),
             idleSec: pendingReview.idleSec,
             cappedAt60m: pendingReview.cappedAt60m,
             attention: input.attention,

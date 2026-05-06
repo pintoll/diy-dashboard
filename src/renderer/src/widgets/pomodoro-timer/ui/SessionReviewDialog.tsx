@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,8 +10,8 @@ import {
 import { Button } from "@/src/shared/ui/button";
 import { Input } from "@/src/shared/ui/input";
 import { Label } from "@/src/shared/ui/label";
-import { cn } from "@/src/shared/lib/utils";
 import type {
+  AttentionSource,
   AttentionVerdict,
   ConfirmReviewInput,
   PendingReview,
@@ -32,51 +32,24 @@ type Props = {
   onConfirm: (input: ConfirmReviewInput) => void;
 };
 
-function formatCountdown(seconds: number): string {
-  const safe = Math.max(0, seconds);
-  const m = Math.floor(safe / 60);
-  const s = safe % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
 export function SessionReviewDialog({ open, pending, onConfirm }: Props) {
-  // Keep a stable snapshot so the summary text doesn't disappear during close animation.
+  // Keep showing the data through the close animation after `pending` flips to null.
   const lastPendingRef = useRef<PendingReview | null>(pending);
-  if (pending !== null) {
-    lastPendingRef.current = pending;
-  }
+  if (pending !== null) lastPendingRef.current = pending;
   const snapshot = lastPendingRef.current;
 
   const [attention, setAttention] = useState<AttentionVerdict>("focus");
-  const [totalMin, setTotalMin] = useState<string>("0");
-  const [userTouched, setUserTouched] = useState(false);
+  const [totalMin, setTotalMin] = useState("0");
   const [secondsLeft, setSecondsLeft] = useState(AUTO_CONFIRM_SECONDS);
 
-  // Refs so the auto-fire callback always reads latest values without resubscribing.
-  const attentionRef = useRef(attention);
-  const totalMinRef = useRef(totalMin);
-  const userTouchedRef = useRef(userTouched);
-  const onConfirmRef = useRef(onConfirm);
-  const snapshotRef = useRef(snapshot);
-  const firedRef = useRef(false);
-  attentionRef.current = attention;
-  totalMinRef.current = totalMin;
-  userTouchedRef.current = userTouched;
-  onConfirmRef.current = onConfirm;
-  snapshotRef.current = snapshot;
-
-  // Reset transient state every time the dialog (re)opens with fresh data.
   useEffect(() => {
     if (!open || pending === null) return;
     const totalSec = pending.durationSec + pending.overtimeSec;
     setAttention("focus");
     setTotalMin(String(Math.round(totalSec / 60)));
-    setUserTouched(false);
     setSecondsLeft(AUTO_CONFIRM_SECONDS);
-    firedRef.current = false;
   }, [open, pending]);
 
-  // Countdown ticker — only runs while open.
   useEffect(() => {
     if (!open) return;
     const id = setInterval(() => {
@@ -85,53 +58,41 @@ export function SessionReviewDialog({ open, pending, onConfirm }: Props) {
     return () => clearInterval(id);
   }, [open]);
 
-  const fireConfirm = () => {
-    if (firedRef.current) return;
-    const snap = snapshotRef.current;
-    if (snap === null) return;
-    firedRef.current = true;
-    const touched = userTouchedRef.current;
-    let overtimeSecOverride: number | undefined;
-    if (touched) {
-      const editedMin = Number(totalMinRef.current);
-      if (Number.isFinite(editedMin) && editedMin >= 0) {
-        const editedSec = Math.round(editedMin * 60);
-        overtimeSecOverride = Math.max(0, editedSec - snap.durationSec);
-      }
-    }
-    onConfirmRef.current({
-      attention: attentionRef.current,
-      attentionSource: touched ? "user" : "auto",
-      overtimeSecOverride,
-    });
-  };
+  const fire = useCallback(
+    (source: AttentionSource) => {
+      if (snapshot === null) return;
+      const editedMin = Number(totalMin);
+      const editedSec =
+        Number.isFinite(editedMin) && editedMin >= 0
+          ? Math.round(editedMin * 60)
+          : snapshot.durationSec + snapshot.overtimeSec;
+      const overtimeSec = Math.max(0, editedSec - snapshot.durationSec);
+      onConfirm({ attention, attentionSource: source, overtimeSec });
+    },
+    [snapshot, totalMin, attention, onConfirm],
+  );
 
-  // Fire when countdown elapses. fireConfirm reads refs, so it doesn't need to be in deps.
+  // Auto-fire when countdown elapses. The store's confirmReview clears
+  // pendingReview on first call, so duplicate calls during the close transition
+  // are no-ops at the store level — no fired-flag is needed here.
   useEffect(() => {
-    if (!open) return;
-    if (secondsLeft > 0) return;
-    fireConfirm();
-  }, [open, secondsLeft]);
+    if (!open || secondsLeft > 0) return;
+    fire("auto");
+  }, [open, secondsLeft, fire]);
+
+  const resetCountdown = () => setSecondsLeft(AUTO_CONFIRM_SECONDS);
 
   const handleOpenChange = (next: boolean) => {
-    if (next) return;
-    // Esc / outside-click / explicit close → confirm immediately.
-    fireConfirm();
-  };
-
-  const resetCountdown = () => {
-    setSecondsLeft(AUTO_CONFIRM_SECONDS);
+    if (!next) fire("user");
   };
 
   const handleAttentionChange = (next: AttentionVerdict) => {
     setAttention(next);
-    setUserTouched(true);
     resetCountdown();
   };
 
   const handleTotalMinChange = (next: string) => {
     setTotalMin(next);
-    setUserTouched(true);
     resetCountdown();
   };
 
@@ -194,7 +155,7 @@ export function SessionReviewDialog({ open, pending, onConfirm }: Props) {
                   aria-checked={selected}
                   variant={selected ? "default" : "outline"}
                   size="sm"
-                  className={cn("flex-1")}
+                  className="flex-1"
                   onClick={() => handleAttentionChange(opt.value)}
                 >
                   {opt.label}
@@ -206,9 +167,9 @@ export function SessionReviewDialog({ open, pending, onConfirm }: Props) {
 
         <DialogFooter className="items-center sm:justify-between">
           <span className="text-xs text-muted-foreground">
-            Auto-saving in {formatCountdown(secondsLeft)}
+            Auto-saving in {formatTime(secondsLeft)}
           </span>
-          <Button onClick={fireConfirm}>Save now</Button>
+          <Button onClick={() => fire("user")}>Save now</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

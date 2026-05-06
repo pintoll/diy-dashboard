@@ -17,6 +17,7 @@ import type {
   PomodoroPhase,
   PomodoroPresetId,
   PomodoroConfig,
+  PomodoroSessionRecord,
 } from "@/src/entities/pomodoro-session";
 
 export type OvertimeState = {
@@ -26,20 +27,15 @@ export type OvertimeState = {
   isIdle: boolean;
 };
 
-export type PendingReview = {
-  startedAt: number;
-  endedAt: number;
-  durationSec: number;
-  presetId: PomodoroPresetId;
-  overtimeSec: number;
-  idleSec: number;
-  cappedAt60m: boolean;
-};
+export type PendingReview = Omit<
+  PomodoroSessionRecord,
+  "id" | "phase" | "attention" | "attentionSource" | "processBuckets"
+>;
 
 export type ConfirmReviewInput = {
   attention: AttentionVerdict;
   attentionSource: AttentionSource;
-  overtimeSecOverride?: number;
+  overtimeSec: number;
 };
 
 export type PomodoroState = {
