@@ -38,6 +38,8 @@ export type ConfirmReviewInput = {
   overtimeSec: number;
 };
 
+export type ConfigFlagKey = "detectionEnabled" | "chimeEnabled" | "flashEnabled";
+
 export type PomodoroState = {
   phase: PomodoroPhase;
   isRunning: boolean;
@@ -63,6 +65,7 @@ export type PomodoroActions = {
   getTimeRemaining: () => number;
   setPreset: (presetId: PomodoroPresetId, config: PomodoroConfig) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
+  setConfigFlag: (key: ConfigFlagKey, enabled: boolean) => void;
   enterOvertime: () => void;
   pollIdle: (idleSec: number) => void;
   stopOvertime: () => void;

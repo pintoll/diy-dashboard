@@ -176,11 +176,17 @@ Files: `widgets/pomodoro-timer/model/leisure-rules.ts` (new — pure function), 
 
 ---
 
-## Stage 7 — Settings + polish
+## Stage 7 — Settings + polish — **Done**
 
-- Settings panel: list/add/remove leisure processes, toggle whole detection feature on/off, toggle phase-end chime + flash.
-- Empty-state UX in dialog when buckets are empty (dev/WSL2 case): show "Active-window detection unavailable in dev — verdict from manual selection only".
-- Doc updates: feature description in the widget README header comment.
+Final polish before the feature ships.
+
+- `PomodoroConfig` gained three boolean flags: `detectionEnabled`, `chimeEnabled`, `flashEnabled` (all default `true`). Backfilled on v11 → v12 store migration.
+- `PomodoroSettings` dropdown gained three switches alongside the existing Notifications switch: "Active-window detection", "Phase-end chime", "Phase-end flash". Chime and flash are split into separate toggles so audio can be muted independently of the taskbar flash.
+- `PomodoroClient` gates three effects on the new flags: the active-window subscription (`detectionEnabled`), the phase-end chime/flash effect, and the overtime-alarm threshold effect (each on `chimeEnabled` / `flashEnabled` independently).
+- `SessionReviewDialog` now renders an empty-state line ("Active-window detection unavailable — verdict from manual selection only") when `processBuckets` is empty, instead of the silent short-circuit. Wording was generalized from the spec's "in dev" since the same state happens whenever detection is disabled in production.
+- Widget `meta.description` updated to "Focus timer with overtime tracking, active-window detection, and end-of-session review", and a 5-line header comment was added to `widgets/pomodoro-timer/index.ts` summarizing the feature set.
+
+Files touched: `entities/pomodoro-session/model/pomodoro-session.types.ts`, `widgets/pomodoro-timer/{index.ts, model/pomodoro.types.ts, model/use-pomodoro-store.ts, ui/PomodoroClient.tsx, ui/PomodoroSettings.tsx, ui/SessionReviewDialog.tsx}`.
 
 ---
 

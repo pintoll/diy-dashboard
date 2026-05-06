@@ -9,7 +9,8 @@ export const pomodoroTimerWidget = defineWidget<PomodoroConfig>({
   meta: {
     id: "pomodoro-timer",
     name: "Pomodoro Timer",
-    description: "Focus timer with work and break intervals",
+    description:
+      "Focus timer with overtime tracking, active-window detection, and end-of-session review",
     category: "productivity",
     icon: Timer,
     size: {
@@ -27,6 +28,9 @@ export const pomodoroTimerWidget = defineWidget<PomodoroConfig>({
     longBreakDuration: 15,
     pomodorosUntilLongBreak: 4,
     leisureProcesses: ["brave.exe"],
+    detectionEnabled: true,
+    chimeEnabled: true,
+    flashEnabled: true,
   },
   ClientComponent: PomodoroClient,
 });
