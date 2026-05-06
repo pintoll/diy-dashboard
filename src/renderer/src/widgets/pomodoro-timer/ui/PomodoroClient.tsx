@@ -26,6 +26,11 @@ const PHASE_COLORS = {
   longBreak: "text-chart-3",
 } as const;
 
+function triggerPhaseEndAlert(config: PomodoroConfig) {
+  if (config.chimeEnabled) playChime();
+  if (config.flashEnabled) void window.electronAPI?.flashFrame();
+}
+
 type DisplayTickerOpts = {
   getSnapshot: () => number;
   active: boolean;
@@ -129,6 +134,7 @@ export function PomodoroClient({
     stopOvertime,
     setPreset,
     setNotificationsEnabled,
+    setConfigFlag,
     confirmReview,
     addToBucket,
     addLeisureProcess,
@@ -194,7 +200,8 @@ export function PomodoroClient({
     };
   }, [isOvertime, pollIdle]);
 
-  const isWorkSessionActive = phase === "work" && (isRunning || isOvertime);
+  const isWorkSessionActive =
+    phase === "work" && (isRunning || isOvertime) && currentConfig.detectionEnabled;
   useEffect(() => {
     if (!isWorkSessionActive) return;
     const api = typeof window !== "undefined" ? window.electronAPI : undefined;
@@ -220,9 +227,8 @@ export function PomodoroClient({
     }
     if (phaseEndPulse === lastPulseRef.current) return;
     lastPulseRef.current = phaseEndPulse;
-    playChime();
-    void window.electronAPI?.flashFrame();
-  }, [phaseEndPulse]);
+    triggerPhaseEndAlert(currentConfig);
+  }, [phaseEndPulse, currentConfig]);
 
   // Chime + flash + OS notification on each overtime alarm threshold
   const lastOvertimeAlarmThresholdRef = useRef(lastOvertimeAlarmThresholdSec);
@@ -230,12 +236,11 @@ export function PomodoroClient({
     if (lastOvertimeAlarmThresholdSec === lastOvertimeAlarmThresholdRef.current) return;
     lastOvertimeAlarmThresholdRef.current = lastOvertimeAlarmThresholdSec;
     if (lastOvertimeAlarmThresholdSec === null) return;
-    playChime();
-    void window.electronAPI?.flashFrame();
+    triggerPhaseEndAlert(currentConfig);
     if (notificationsEnabled) {
       showOvertimeAlarmNotification(lastOvertimeAlarmThresholdSec);
     }
-  }, [lastOvertimeAlarmThresholdSec, notificationsEnabled]);
+  }, [lastOvertimeAlarmThresholdSec, notificationsEnabled, currentConfig]);
 
   const phaseLabel = isOvertime ? "Overtime" : PHASE_LABELS[phase];
   const phaseColor = isOvertime ? "text-destructive" : PHASE_COLORS[phase];
@@ -254,6 +259,7 @@ export function PomodoroClient({
           leisureProcesses={currentConfig.leisureProcesses}
           onAddLeisureProcess={addLeisureProcess}
           onRemoveLeisureProcess={removeLeisureProcess}
+          onConfigFlagChange={setConfigFlag}
         />
       </div>
       <div className={`text-sm font-medium ${phaseColor}`}>

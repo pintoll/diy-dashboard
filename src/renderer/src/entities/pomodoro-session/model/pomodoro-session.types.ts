@@ -22,6 +22,9 @@ export type PomodoroConfig = {
   longBreakDuration: number;
   pomodorosUntilLongBreak: number;
   leisureProcesses: string[];
+  detectionEnabled: boolean;
+  chimeEnabled: boolean;
+  flashEnabled: boolean;
 };
 
 export type AttentionVerdict = "focus" | "leisure" | "mixed";

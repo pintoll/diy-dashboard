@@ -21,7 +21,11 @@ import {
 import { Input } from "@/src/shared/ui/input";
 import { Label } from "@/src/shared/ui/label";
 import { Switch } from "@/src/shared/ui/switch";
-import type { PomodoroPresetId, PomodoroConfig } from "../model/pomodoro.types";
+import type {
+  PomodoroPresetId,
+  PomodoroConfig,
+  ConfigFlagKey,
+} from "../model/pomodoro.types";
 import { POMODORO_PRESETS } from "../model/pomodoro.types";
 import {
   isNotificationSupported,
@@ -37,7 +41,35 @@ type PomodoroSettingsProps = {
   leisureProcesses: string[];
   onAddLeisureProcess: (exeName: string) => void;
   onRemoveLeisureProcess: (exeName: string) => void;
+  onConfigFlagChange: (key: ConfigFlagKey, enabled: boolean) => void;
 };
+
+const FLAG_TOGGLES: ReadonlyArray<{ key: ConfigFlagKey; id: string; label: string }> = [
+  { key: "detectionEnabled", id: "detection-toggle", label: "Active-window detection" },
+  { key: "chimeEnabled", id: "chime-toggle", label: "Phase-end chime" },
+  { key: "flashEnabled", id: "flash-toggle", label: "Phase-end flash" },
+];
+
+function SettingRow({
+  id,
+  label,
+  checked,
+  onCheckedChange,
+}: {
+  id: string;
+  label: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between px-2 py-1.5">
+      <Label htmlFor={id} className="text-sm font-normal cursor-pointer">
+        {label}
+      </Label>
+      <Switch id={id} size="sm" checked={checked} onCheckedChange={onCheckedChange} />
+    </div>
+  );
+}
 
 export function PomodoroSettings({
   activePresetId,
@@ -48,6 +80,7 @@ export function PomodoroSettings({
   leisureProcesses,
   onAddLeisureProcess,
   onRemoveLeisureProcess,
+  onConfigFlagChange,
 }: PomodoroSettingsProps) {
   const [customDialogOpen, setCustomDialogOpen] = useState(false);
   const [workMinutes, setWorkMinutes] = useState(config.workDuration);
@@ -75,11 +108,10 @@ export function PomodoroSettings({
     const preset = POMODORO_PRESETS.find((p) => p.id === value);
     if (preset) {
       onPresetChange(preset.id, {
+        ...config,
         workDuration: preset.workDuration,
         shortBreakDuration: preset.shortBreakDuration,
         longBreakDuration: preset.longBreakDuration,
-        pomodorosUntilLongBreak: config.pomodorosUntilLongBreak,
-        leisureProcesses: config.leisureProcesses,
       });
     }
   }
@@ -89,11 +121,10 @@ export function PomodoroSettings({
     const brk = Math.max(1, Math.min(60, Math.round(breakMinutes)));
 
     onPresetChange("custom", {
+      ...config,
       workDuration: work,
       shortBreakDuration: brk,
       longBreakDuration: brk * 3,
-      pomodorosUntilLongBreak: config.pomodorosUntilLongBreak,
-      leisureProcesses: config.leisureProcesses,
     });
     setCustomDialogOpen(false);
   }
@@ -135,19 +166,24 @@ export function PomodoroSettings({
           {isNotificationSupported() && (
             <>
               <DropdownMenuSeparator />
-              <div className="flex items-center justify-between px-2 py-1.5">
-                <Label htmlFor="notifications-toggle" className="text-sm font-normal cursor-pointer">
-                  Notifications
-                </Label>
-                <Switch
-                  id="notifications-toggle"
-                  size="sm"
-                  checked={notificationsEnabled}
-                  onCheckedChange={handleNotificationToggle}
-                />
-              </div>
+              <SettingRow
+                id="notifications-toggle"
+                label="Notifications"
+                checked={notificationsEnabled}
+                onCheckedChange={handleNotificationToggle}
+              />
             </>
           )}
+          <DropdownMenuSeparator />
+          {FLAG_TOGGLES.map(({ key, id, label }) => (
+            <SettingRow
+              key={key}
+              id={id}
+              label={label}
+              checked={config[key]}
+              onCheckedChange={(checked) => onConfigFlagChange(key, checked)}
+            />
+          ))}
         </DropdownMenuContent>
       </DropdownMenu>
 

@@ -162,7 +162,7 @@ export function SessionReviewDialog({
           <span className="text-right tabular-nums font-medium">{formatTime(totalRecordedSec)}</span>
         </div>
 
-        {topBuckets.length > 0 && (
+        {topBuckets.length > 0 ? (
           <div className="flex flex-col gap-1 text-sm">
             <Label>Window breakdown</Label>
             <div className="flex flex-col gap-0.5">
@@ -188,6 +188,10 @@ export function SessionReviewDialog({
               })}
             </div>
           </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Active-window detection unavailable — verdict from manual selection only.
+          </p>
         )}
 
         <div className="flex flex-col gap-2">

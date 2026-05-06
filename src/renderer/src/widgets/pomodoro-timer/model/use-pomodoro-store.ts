@@ -14,7 +14,7 @@ import type {
 
 type PomodoroStore = PomodoroState & PomodoroActions & { config: PomodoroConfig };
 
-const STORE_VERSION = 11;
+const STORE_VERSION = 12;
 export const OVERTIME_CAP_SEC = 3600;
 const OVERTIME_IDLE_THRESHOLD_SEC = 60;
 const OVERTIME_ALARM_THRESHOLDS_SEC = [300, 600, 1200, 1800, 3600] as const;
@@ -237,6 +237,19 @@ function migrateState(persistedState: unknown, version: number): PomodoroStore {
     };
   }
 
+  if (version < 12) {
+    const prevConfig = (state.config ?? {}) as Partial<PomodoroConfig>;
+    state = {
+      ...state,
+      config: {
+        ...prevConfig,
+        detectionEnabled: prevConfig.detectionEnabled ?? true,
+        chimeEnabled: prevConfig.chimeEnabled ?? true,
+        flashEnabled: prevConfig.flashEnabled ?? true,
+      },
+    };
+  }
+
   return state as unknown as PomodoroStore;
 }
 
@@ -266,6 +279,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       getTimeRemaining: () => 0,
       setPreset: () => {},
       setNotificationsEnabled: () => {},
+      setConfigFlag: () => {},
       enterOvertime: () => {},
       pollIdle: () => {},
       stopOvertime: () => {},
@@ -395,6 +409,11 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
 
         setNotificationsEnabled: (enabled: boolean) => {
           set({ notificationsEnabled: enabled });
+        },
+
+        setConfigFlag: (key, enabled) => {
+          const { config } = get();
+          set({ config: { ...config, [key]: enabled } });
         },
 
         enterOvertime: () => {
