@@ -483,7 +483,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
         addToBucket: (exeName: string, seconds: number) => {
           if (exeName === "" || seconds <= 0) return;
           const state = get();
-          if (state.overtime?.isIdle === true) return;
+          if (state.overtime?.isIdle) return;
           set({
             processBuckets: {
               ...state.processBuckets,

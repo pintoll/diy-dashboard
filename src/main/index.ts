@@ -111,16 +111,21 @@ type ActiveWindowFn = () => Promise<{
   bounds?: { x: number; y: number; width: number; height: number };
   owner?: { name?: string };
 } | null | undefined>;
-let cachedActiveWindow: ActiveWindowFn | null = null;
+let cachedActiveWindow: ActiveWindowFn | null | "unavailable" = null;
 
 async function loadActiveWindow(): Promise<ActiveWindowFn | null> {
+  if (cachedActiveWindow === "unavailable") return null;
   if (cachedActiveWindow !== null) return cachedActiveWindow;
   try {
     const mod = (await import("get-windows")) as { activeWindow?: ActiveWindowFn };
-    if (typeof mod.activeWindow !== "function") return null;
+    if (typeof mod.activeWindow !== "function") {
+      cachedActiveWindow = "unavailable";
+      return null;
+    }
     cachedActiveWindow = mod.activeWindow;
     return cachedActiveWindow;
   } catch {
+    cachedActiveWindow = "unavailable";
     return null;
   }
 }

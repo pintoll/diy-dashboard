@@ -192,8 +192,6 @@ export function PomodoroClient({
     };
   }, [isOvertime, pollIdle]);
 
-  // Active-window polling during a work session (work phase + overtime).
-  // Pauses with the timer and stops on break.
   const isWorkSessionActive = phase === "work" && (isRunning || isOvertime);
   useEffect(() => {
     if (!isWorkSessionActive) return;
