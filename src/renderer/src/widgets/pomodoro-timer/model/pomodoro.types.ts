@@ -29,7 +29,7 @@ export type OvertimeState = {
 
 export type PendingReview = Omit<
   PomodoroSessionRecord,
-  "id" | "phase" | "attention" | "attentionSource" | "processBuckets"
+  "id" | "phase" | "attention" | "attentionSource"
 >;
 
 export type ConfirmReviewInput = {
@@ -50,6 +50,7 @@ export type PomodoroState = {
   phaseEndPulse: number;
   lastOvertimeAlarmThresholdSec: number | null;
   pendingReview: PendingReview | null;
+  processBuckets: Record<string, number>;
 };
 
 export type PomodoroActions = {
@@ -68,4 +69,5 @@ export type PomodoroActions = {
   autoStopOvertime: () => void;
   confirmReview: (input: ConfirmReviewInput) => void;
   getOvertimeElapsed: () => number;
+  addToBucket: (exeName: string, seconds: number) => void;
 };

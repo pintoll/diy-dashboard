@@ -100,6 +100,9 @@ export function SessionReviewDialog({ open, pending, onConfirm }: Props) {
 
   const title = snapshot.cappedAt60m ? "Session capped at 60m" : "Session complete";
   const totalRecordedSec = snapshot.durationSec + snapshot.overtimeSec;
+  const topBuckets = Object.entries(snapshot.processBuckets ?? {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -128,6 +131,20 @@ export function SessionReviewDialog({ open, pending, onConfirm }: Props) {
           <span className="text-muted-foreground">Total recorded</span>
           <span className="text-right tabular-nums font-medium">{formatTime(totalRecordedSec)}</span>
         </div>
+
+        {topBuckets.length > 0 && (
+          <div className="flex flex-col gap-1 text-sm">
+            <Label>Window breakdown</Label>
+            <div className="flex flex-col gap-0.5">
+              {topBuckets.map(([exe, sec]) => (
+                <div key={exe} className="flex justify-between">
+                  <span className="text-muted-foreground truncate">{exe}</span>
+                  <span className="tabular-nums">{formatTime(sec)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex flex-col gap-2">
           <Label htmlFor="session-review-total-min">Total recorded (min)</Label>

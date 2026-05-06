@@ -7,6 +7,7 @@ import {
   Menu,
   nativeImage,
   powerMonitor,
+  screen,
   shell,
 } from "electron";
 import path from "path";
@@ -101,6 +102,79 @@ ipcMain.handle("pomodoro:get-idle-time", () => {
 
 ipcMain.handle("pomodoro:flash-frame", () => {
   mainWindow?.flashFrame(true);
+});
+
+let activeWindowPollInterval: NodeJS.Timeout | null = null;
+let activeSessionRefCount = 0;
+type ActiveWindowFn = () => Promise<{
+  title?: string;
+  bounds?: { x: number; y: number; width: number; height: number };
+  owner?: { name?: string };
+} | null | undefined>;
+let cachedActiveWindow: ActiveWindowFn | null = null;
+
+async function loadActiveWindow(): Promise<ActiveWindowFn | null> {
+  if (cachedActiveWindow !== null) return cachedActiveWindow;
+  try {
+    const mod = (await import("get-windows")) as { activeWindow?: ActiveWindowFn };
+    if (typeof mod.activeWindow !== "function") return null;
+    cachedActiveWindow = mod.activeWindow;
+    return cachedActiveWindow;
+  } catch {
+    return null;
+  }
+}
+
+async function pollActiveWindow(): Promise<void> {
+  const target = mainWindow;
+  if (target === null || target.isDestroyed()) return;
+
+  const activeWindow = await loadActiveWindow();
+  if (activeWindow === null) return;
+
+  let result;
+  try {
+    result = await activeWindow();
+  } catch {
+    return;
+  }
+  if (!result || !result.bounds || !result.owner) return;
+
+  const exeName = result.owner.name?.toLowerCase() ?? "";
+  if (exeName === "") return;
+
+  const center = {
+    x: Math.round(result.bounds.x + result.bounds.width / 2),
+    y: Math.round(result.bounds.y + result.bounds.height / 2),
+  };
+  const primaryId = screen.getPrimaryDisplay().id;
+  const nearestId = screen.getDisplayNearestPoint(center).id;
+  if (nearestId !== primaryId) return;
+
+  if (target.isDestroyed()) return;
+  target.webContents.send("pomodoro:active-window", {
+    exeName,
+    title: result.title ?? "",
+  });
+}
+
+ipcMain.handle("pomodoro:session-started", () => {
+  if (process.platform !== "win32") return;
+  activeSessionRefCount += 1;
+  if (activeWindowPollInterval !== null) return;
+  activeWindowPollInterval = setInterval(() => {
+    void pollActiveWindow();
+  }, 10_000);
+});
+
+ipcMain.handle("pomodoro:session-ended", () => {
+  if (process.platform !== "win32") return;
+  activeSessionRefCount = Math.max(0, activeSessionRefCount - 1);
+  if (activeSessionRefCount > 0) return;
+  if (activeWindowPollInterval !== null) {
+    clearInterval(activeWindowPollInterval);
+    activeWindowPollInterval = null;
+  }
 });
 
 ipcMain.handle("check-for-updates", () => {

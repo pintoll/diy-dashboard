@@ -6,6 +6,11 @@ type UpdateStatusPayload =
   | { status: "downloaded"; version: string }
   | { status: "error"; message: string };
 
+interface ActiveWindowPayload {
+  exeName: string;
+  title: string;
+}
+
 interface ElectronAPI {
   showNotification: (payload: { title: string; body: string }) => Promise<void>;
   isNotificationSupported: () => Promise<boolean>;
@@ -14,6 +19,9 @@ interface ElectronAPI {
   quitAndInstallUpdate: () => Promise<void>;
   getIdleTime: () => Promise<number>;
   flashFrame: () => Promise<void>;
+  notifyPomodoroSessionStarted: () => Promise<void>;
+  notifyPomodoroSessionEnded: () => Promise<void>;
+  onActiveWindow: (callback: (data: ActiveWindowPayload) => void) => () => void;
 }
 
 interface MarketSeriesPoint {
