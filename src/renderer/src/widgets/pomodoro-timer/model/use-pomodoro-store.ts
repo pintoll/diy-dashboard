@@ -12,8 +12,8 @@ import type {
 
 type PomodoroStore = PomodoroState & PomodoroActions & { config: PomodoroConfig };
 
-const STORE_VERSION = 7;
-const OVERTIME_CAP_SEC = 3600;
+const STORE_VERSION = 8;
+export const OVERTIME_CAP_SEC = 3600;
 const OVERTIME_IDLE_THRESHOLD_SEC = 60;
 const OVERTIME_ALARM_THRESHOLDS_SEC = [300, 600, 1200, 1800, 3600] as const;
 
@@ -124,9 +124,9 @@ function startOvertime(state: PomodoroStore, set: SetFn) {
       accumulatedSec: 0,
       lastActiveAt: now,
       isIdle: false,
-      firedAlarmsSec: [],
     },
     phaseEndPulse: state.phaseEndPulse + 1,
+    lastOvertimeAlarmThresholdSec: null,
   });
 }
 
@@ -140,7 +140,6 @@ function endOvertime(
   set: SetFn,
   capped: boolean,
   accumulatedSecOverride?: number,
-  options?: { skipPhaseEndPulse?: boolean },
 ) {
   const overtime = state.overtime;
   if (overtime === null) return;
@@ -148,12 +147,7 @@ function endOvertime(
     ? { ...overtime, accumulatedSec: accumulatedSecOverride }
     : overtime;
   recordOvertimeSession(state, final, capped);
-  const next = completePhase(state);
-  if (options?.skipPhaseEndPulse) {
-    set(next);
-  } else {
-    set({ ...next, phaseEndPulse: state.phaseEndPulse + 1 });
-  }
+  set({ ...completePhase(state), phaseEndPulse: state.phaseEndPulse + 1 });
 }
 
 type OldPomodoroState = {
@@ -194,16 +188,23 @@ function migrateState(persistedState: unknown, version: number): PomodoroStore {
   }
 
   if (version < 7) {
-    const overtime = (state as { overtime?: OvertimeState | null }).overtime ?? null;
-    const overtimeWithAlarms = overtime
-      ? { ...overtime, firedAlarmsSec: overtime.firedAlarmsSec ?? [] }
+    state = { ...state, lastOvertimeAlarmThresholdSec: null };
+  }
+
+  if (version < 8) {
+    const prevOvertime = (state as { overtime?: (OvertimeState & { firedAlarmsSec?: number[] }) | null })
+      .overtime ?? null;
+    const overtime: OvertimeState | null = prevOvertime
+      ? {
+          startedAt: prevOvertime.startedAt,
+          accumulatedSec: prevOvertime.accumulatedSec,
+          lastActiveAt: prevOvertime.lastActiveAt,
+          isIdle: prevOvertime.isIdle,
+        }
       : null;
-    state = {
-      ...state,
-      overtime: overtimeWithAlarms,
-      overtimeAlarmPulse: 0,
-      lastOvertimeAlarmThresholdSec: null,
-    };
+    const { overtimeAlarmPulse: _drop, ...rest } = state as Record<string, unknown>;
+    void _drop;
+    state = { ...rest, overtime };
   }
 
   return state as unknown as PomodoroStore;
@@ -221,7 +222,6 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       notificationsEnabled: true,
       overtime: null,
       phaseEndPulse: 0,
-      overtimeAlarmPulse: 0,
       lastOvertimeAlarmThresholdSec: null,
       config,
 
@@ -381,45 +381,31 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             }
           }
 
-          const previouslyFired = overtime.firedAlarmsSec;
-          const newlyFired = OVERTIME_ALARM_THRESHOLDS_SEC.filter(
-            (t) => accumulatedSec >= t && !previouslyFired.includes(t),
-          );
-          const firedAlarmsSec =
-            newlyFired.length > 0 ? [...previouslyFired, ...newlyFired] : previouslyFired;
-          const alarmDelta = newlyFired.length > 0 ? 1 : 0;
-          const latestThreshold =
-            newlyFired.length > 0
-              ? newlyFired[newlyFired.length - 1]
-              : state.lastOvertimeAlarmThresholdSec;
+          const prevThreshold = state.lastOvertimeAlarmThresholdSec ?? 0;
+          const reached =
+            OVERTIME_ALARM_THRESHOLDS_SEC.findLast((t) => accumulatedSec >= t) ?? null;
+          const newlyFired = reached !== null && reached > prevThreshold ? reached : null;
+          const lastOvertimeAlarmThresholdSec =
+            newlyFired ?? state.lastOvertimeAlarmThresholdSec;
+
+          const nextOvertime: OvertimeState = {
+            startedAt: overtime.startedAt,
+            accumulatedSec,
+            lastActiveAt,
+            isIdle,
+          };
 
           if (accumulatedSec >= OVERTIME_CAP_SEC) {
-            set({
-              overtime: {
-                startedAt: overtime.startedAt,
-                accumulatedSec,
-                lastActiveAt,
-                isIdle,
-                firedAlarmsSec,
-              },
-              overtimeAlarmPulse: state.overtimeAlarmPulse + alarmDelta,
-              lastOvertimeAlarmThresholdSec: latestThreshold,
-            });
-            endOvertime(get(), set, true, OVERTIME_CAP_SEC, { skipPhaseEndPulse: true });
+            recordOvertimeSession(
+              state,
+              { ...nextOvertime, accumulatedSec: OVERTIME_CAP_SEC },
+              true,
+            );
+            set({ ...completePhase(state), lastOvertimeAlarmThresholdSec });
             return;
           }
 
-          set({
-            overtime: {
-              startedAt: overtime.startedAt,
-              accumulatedSec,
-              lastActiveAt,
-              isIdle,
-              firedAlarmsSec,
-            },
-            overtimeAlarmPulse: state.overtimeAlarmPulse + alarmDelta,
-            lastOvertimeAlarmThresholdSec: latestThreshold,
-          });
+          set({ overtime: nextOvertime, lastOvertimeAlarmThresholdSec });
         },
 
         stopOvertime: () => {
