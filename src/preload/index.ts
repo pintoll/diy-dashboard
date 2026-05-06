@@ -36,13 +36,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("pomodoro:session-started"),
   notifyPomodoroSessionEnded: () =>
     ipcRenderer.invoke("pomodoro:session-ended"),
-  onActiveWindow: (
-    callback: (data: { exeName: string; title: string }) => void,
-  ) => {
-    const listener = (
-      _event: Electron.IpcRendererEvent,
-      data: { exeName: string; title: string },
-    ) => callback(data);
+  onActiveWindow: (callback: (data: ActiveWindowPayload) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: ActiveWindowPayload) =>
+      callback(data);
     ipcRenderer.on("pomodoro:active-window", listener);
     return () => {
       ipcRenderer.removeListener("pomodoro:active-window", listener);
