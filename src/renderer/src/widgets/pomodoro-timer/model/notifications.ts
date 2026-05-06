@@ -1,4 +1,5 @@
 import type { PomodoroPhase } from "./pomodoro.types";
+import { OVERTIME_CAP_SEC } from "./use-pomodoro-store";
 
 const PHASE_MESSAGES: Record<PomodoroPhase, { title: string; body: string }> = {
   work: {
@@ -51,8 +52,6 @@ export function showPhaseNotification(completedPhase: PomodoroPhase): void {
     tag: "pomodoro-phase-end",
   });
 }
-
-const OVERTIME_CAP_SEC = 3600;
 
 export function showOvertimeAlarmNotification(thresholdSec: number): void {
   const minutes = Math.round(thresholdSec / 60);
