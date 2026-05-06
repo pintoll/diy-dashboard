@@ -70,4 +70,6 @@ export type PomodoroActions = {
   confirmReview: (input: ConfirmReviewInput) => void;
   getOvertimeElapsed: () => number;
   addToBucket: (exeName: string, seconds: number) => void;
+  addLeisureProcess: (exeName: string) => void;
+  removeLeisureProcess: (exeName: string) => void;
 };

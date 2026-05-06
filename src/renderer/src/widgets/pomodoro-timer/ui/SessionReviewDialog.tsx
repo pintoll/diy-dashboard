@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,11 +11,11 @@ import { Button } from "@/src/shared/ui/button";
 import { Input } from "@/src/shared/ui/input";
 import { Label } from "@/src/shared/ui/label";
 import type {
-  AttentionSource,
   AttentionVerdict,
   ConfirmReviewInput,
   PendingReview,
 } from "../model/pomodoro.types";
+import { computeAttentionVerdict, isLeisureProcess } from "../model/leisure-rules";
 import { formatTime } from "../lib/format";
 
 const AUTO_CONFIRM_SECONDS = 60;
@@ -29,26 +29,48 @@ const ATTENTION_OPTIONS: { value: AttentionVerdict; label: string }[] = [
 type Props = {
   open: boolean;
   pending: PendingReview | null;
+  leisureProcesses: string[];
   onConfirm: (input: ConfirmReviewInput) => void;
+  onMarkAsLeisure: (exeName: string) => void;
 };
 
-export function SessionReviewDialog({ open, pending, onConfirm }: Props) {
+export function SessionReviewDialog({
+  open,
+  pending,
+  leisureProcesses,
+  onConfirm,
+  onMarkAsLeisure,
+}: Props) {
   // Keep showing the data through the close animation after `pending` flips to null.
   const lastPendingRef = useRef<PendingReview | null>(pending);
   if (pending !== null) lastPendingRef.current = pending;
   const snapshot = lastPendingRef.current;
 
-  const [attention, setAttention] = useState<AttentionVerdict>("focus");
+  const detection = useMemo(() => {
+    if (snapshot === null) return null;
+    return computeAttentionVerdict({
+      processBuckets: snapshot.processBuckets ?? {},
+      idleSec: snapshot.idleSec,
+      totalSec: snapshot.durationSec + snapshot.overtimeSec,
+      leisureProcesses,
+    });
+  }, [snapshot, leisureProcesses]);
+
+  const autoVerdict = detection?.verdict ?? "focus";
+
+  const [attention, setAttention] = useState<AttentionVerdict>(autoVerdict);
+  const [userOverrode, setUserOverrode] = useState(false);
   const [totalMin, setTotalMin] = useState("0");
   const [secondsLeft, setSecondsLeft] = useState(AUTO_CONFIRM_SECONDS);
 
   useEffect(() => {
     if (!open || pending === null) return;
     const totalSec = pending.durationSec + pending.overtimeSec;
-    setAttention("focus");
+    setAttention(autoVerdict);
+    setUserOverrode(false);
     setTotalMin(String(Math.round(totalSec / 60)));
     setSecondsLeft(AUTO_CONFIRM_SECONDS);
-  }, [open, pending]);
+  }, [open, pending, autoVerdict]);
 
   useEffect(() => {
     if (!open) return;
@@ -58,36 +80,39 @@ export function SessionReviewDialog({ open, pending, onConfirm }: Props) {
     return () => clearInterval(id);
   }, [open]);
 
-  const fire = useCallback(
-    (source: AttentionSource) => {
-      if (snapshot === null) return;
-      const editedMin = Number(totalMin);
-      const editedSec =
-        Number.isFinite(editedMin) && editedMin >= 0
-          ? Math.round(editedMin * 60)
-          : snapshot.durationSec + snapshot.overtimeSec;
-      const overtimeSec = Math.max(0, editedSec - snapshot.durationSec);
-      onConfirm({ attention, attentionSource: source, overtimeSec });
-    },
-    [snapshot, totalMin, attention, onConfirm],
-  );
+  const fire = useCallback(() => {
+    if (snapshot === null) return;
+    const editedMin = Number(totalMin);
+    const editedSec =
+      Number.isFinite(editedMin) && editedMin >= 0
+        ? Math.round(editedMin * 60)
+        : snapshot.durationSec + snapshot.overtimeSec;
+    const overtimeSec = Math.max(0, editedSec - snapshot.durationSec);
+    onConfirm({
+      attention,
+      attentionSource: userOverrode ? "user" : "auto",
+      overtimeSec,
+    });
+  }, [snapshot, totalMin, attention, userOverrode, onConfirm]);
 
   // Auto-fire when countdown elapses. The store's confirmReview clears
   // pendingReview on first call, so duplicate calls during the close transition
   // are no-ops at the store level — no fired-flag is needed here.
   useEffect(() => {
     if (!open || secondsLeft > 0) return;
-    fire("auto");
+    fire();
   }, [open, secondsLeft, fire]);
 
   const resetCountdown = () => setSecondsLeft(AUTO_CONFIRM_SECONDS);
 
   const handleOpenChange = (next: boolean) => {
-    if (!next) fire("user");
+    if (!next) fire();
   };
 
   const handleAttentionChange = (next: AttentionVerdict) => {
     setAttention(next);
+    if (next !== autoVerdict) setUserOverrode(true);
+    else setUserOverrode(false);
     resetCountdown();
   };
 
@@ -96,7 +121,12 @@ export function SessionReviewDialog({ open, pending, onConfirm }: Props) {
     resetCountdown();
   };
 
-  if (snapshot === null) return null;
+  const handleMarkAsLeisure = (exe: string) => {
+    onMarkAsLeisure(exe);
+    resetCountdown();
+  };
+
+  if (snapshot === null || detection === null) return null;
 
   const title = snapshot.cappedAt60m ? "Session capped at 60m" : "Session complete";
   const totalRecordedSec = snapshot.durationSec + snapshot.overtimeSec;
@@ -136,12 +166,26 @@ export function SessionReviewDialog({ open, pending, onConfirm }: Props) {
           <div className="flex flex-col gap-1 text-sm">
             <Label>Window breakdown</Label>
             <div className="flex flex-col gap-0.5">
-              {topBuckets.map(([exe, sec]) => (
-                <div key={exe} className="flex justify-between">
-                  <span className="text-muted-foreground truncate">{exe}</span>
-                  <span className="tabular-nums">{formatTime(sec)}</span>
-                </div>
-              ))}
+              {topBuckets.map(([exe, sec]) => {
+                const flagged = isLeisureProcess(exe, leisureProcesses);
+                return (
+                  <div key={exe} className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground truncate flex-1">{exe}</span>
+                    <span className="tabular-nums">{formatTime(sec)}</span>
+                    {!flagged && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs text-muted-foreground"
+                        onClick={() => handleMarkAsLeisure(exe)}
+                      >
+                        Mark as leisure
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -180,13 +224,16 @@ export function SessionReviewDialog({ open, pending, onConfirm }: Props) {
               );
             })}
           </div>
+          {detection.reason !== null && (
+            <p className="text-xs text-muted-foreground">{detection.reason}</p>
+          )}
         </div>
 
         <DialogFooter className="items-center sm:justify-between">
           <span className="text-xs text-muted-foreground">
             Auto-saving in {formatTime(secondsLeft)}
           </span>
-          <Button onClick={() => fire("user")}>Save now</Button>
+          <Button onClick={fire}>Save now</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

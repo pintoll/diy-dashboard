@@ -21,6 +21,7 @@ export type PomodoroConfig = {
   shortBreakDuration: number;
   longBreakDuration: number;
   pomodorosUntilLongBreak: number;
+  leisureProcesses: string[];
 };
 
 export type AttentionVerdict = "focus" | "leisure" | "mixed";
