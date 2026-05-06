@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { createWidgetStore } from "@/src/shared/lib/create-widget-store";
 import { useSessionLogStore } from "@/src/entities/pomodoro-session";
 import type {
+  ConfirmReviewInput,
+  PendingReview,
   PomodoroConfig,
   PomodoroPhase,
   PomodoroPresetId,
@@ -12,7 +14,7 @@ import type {
 
 type PomodoroStore = PomodoroState & PomodoroActions & { config: PomodoroConfig };
 
-const STORE_VERSION = 8;
+const STORE_VERSION = 9;
 export const OVERTIME_CAP_SEC = 3600;
 const OVERTIME_IDLE_THRESHOLD_SEC = 60;
 const OVERTIME_ALARM_THRESHOLDS_SEC = [300, 600, 1200, 1800, 3600] as const;
@@ -76,11 +78,11 @@ function recordCompletedWorkSession(state: PomodoroState & { config: PomodoroCon
   });
 }
 
-function recordOvertimeSession(
+function buildPendingReview(
   state: PomodoroState & { config: PomodoroConfig },
   overtime: OvertimeState,
-  capped: boolean
-) {
+  capped: boolean,
+): PendingReview {
   const durationSec = state.config.workDuration * 60;
   const endedAt = Date.now();
   const startedAt = state.startedAt ?? overtime.startedAt - durationSec * 1000;
@@ -88,8 +90,7 @@ function recordOvertimeSession(
   const wallElapsedSec = Math.floor((endedAt - overtime.startedAt) / 1000);
   const overtimeSec = Math.min(accumulated, OVERTIME_CAP_SEC);
   const idleSec = Math.max(0, wallElapsedSec - accumulated);
-  useSessionLogStore.getState().recordSession({
-    phase: "work",
+  return {
     startedAt,
     endedAt,
     durationSec,
@@ -97,7 +98,7 @@ function recordOvertimeSession(
     overtimeSec,
     idleSec,
     cappedAt60m: capped,
-  });
+  };
 }
 
 function completePhase(state: Pick<PomodoroState, "phase" | "completedPomodoros"> & { config: PomodoroConfig }) {
@@ -146,8 +147,12 @@ function endOvertime(
   const final = accumulatedSecOverride !== undefined
     ? { ...overtime, accumulatedSec: accumulatedSecOverride }
     : overtime;
-  recordOvertimeSession(state, final, capped);
-  set({ ...completePhase(state), phaseEndPulse: state.phaseEndPulse + 1 });
+  const pendingReview = buildPendingReview(state, final, capped);
+  set({
+    ...completePhase(state),
+    phaseEndPulse: state.phaseEndPulse + 1,
+    pendingReview,
+  });
 }
 
 type OldPomodoroState = {
@@ -207,6 +212,10 @@ function migrateState(persistedState: unknown, version: number): PomodoroStore {
     state = { ...rest, overtime };
   }
 
+  if (version < 9) {
+    state = { ...state, pendingReview: null };
+  }
+
   return state as unknown as PomodoroStore;
 }
 
@@ -223,6 +232,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       overtime: null,
       phaseEndPulse: 0,
       lastOvertimeAlarmThresholdSec: null,
+      pendingReview: null,
       config,
 
       start: () => {},
@@ -238,6 +248,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       pollIdle: () => {},
       stopOvertime: () => {},
       autoStopOvertime: () => {},
+      confirmReview: () => {},
       getOvertimeElapsed: () => 0,
     };
 
@@ -292,6 +303,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             startedAt: null,
             pausedTimeRemaining: null,
             overtime: null,
+            pendingReview: null,
           });
         },
 
@@ -396,12 +408,16 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           };
 
           if (accumulatedSec >= OVERTIME_CAP_SEC) {
-            recordOvertimeSession(
+            const pendingReview = buildPendingReview(
               state,
               { ...nextOvertime, accumulatedSec: OVERTIME_CAP_SEC },
               true,
             );
-            set({ ...completePhase(state), lastOvertimeAlarmThresholdSec });
+            set({
+              ...completePhase(state),
+              lastOvertimeAlarmThresholdSec,
+              pendingReview,
+            });
             return;
           }
 
@@ -422,6 +438,27 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             true,
             Math.min(overtime.accumulatedSec, OVERTIME_CAP_SEC),
           );
+        },
+
+        confirmReview: (input: ConfirmReviewInput) => {
+          const { pendingReview } = get();
+          if (pendingReview === null) return;
+          const overtimeSec = input.overtimeSecOverride !== undefined
+            ? Math.max(0, Math.floor(input.overtimeSecOverride))
+            : pendingReview.overtimeSec;
+          useSessionLogStore.getState().recordSession({
+            phase: "work",
+            startedAt: pendingReview.startedAt,
+            endedAt: pendingReview.endedAt,
+            durationSec: pendingReview.durationSec,
+            presetId: pendingReview.presetId,
+            overtimeSec,
+            idleSec: pendingReview.idleSec,
+            cappedAt60m: pendingReview.cappedAt60m,
+            attention: input.attention,
+            attentionSource: input.attentionSource,
+          });
+          set({ pendingReview: null });
         },
       }),
       {
