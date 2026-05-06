@@ -130,6 +130,7 @@ export function PomodoroClient({
     setPreset,
     setNotificationsEnabled,
     confirmReview,
+    addToBucket,
   } = store();
   const currentConfig = store().config;
 
@@ -190,6 +191,25 @@ export function PomodoroClient({
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [isOvertime, pollIdle]);
+
+  // Active-window polling during a work session (work phase + overtime).
+  // Pauses with the timer and stops on break.
+  const isWorkSessionActive = phase === "work" && (isRunning || isOvertime);
+  useEffect(() => {
+    if (!isWorkSessionActive) return;
+    const api = typeof window !== "undefined" ? window.electronAPI : undefined;
+    if (!api?.onActiveWindow || !api.notifyPomodoroSessionStarted) return;
+
+    void api.notifyPomodoroSessionStarted();
+    const unsubscribe = api.onActiveWindow(({ exeName }) => {
+      addToBucket(exeName, 10);
+    });
+
+    return () => {
+      unsubscribe();
+      void api.notifyPomodoroSessionEnded?.();
+    };
+  }, [isWorkSessionActive, addToBucket]);
 
   // Chime + taskbar flash on phase end
   const lastPulseRef = useRef<number | null>(null);

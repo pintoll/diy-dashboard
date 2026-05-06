@@ -32,4 +32,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
   quitAndInstallUpdate: () => ipcRenderer.invoke("quit-and-install-update"),
   getIdleTime: () => ipcRenderer.invoke("pomodoro:get-idle-time"),
   flashFrame: () => ipcRenderer.invoke("pomodoro:flash-frame"),
+  notifyPomodoroSessionStarted: () =>
+    ipcRenderer.invoke("pomodoro:session-started"),
+  notifyPomodoroSessionEnded: () =>
+    ipcRenderer.invoke("pomodoro:session-ended"),
+  onActiveWindow: (
+    callback: (data: { exeName: string; title: string }) => void,
+  ) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      data: { exeName: string; title: string },
+    ) => callback(data);
+    ipcRenderer.on("pomodoro:active-window", listener);
+    return () => {
+      ipcRenderer.removeListener("pomodoro:active-window", listener);
+    };
+  },
 });

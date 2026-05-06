@@ -14,7 +14,7 @@ import type {
 
 type PomodoroStore = PomodoroState & PomodoroActions & { config: PomodoroConfig };
 
-const STORE_VERSION = 9;
+const STORE_VERSION = 10;
 export const OVERTIME_CAP_SEC = 3600;
 const OVERTIME_IDLE_THRESHOLD_SEC = 60;
 const OVERTIME_ALARM_THRESHOLDS_SEC = [300, 600, 1200, 1800, 3600] as const;
@@ -75,6 +75,7 @@ function recordCompletedWorkSession(state: PomodoroState & { config: PomodoroCon
     endedAt,
     durationSec,
     presetId: state.activePresetId,
+    processBuckets: state.processBuckets,
   });
 }
 
@@ -98,6 +99,7 @@ function buildPendingReview(
     overtimeSec,
     idleSec,
     cappedAt60m: capped,
+    processBuckets: state.processBuckets,
   };
 }
 
@@ -133,7 +135,11 @@ function startOvertime(state: PomodoroStore, set: SetFn) {
 
 function finishWorkPhase(state: PomodoroStore, set: SetFn) {
   recordCompletedWorkSession(state);
-  set({ ...completePhase(state), phaseEndPulse: state.phaseEndPulse + 1 });
+  set({
+    ...completePhase(state),
+    phaseEndPulse: state.phaseEndPulse + 1,
+    processBuckets: {},
+  });
 }
 
 function endOvertime(
@@ -216,6 +222,10 @@ function migrateState(persistedState: unknown, version: number): PomodoroStore {
     state = { ...state, pendingReview: null };
   }
 
+  if (version < 10) {
+    state = { ...state, processBuckets: {} };
+  }
+
   return state as unknown as PomodoroStore;
 }
 
@@ -233,6 +243,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       phaseEndPulse: 0,
       lastOvertimeAlarmThresholdSec: null,
       pendingReview: null,
+      processBuckets: {},
       config,
 
       start: () => {},
@@ -250,6 +261,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       autoStopOvertime: () => {},
       confirmReview: () => {},
       getOvertimeElapsed: () => 0,
+      addToBucket: () => {},
     };
 
     return createWidgetStore<PomodoroStore>(
@@ -279,10 +291,17 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           const elapsedBeforePause = phaseDuration - currentRemaining;
           const startedAt = Date.now() - elapsedBeforePause * 1000;
 
+          const isFreshWorkSession =
+            state.phase === "work" &&
+            state.startedAt === null &&
+            state.pausedTimeRemaining === null &&
+            state.overtime === null;
+
           set({
             isRunning: true,
             startedAt,
             pausedTimeRemaining: null,
+            ...(isFreshWorkSession ? { processBuckets: {} } : {}),
           });
         },
 
@@ -304,6 +323,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             pausedTimeRemaining: null,
             overtime: null,
             pendingReview: null,
+            processBuckets: {},
           });
         },
 
@@ -311,7 +331,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           const state = get();
           if (state.overtime !== null) return;
           recordCompletedWorkSession(state);
-          set(completePhase(state));
+          set({ ...completePhase(state), processBuckets: {} });
         },
 
         tick: () => {
@@ -356,6 +376,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             startedAt: null,
             pausedTimeRemaining: null,
             overtime: null,
+            processBuckets: {},
           });
         },
 
@@ -452,10 +473,23 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             overtimeSec: Math.max(0, Math.floor(input.overtimeSec)),
             idleSec: pendingReview.idleSec,
             cappedAt60m: pendingReview.cappedAt60m,
+            processBuckets: pendingReview.processBuckets,
             attention: input.attention,
             attentionSource: input.attentionSource,
           });
-          set({ pendingReview: null });
+          set({ pendingReview: null, processBuckets: {} });
+        },
+
+        addToBucket: (exeName: string, seconds: number) => {
+          if (exeName === "" || seconds <= 0) return;
+          const state = get();
+          if (state.overtime?.isIdle === true) return;
+          set({
+            processBuckets: {
+              ...state.processBuckets,
+              [exeName]: (state.processBuckets[exeName] ?? 0) + seconds,
+            },
+          });
         },
       }),
       {

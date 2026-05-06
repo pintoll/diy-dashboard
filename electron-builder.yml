@@ -6,6 +6,9 @@ directories:
 files:
   - out/**/*
   - resources/**/*
+asarUnpack:
+  - "node_modules/get-windows/lib/**/*"
+  - "node_modules/get-windows/main"
 publish:
   provider: github
   owner: pintoll
