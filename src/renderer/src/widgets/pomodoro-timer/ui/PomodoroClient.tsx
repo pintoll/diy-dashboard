@@ -131,6 +131,8 @@ export function PomodoroClient({
     setNotificationsEnabled,
     confirmReview,
     addToBucket,
+    addLeisureProcess,
+    removeLeisureProcess,
   } = store();
   const currentConfig = store().config;
 
@@ -249,6 +251,9 @@ export function PomodoroClient({
           onPresetChange={setPreset}
           notificationsEnabled={notificationsEnabled}
           onNotificationsChange={setNotificationsEnabled}
+          leisureProcesses={currentConfig.leisureProcesses}
+          onAddLeisureProcess={addLeisureProcess}
+          onRemoveLeisureProcess={removeLeisureProcess}
         />
       </div>
       <div className={`text-sm font-medium ${phaseColor}`}>
@@ -295,7 +300,9 @@ export function PomodoroClient({
       <SessionReviewDialog
         open={pendingReview !== null}
         pending={pendingReview}
+        leisureProcesses={currentConfig.leisureProcesses}
         onConfirm={confirmReview}
+        onMarkAsLeisure={addLeisureProcess}
       />
     </div>
   );

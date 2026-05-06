@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Settings2 } from "lucide-react";
+import { Settings2, X } from "lucide-react";
 import { Button } from "@/src/shared/ui/button";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -33,6 +34,9 @@ type PomodoroSettingsProps = {
   onPresetChange: (presetId: PomodoroPresetId, config: PomodoroConfig) => void;
   notificationsEnabled: boolean;
   onNotificationsChange: (enabled: boolean) => void;
+  leisureProcesses: string[];
+  onAddLeisureProcess: (exeName: string) => void;
+  onRemoveLeisureProcess: (exeName: string) => void;
 };
 
 export function PomodoroSettings({
@@ -41,10 +45,15 @@ export function PomodoroSettings({
   onPresetChange,
   notificationsEnabled,
   onNotificationsChange,
+  leisureProcesses,
+  onAddLeisureProcess,
+  onRemoveLeisureProcess,
 }: PomodoroSettingsProps) {
   const [customDialogOpen, setCustomDialogOpen] = useState(false);
   const [workMinutes, setWorkMinutes] = useState(config.workDuration);
   const [breakMinutes, setBreakMinutes] = useState(config.shortBreakDuration);
+  const [leisureDialogOpen, setLeisureDialogOpen] = useState(false);
+  const [leisureInput, setLeisureInput] = useState("");
 
   async function handleNotificationToggle(checked: boolean) {
     if (checked) {
@@ -70,6 +79,7 @@ export function PomodoroSettings({
         shortBreakDuration: preset.shortBreakDuration,
         longBreakDuration: preset.longBreakDuration,
         pomodorosUntilLongBreak: config.pomodorosUntilLongBreak,
+        leisureProcesses: config.leisureProcesses,
       });
     }
   }
@@ -83,8 +93,16 @@ export function PomodoroSettings({
       shortBreakDuration: brk,
       longBreakDuration: brk * 3,
       pomodorosUntilLongBreak: config.pomodorosUntilLongBreak,
+      leisureProcesses: config.leisureProcesses,
     });
     setCustomDialogOpen(false);
+  }
+
+  function handleAddLeisure() {
+    const trimmed = leisureInput.trim();
+    if (trimmed === "") return;
+    onAddLeisureProcess(trimmed);
+    setLeisureInput("");
   }
 
   return (
@@ -110,6 +128,10 @@ export function PomodoroSettings({
               Custom…
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setLeisureDialogOpen(true)}>
+            Leisure processes…
+          </DropdownMenuItem>
           {isNotificationSupported() && (
             <>
               <DropdownMenuSeparator />
@@ -163,6 +185,60 @@ export function PomodoroSettings({
           </div>
           <DialogFooter>
             <Button onClick={handleCustomApply}>Apply</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={leisureDialogOpen} onOpenChange={setLeisureDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Leisure processes</DialogTitle>
+            <DialogDescription>
+              Foreground time in these executables counts toward leisure when computing the session verdict.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap gap-1.5">
+            {leisureProcesses.length === 0 ? (
+              <span className="text-xs text-muted-foreground">No processes flagged.</span>
+            ) : (
+              leisureProcesses.map((exe) => (
+                <span
+                  key={exe}
+                  className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs"
+                >
+                  <span className="font-mono">{exe}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${exe}`}
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => onRemoveLeisureProcess(exe)}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Input
+              placeholder="e.g. brave.exe"
+              value={leisureInput}
+              onChange={(e) => setLeisureInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleAddLeisure();
+                }
+              }}
+            />
+            <Button type="button" onClick={handleAddLeisure}>
+              Add
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLeisureDialogOpen(false)}>
+              Done
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

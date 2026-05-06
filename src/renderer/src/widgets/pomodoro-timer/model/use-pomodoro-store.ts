@@ -14,7 +14,7 @@ import type {
 
 type PomodoroStore = PomodoroState & PomodoroActions & { config: PomodoroConfig };
 
-const STORE_VERSION = 10;
+const STORE_VERSION = 11;
 export const OVERTIME_CAP_SEC = 3600;
 const OVERTIME_IDLE_THRESHOLD_SEC = 60;
 const OVERTIME_ALARM_THRESHOLDS_SEC = [300, 600, 1200, 1800, 3600] as const;
@@ -226,6 +226,17 @@ function migrateState(persistedState: unknown, version: number): PomodoroStore {
     state = { ...state, processBuckets: {} };
   }
 
+  if (version < 11) {
+    const prevConfig = (state.config ?? {}) as Partial<PomodoroConfig>;
+    state = {
+      ...state,
+      config: {
+        ...prevConfig,
+        leisureProcesses: prevConfig.leisureProcesses ?? ["brave.exe"],
+      },
+    };
+  }
+
   return state as unknown as PomodoroStore;
 }
 
@@ -262,6 +273,8 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       confirmReview: () => {},
       getOvertimeElapsed: () => 0,
       addToBucket: () => {},
+      addLeisureProcess: () => {},
+      removeLeisureProcess: () => {},
     };
 
     return createWidgetStore<PomodoroStore>(
@@ -490,6 +503,26 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
               [exeName]: (state.processBuckets[exeName] ?? 0) + seconds,
             },
           });
+        },
+
+        addLeisureProcess: (exeName: string) => {
+          const trimmed = exeName.trim().toLowerCase();
+          if (trimmed === "") return;
+          const state = get();
+          const existing = state.config.leisureProcesses;
+          if (existing.some((p) => p.toLowerCase() === trimmed)) return;
+          set({
+            config: { ...state.config, leisureProcesses: [...existing, trimmed] },
+          });
+        },
+
+        removeLeisureProcess: (exeName: string) => {
+          const state = get();
+          const lower = exeName.toLowerCase();
+          const existing = state.config.leisureProcesses;
+          const next = existing.filter((p) => p.toLowerCase() !== lower);
+          if (next.length === existing.length) return;
+          set({ config: { ...state.config, leisureProcesses: next } });
         },
       }),
       {

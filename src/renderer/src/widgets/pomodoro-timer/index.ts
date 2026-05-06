@@ -26,6 +26,7 @@ export const pomodoroTimerWidget = defineWidget<PomodoroConfig>({
     shortBreakDuration: 5,
     longBreakDuration: 15,
     pomodorosUntilLongBreak: 4,
+    leisureProcesses: ["brave.exe"],
   },
   ClientComponent: PomodoroClient,
 });
