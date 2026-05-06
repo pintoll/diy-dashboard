@@ -10,7 +10,9 @@ import {
   showOvertimeAlarmNotification,
 } from "../model/notifications";
 import { playChime } from "../model/chime";
+import { formatTime } from "../lib/format";
 import { PomodoroSettings } from "./PomodoroSettings";
+import { SessionReviewDialog } from "./SessionReviewDialog";
 
 const PHASE_LABELS = {
   work: "Focus Time",
@@ -23,12 +25,6 @@ const PHASE_COLORS = {
   shortBreak: "text-accent",
   longBreak: "text-chart-3",
 } as const;
-
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds) % 60;
-  return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-}
 
 type DisplayTickerOpts = {
   getSnapshot: () => number;
@@ -118,6 +114,7 @@ export function PomodoroClient({
     overtime,
     phaseEndPulse,
     lastOvertimeAlarmThresholdSec,
+    pendingReview,
   } = store();
   const {
     start,
@@ -132,6 +129,7 @@ export function PomodoroClient({
     stopOvertime,
     setPreset,
     setNotificationsEnabled,
+    confirmReview,
   } = store();
   const currentConfig = store().config;
 
@@ -275,6 +273,12 @@ export function PomodoroClient({
       <div className="text-xs text-muted-foreground">
         Completed: {completedPomodoros}
       </div>
+
+      <SessionReviewDialog
+        open={pendingReview !== null}
+        pending={pendingReview}
+        onConfirm={confirmReview}
+      />
     </div>
   );
 }
