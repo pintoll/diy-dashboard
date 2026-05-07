@@ -30,6 +30,7 @@ type Props = {
   open: boolean;
   pending: PendingReview | null;
   leisureProcesses: string[];
+  detectionEnabled: boolean;
   onConfirm: (input: ConfirmReviewInput) => void;
   onMarkAsLeisure: (exeName: string) => void;
 };
@@ -38,6 +39,7 @@ export function SessionReviewDialog({
   open,
   pending,
   leisureProcesses,
+  detectionEnabled,
   onConfirm,
   onMarkAsLeisure,
 }: Props) {
@@ -62,6 +64,7 @@ export function SessionReviewDialog({
   const [userOverrode, setUserOverrode] = useState(false);
   const [totalMin, setTotalMin] = useState("0");
   const [secondsLeft, setSecondsLeft] = useState(AUTO_CONFIRM_SECONDS);
+  const [diagnostics, setDiagnostics] = useState<DetectionDiagnostics | null>(null);
 
   useEffect(() => {
     if (!open || pending === null) return;
@@ -126,6 +129,21 @@ export function SessionReviewDialog({
     resetCountdown();
   };
 
+  const hasBuckets = Object.keys(snapshot?.processBuckets ?? {}).length > 0;
+
+  useEffect(() => {
+    if (!open || hasBuckets) return;
+    const api = typeof window !== "undefined" ? window.electronAPI : undefined;
+    if (!api?.getDetectionDiagnostics) return;
+    let cancelled = false;
+    void api.getDetectionDiagnostics().then((d) => {
+      if (!cancelled) setDiagnostics(d);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, hasBuckets]);
+
   if (snapshot === null || detection === null) return null;
 
   const title = snapshot.cappedAt60m ? "Session capped at 60m" : "Session complete";
@@ -189,9 +207,12 @@ export function SessionReviewDialog({
             </div>
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            Active-window detection unavailable — verdict from manual selection only.
-          </p>
+          <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+            <p>Active-window detection unavailable — verdict from manual selection only.</p>
+            <pre className="bg-muted/40 p-2 rounded font-mono text-[10px] leading-snug whitespace-pre-wrap break-all">
+              {formatDiagnostics(diagnostics, detectionEnabled)}
+            </pre>
+          </div>
         )}
 
         <div className="flex flex-col gap-2">
@@ -242,4 +263,37 @@ export function SessionReviewDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function formatDiagnostics(
+  d: DetectionDiagnostics | null,
+  detectionEnabled: boolean
+): string {
+  if (!detectionEnabled) {
+    return "Detection toggle is OFF — turn on 'Active-window detection' in widget settings.";
+  }
+  if (d === null) return "Loading diagnostics…";
+
+  const outcomes =
+    Object.entries(d.outcomes)
+      .filter(([, v]) => v > 0)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(", ") || "(none)";
+
+  const lastSent =
+    d.lastSentExe !== null && d.lastSentAt !== null
+      ? `${d.lastSentExe} @ ${new Date(d.lastSentAt).toLocaleTimeString()}`
+      : "—";
+
+  const lines = [
+    `platform: ${d.platform} (pollSupported=${d.pollSupported})`,
+    `addonState: ${d.addonState}${d.addonError !== null ? ` — ${d.addonError}` : ""}`,
+    `pollIntervalActive: ${d.pollIntervalActive}`,
+    `pollsAttempted: ${d.pollsAttempted}`,
+    `outcomes: ${outcomes}`,
+    `lastOutcome: ${d.lastOutcome ?? "—"}`,
+    `lastSent: ${lastSent}`,
+    `lastError: ${d.lastErrorMessage ?? "—"}`,
+  ];
+  return lines.join("\n");
 }

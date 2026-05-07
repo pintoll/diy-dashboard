@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("pomodoro:session-started"),
   notifyPomodoroSessionEnded: () =>
     ipcRenderer.invoke("pomodoro:session-ended"),
+  getDetectionDiagnostics: () =>
+    ipcRenderer.invoke("pomodoro:get-detection-diagnostics"),
   onActiveWindow: (callback: (data: ActiveWindowPayload) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: ActiveWindowPayload) =>
       callback(data);

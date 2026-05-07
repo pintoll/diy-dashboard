@@ -307,6 +307,7 @@ export function PomodoroClient({
         open={pendingReview !== null}
         pending={pendingReview}
         leisureProcesses={currentConfig.leisureProcesses}
+        detectionEnabled={currentConfig.detectionEnabled}
         onConfirm={confirmReview}
         onMarkAsLeisure={addLeisureProcess}
       />
