@@ -9,7 +9,10 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # Pinned to windows-2022 because node-gyp 11.x cannot detect Visual Studio 2026,
+    # which is rolling into windows-latest / windows-2025. get-windows needs a native rebuild
+    # against Electron's ABI, so a working VS toolchain is required.
+    runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,6 +25,10 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      - name: Force node-gyp to use VS 2022
+        run: npm config set msvs_version 2022 --global
+        shell: pwsh
 
       - name: Install dependencies
         run: pnpm install
