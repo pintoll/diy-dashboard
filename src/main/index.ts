@@ -113,6 +113,55 @@ type ActiveWindowFn = () => Promise<{
 } | null | undefined>;
 let cachedActiveWindow: ActiveWindowFn | null | "unavailable" = null;
 
+type PollOutcome =
+  | "ok"
+  | "addon_not_loaded"
+  | "addon_threw"
+  | "no_result"
+  | "missing_fields"
+  | "empty_exe"
+  | "off_primary";
+
+type DetectionDiagnostics = {
+  platform: string;
+  pollSupported: boolean;
+  addonState: "pending" | "loaded" | "unavailable";
+  addonError: string | null;
+  pollIntervalActive: boolean;
+  pollsAttempted: number;
+  outcomes: Record<PollOutcome, number>;
+  lastOutcome: PollOutcome | null;
+  lastSentExe: string | null;
+  lastSentAt: number | null;
+  lastErrorMessage: string | null;
+};
+
+function makeOutcomeCounters(): Record<PollOutcome, number> {
+  return {
+    ok: 0,
+    addon_not_loaded: 0,
+    addon_threw: 0,
+    no_result: 0,
+    missing_fields: 0,
+    empty_exe: 0,
+    off_primary: 0,
+  };
+}
+
+const detectionDiagnostics: DetectionDiagnostics = {
+  platform: process.platform,
+  pollSupported: process.platform === "win32",
+  addonState: "pending",
+  addonError: null,
+  pollIntervalActive: false,
+  pollsAttempted: 0,
+  outcomes: makeOutcomeCounters(),
+  lastOutcome: null,
+  lastSentExe: null,
+  lastSentAt: null,
+  lastErrorMessage: null,
+};
+
 async function loadActiveWindow(): Promise<ActiveWindowFn | null> {
   if (cachedActiveWindow === "unavailable") return null;
   if (cachedActiveWindow !== null) return cachedActiveWindow;
@@ -120,33 +169,69 @@ async function loadActiveWindow(): Promise<ActiveWindowFn | null> {
     const mod = (await import("get-windows")) as { activeWindow?: ActiveWindowFn };
     if (typeof mod.activeWindow !== "function") {
       cachedActiveWindow = "unavailable";
+      detectionDiagnostics.addonState = "unavailable";
+      detectionDiagnostics.addonError =
+        "get-windows export 'activeWindow' is not a function";
+      console.error("[pomodoro-detect] addon export missing");
       return null;
     }
     cachedActiveWindow = mod.activeWindow;
+    detectionDiagnostics.addonState = "loaded";
+    detectionDiagnostics.addonError = null;
+    console.log("[pomodoro-detect] addon loaded");
     return cachedActiveWindow;
-  } catch {
+  } catch (err) {
     cachedActiveWindow = "unavailable";
+    detectionDiagnostics.addonState = "unavailable";
+    detectionDiagnostics.addonError =
+      err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    console.error("[pomodoro-detect] addon load failed:", err);
     return null;
   }
+}
+
+function recordOutcome(outcome: PollOutcome): void {
+  detectionDiagnostics.outcomes[outcome] += 1;
+  detectionDiagnostics.lastOutcome = outcome;
 }
 
 async function pollActiveWindow(): Promise<void> {
   const target = mainWindow;
   if (target === null || target.isDestroyed()) return;
 
+  detectionDiagnostics.pollsAttempted += 1;
+
   const activeWindow = await loadActiveWindow();
-  if (activeWindow === null) return;
+  if (activeWindow === null) {
+    recordOutcome("addon_not_loaded");
+    return;
+  }
 
   let result;
   try {
     result = await activeWindow();
-  } catch {
+  } catch (err) {
+    recordOutcome("addon_threw");
+    detectionDiagnostics.lastErrorMessage =
+      err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    console.error("[pomodoro-detect] activeWindow() threw:", err);
     return;
   }
-  if (!result || !result.bounds || !result.owner) return;
+
+  if (!result) {
+    recordOutcome("no_result");
+    return;
+  }
+  if (!result.bounds || !result.owner) {
+    recordOutcome("missing_fields");
+    return;
+  }
 
   const exeName = result.owner.name?.toLowerCase() ?? "";
-  if (exeName === "") return;
+  if (exeName === "") {
+    recordOutcome("empty_exe");
+    return;
+  }
 
   const center = {
     x: Math.round(result.bounds.x + result.bounds.width / 2),
@@ -154,9 +239,16 @@ async function pollActiveWindow(): Promise<void> {
   };
   const primaryId = screen.getPrimaryDisplay().id;
   const nearestId = screen.getDisplayNearestPoint(center).id;
-  if (nearestId !== primaryId) return;
+  if (nearestId !== primaryId) {
+    recordOutcome("off_primary");
+    return;
+  }
 
   if (target.isDestroyed()) return;
+
+  recordOutcome("ok");
+  detectionDiagnostics.lastSentExe = exeName;
+  detectionDiagnostics.lastSentAt = Date.now();
   target.webContents.send("pomodoro:active-window", {
     exeName,
     title: result.title ?? "",
@@ -165,8 +257,17 @@ async function pollActiveWindow(): Promise<void> {
 
 ipcMain.handle("pomodoro:session-started", () => {
   if (process.platform !== "win32") return;
+  if (activeSessionRefCount === 0) {
+    detectionDiagnostics.pollsAttempted = 0;
+    detectionDiagnostics.outcomes = makeOutcomeCounters();
+    detectionDiagnostics.lastOutcome = null;
+    detectionDiagnostics.lastSentExe = null;
+    detectionDiagnostics.lastSentAt = null;
+    detectionDiagnostics.lastErrorMessage = null;
+  }
   activeSessionRefCount += 1;
   if (activeWindowPollInterval !== null) return;
+  detectionDiagnostics.pollIntervalActive = true;
   activeWindowPollInterval = setInterval(() => {
     void pollActiveWindow();
   }, 10_000);
@@ -180,7 +281,10 @@ ipcMain.handle("pomodoro:session-ended", () => {
     clearInterval(activeWindowPollInterval);
     activeWindowPollInterval = null;
   }
+  detectionDiagnostics.pollIntervalActive = false;
 });
+
+ipcMain.handle("pomodoro:get-detection-diagnostics", () => detectionDiagnostics);
 
 ipcMain.handle("check-for-updates", () => {
   return checkForUpdates();

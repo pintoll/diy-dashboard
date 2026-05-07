@@ -11,6 +11,29 @@ interface ActiveWindowPayload {
   title: string;
 }
 
+type DetectionPollOutcome =
+  | "ok"
+  | "addon_not_loaded"
+  | "addon_threw"
+  | "no_result"
+  | "missing_fields"
+  | "empty_exe"
+  | "off_primary";
+
+interface DetectionDiagnostics {
+  platform: string;
+  pollSupported: boolean;
+  addonState: "pending" | "loaded" | "unavailable";
+  addonError: string | null;
+  pollIntervalActive: boolean;
+  pollsAttempted: number;
+  outcomes: Record<DetectionPollOutcome, number>;
+  lastOutcome: DetectionPollOutcome | null;
+  lastSentExe: string | null;
+  lastSentAt: number | null;
+  lastErrorMessage: string | null;
+}
+
 interface ElectronAPI {
   showNotification: (payload: { title: string; body: string }) => Promise<void>;
   isNotificationSupported: () => Promise<boolean>;
@@ -22,6 +45,7 @@ interface ElectronAPI {
   notifyPomodoroSessionStarted: () => Promise<void>;
   notifyPomodoroSessionEnded: () => Promise<void>;
   onActiveWindow: (callback: (data: ActiveWindowPayload) => void) => () => void;
+  getDetectionDiagnostics: () => Promise<DetectionDiagnostics>;
 }
 
 interface MarketSeriesPoint {
