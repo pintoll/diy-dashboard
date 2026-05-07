@@ -26,12 +26,10 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Force node-gyp to use VS 2022
-        run: npm config set msvs_version 2022 --global
-        shell: pwsh
-
       - name: Install dependencies
         run: pnpm install
+        env:
+          GYP_MSVS_VERSION: "2022"
 
       - name: Cache Electron
         uses: actions/cache@v4
@@ -44,3 +42,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAIN_VITE_FRED_API_KEY: ${{ secrets.MAIN_VITE_FRED_API_KEY }}
+          GYP_MSVS_VERSION: "2022"
