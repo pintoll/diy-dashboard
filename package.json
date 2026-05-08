@@ -1,6 +1,6 @@
 {
   "name": "diy-dashboard",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "packageManager": "pnpm@10.28.0",
   "type": "module",
@@ -21,6 +21,7 @@
     "n8n:test": "tools/n8n/scripts/test.sh"
   },
   "dependencies": {
+    "@mapbox/node-pre-gyp": "^1.0.11",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "electron-updater": "^6.7.3",
