@@ -247,6 +247,23 @@ export function PomodoroClient({
   const timeText = isOvertime ? `+${formatTime(displayTime)}` : formatTime(displayTime);
   const timeColor = isOvertime ? "text-destructive" : "";
 
+  useEffect(() => {
+    const api = typeof window !== "undefined" ? window.electronAPI : undefined;
+    if (!api?.setTrayTooltip) return;
+    if (!active) {
+      void api.setTrayTooltip(null);
+      return;
+    }
+    void api.setTrayTooltip(`DIY Dashboard - ${phaseLabel} ${timeText}`);
+  }, [active, phaseLabel, timeText]);
+
+  useEffect(() => {
+    return () => {
+      const api = typeof window !== "undefined" ? window.electronAPI : undefined;
+      void api?.setTrayTooltip?.(null);
+    };
+  }, []);
+
   return (
     <div className="relative flex flex-col items-center justify-center h-full gap-4">
       <div className="absolute top-0 right-0">

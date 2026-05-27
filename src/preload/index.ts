@@ -38,6 +38,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("pomodoro:session-ended"),
   getDetectionDiagnostics: () =>
     ipcRenderer.invoke("pomodoro:get-detection-diagnostics"),
+  setTrayTooltip: (text: string | null) =>
+    ipcRenderer.invoke("tray:set-tooltip", text),
   onActiveWindow: (callback: (data: ActiveWindowPayload) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: ActiveWindowPayload) =>
       callback(data);

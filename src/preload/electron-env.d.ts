@@ -46,6 +46,7 @@ interface ElectronAPI {
   notifyPomodoroSessionEnded: () => Promise<void>;
   onActiveWindow: (callback: (data: ActiveWindowPayload) => void) => () => void;
   getDetectionDiagnostics: () => Promise<DetectionDiagnostics>;
+  setTrayTooltip: (text: string | null) => Promise<void>;
 }
 
 interface MarketSeriesPoint {
