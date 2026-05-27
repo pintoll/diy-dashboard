@@ -16,13 +16,14 @@ import { registerMarketIpc } from "./market/ipc";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+const DEFAULT_TRAY_TOOLTIP = "DIY Dashboard";
 
 function createTray(): void {
   const iconPath = path.join(__dirname, "../../resources/tray-icon.png");
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
 
   tray = new Tray(icon);
-  tray.setToolTip("DIY Dashboard");
+  tray.setToolTip(DEFAULT_TRAY_TOOLTIP);
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -285,6 +286,12 @@ ipcMain.handle("pomodoro:session-ended", () => {
 });
 
 ipcMain.handle("pomodoro:get-detection-diagnostics", () => detectionDiagnostics);
+
+ipcMain.handle("tray:set-tooltip", (_event, text: string | null) => {
+  if (tray === null || tray.isDestroyed()) return;
+  const next = typeof text === "string" && text.length > 0 ? text : DEFAULT_TRAY_TOOLTIP;
+  tray.setToolTip(next);
+});
 
 ipcMain.handle("check-for-updates", () => {
   return checkForUpdates();
