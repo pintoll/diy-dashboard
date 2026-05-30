@@ -12,10 +12,16 @@ export { POMODORO_PRESETS } from "./model/pomodoro-session.types";
 
 export { useSessionLogStore } from "./model/use-session-log-store";
 
-export type { HeatmapCell, HeatmapLevel } from "./model/aggregations";
+export type {
+  HeatmapCell,
+  HeatmapLevel,
+  WeeklyHours,
+  WeeklyHoursComparison,
+} from "./model/aggregations";
 export {
   countToday,
   countThisWeek,
   computeCurrentStreak,
   buildHeatmapCells,
+  weeklyActiveHours,
 } from "./model/aggregations";

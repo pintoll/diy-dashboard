@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import { Link } from "react-router-dom";
+import { ArrowRight } from "lucide-react";
 import {
   useSessionLogStore,
   countToday,
@@ -39,6 +41,15 @@ export function PomodoroStatsClient() {
       </div>
       <div className="flex-1 min-h-0">
         <Heatmap cells={cells} weeks={HEATMAP_WEEKS} />
+      </div>
+      <div className="flex justify-end shrink-0">
+        <Link
+          to="/focus-analytics"
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          See more
+          <ArrowRight className="h-3 w-3" />
+        </Link>
       </div>
     </div>
   );

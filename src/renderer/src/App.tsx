@@ -3,6 +3,7 @@ import { Routes, Route } from "react-router-dom";
 import { DashboardGrid } from "@/src/widgets/dashboard-grid/client";
 import { registerAllWidgets } from "@/src/widgets/widget-registry";
 import { UpdateToast } from "@/src/features/check-app-update/client";
+import { FocusAnalyticsPage } from "@/src/pages/focus-analytics/client";
 
 function HomePage() {
   const [ready, setReady] = useState(false);
@@ -28,6 +29,7 @@ export default function App() {
     <>
       <Routes>
         <Route path="/" element={<HomePage />} />
+        <Route path="/focus-analytics" element={<FocusAnalyticsPage />} />
       </Routes>
       <UpdateToast />
     </>
