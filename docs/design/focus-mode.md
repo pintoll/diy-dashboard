@@ -67,7 +67,9 @@ This is deliberate: focus mode still permits a browser open for, e.g., YouTube M
 
 ### App block (kill-on-sight)
 
-Reuses the existing active-window poll in main (`pollActiveWindow`, 10s interval, already reports `owner.name`/`owner.processId`). During focus, if the **foreground** exe is on the app blocklist, kill it (`process.kill(pid)` / `taskkill /PID`).
+Reuses the existing active-window poll in main (`pollActiveWindow`, 10s interval, already reports `owner.name`/`owner.processId`). During focus, if the **foreground** exe is on the app blocklist, kill it.
+
+**As built (commit 663bdfe):** kill via `taskkill /F /T /PID <pid>` — chosen over `process.kill(pid)` (more reliable for GUI/elevated windows; `/T` tears down the child tree). No UAC needed: `taskkill` works on same-user processes, so unlike the hosts engine there is no elevation step. The kill fires right after the foreground exe is read, **before** the poll's primary-display filter, so a blocked app is killed on any monitor (that filter exists only for the pomodoro active-app telemetry). `ActiveWindowFn` was widened to type `owner.processId` (already present at runtime). Engine lives in `src/main/focus-guard/app-guard.ts`; IPC is `appGuard.enforce(exeList)` / `.release()`.
 
 - Chosen over IFEO registry blocking: no persistent OS mutation, no leftover-on-crash risk (a crashed IFEO entry would lock the app out forever), aligns with "defeatable, not a permanent lock."
 - Cost is ~zero: the poll already runs and already fetches the exe; this adds a Set lookup + one kill syscall per tick. Keep the 10s interval — the goal is "launching is pointless, it dies" (a speed bump), not instant-kill. Do not tighten the interval just for this.
@@ -90,14 +92,14 @@ Belongs with `feature/stastics-of-pomodoro` and the focus-analysis page. This fe
 
 ## Technical shape (FSD)
 
-- `src/main/` — hosts read/write + UAC elevation helper (OS mutation lives in main). Suggested helper: `sudo-prompt` or PowerShell `Start-Process -Verb RunAs`, elevating only the hosts-edit script. Flush DNS after edit (`ipconfig /flushdns`). App kill reuses the existing `pollActiveWindow` loop.
+- `src/main/` — hosts read/write + elevation helper (OS mutation lives in main). **As built (commit 77a7949):** elevation is a *one-time ACL grant*, not per-edit elevation. A bundled PowerShell script (`resources/focus-guard/grant-hosts-access.ps1`, shipped via electron-builder `extraResources`) runs once through a nested `Start-Process -Verb RunAs -Wait` (single UAC prompt) and does `icacls <hosts> /grant "<user>:(M)"`; the username comes from `os.userInfo()` (passed as `-User`) so the grant targets the real user even if a different admin approves the prompt. After the grant, runtime block/unblock are plain no-prompt `fs` writes. Write permission is confirmed by a real-write probe (rewrite hosts with identical content), since `fs.access(W_OK)` is unreliable against NTFS ACLs. Flush DNS after each edit (`ipconfig /flushdns`). Files: `src/main/focus-guard/{site-guard,elevate,ipc}.ts`. App kill reuses the existing `pollActiveWindow` loop (`focus-guard/app-guard.ts`) and needs no elevation.
 - `src/preload/` — IPC bridge, mirrored for both engines: `electronAPI.siteGuard.block(domains)` / `.unblock()` and `electronAPI.appGuard.enforce(exeList)` / `.release()`.
 - renderer — subscriber that calls enforce/release on focus-mode entry/exit, plus blocklist config UI (sites + apps) and the top-left focus/leisure intent tab. Feature must not import the pomodoro-timer widget (FSD upward import); expose the mode signal via `shared` or wire at the widget composition level.
 
 ## Build order
 
-1. **Site engine** (hosts). Validate UAC elevation + hosts write on Win11 *first* — it is the real risk; blocklist logic is trivial by comparison. If elevation can't be obtained the whole design shifts.
-2. **App engine** (kill-on-sight). Hook the kill into the existing poll, mirror the `siteGuard` IPC shape as `appGuard`.
+1. **Site engine** (hosts). Validate UAC elevation + hosts write on Win11 *first* — it is the real risk; blocklist logic is trivial by comparison. If elevation can't be obtained the whole design shifts. **Built (commit 77a7949)** as a one-time ACL grant (see Technical shape); Win11 verification pending.
+2. **App engine** (kill-on-sight). Hook the kill into the existing poll, mirror the `siteGuard` IPC shape as `appGuard`. **Built (commit 663bdfe)** with `taskkill /F /T /PID` and `appGuard.enforce`/`release`; Win11 verification pending.
 3. **Mode**: data + UI (`FocusMode` enum, `intendedMode` field, store version/migrate, focus/leisure tab with per-mode color), then wiring (focus declaration -> both engines enforce; any exit -> release).
 4. **Remaining logic**: stats surfacing of the 2x2 / collapse, blocklist config UI polish, edge cases.
 
