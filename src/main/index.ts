@@ -13,6 +13,7 @@ import {
 import path from "path";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./auto-updater";
 import { registerMarketIpc } from "./market/ipc";
+import { registerFocusGuardIpc } from "./focus-guard/ipc";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -335,6 +336,7 @@ app.whenReady().then(async () => {
   createAppMenu();
   createTray();
   registerMarketIpc();
+  registerFocusGuardIpc();
   createWindow();
 
   if (app.isPackaged && mainWindow) {
