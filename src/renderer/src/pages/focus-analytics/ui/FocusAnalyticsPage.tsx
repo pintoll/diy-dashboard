@@ -18,6 +18,7 @@ import {
   CardTitle,
 } from "@/src/shared/ui/card";
 import { WeeklyHero } from "./WeeklyHero";
+import { DailyTrendChart } from "./DailyTrendChart";
 import { CelebrationStats } from "./CelebrationStats";
 import { ContributionHeatmap } from "./ContributionHeatmap";
 import { IntentOutcomeGrid } from "./IntentOutcomeGrid";
@@ -68,6 +69,8 @@ export function FocusAnalyticsPage() {
             <WeeklyHero data={weekly} />
           </CardContent>
         </Card>
+
+        <DailyTrendChart sessions={sessions} />
 
         <CelebrationStats stats={lifetime} streak={streak} />
 

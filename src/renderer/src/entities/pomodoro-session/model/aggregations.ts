@@ -278,6 +278,54 @@ export function timeOfDayPattern(
   return buckets;
 }
 
+export type DailyHours = {
+  date: string; // local YYYY-MM-DD
+  focusHours: number;
+  leisureHours: number;
+  sessionCount: number;
+};
+
+// Per-day focus/leisure hours for a sliding window of `days` ending on the
+// local day of `endTimestamp` (inclusive), oldest first. Buckets by `endedAt`
+// to match the heatmap and day drill-down; active time = planned + overtime.
+// Days with no sessions are emitted as zero rows so the window is always
+// `days` long and navigation never collapses.
+export function dailyActiveHours(
+  sessions: PomodoroSessionRecord[],
+  days: number,
+  endTimestamp: number = Date.now()
+): DailyHours[] {
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const endDay = startOfLocalDay(endTimestamp);
+  const startDay = endDay - (days - 1) * MS_PER_DAY;
+
+  type Acc = { focusSec: number; leisureSec: number; count: number };
+  const byDate = new Map<string, Acc>();
+  for (const s of sessions) {
+    if (s.endedAt < startDay) continue;
+    if (startOfLocalDay(s.endedAt) > endDay) continue;
+    const key = toDateKey(s.endedAt);
+    const acc = byDate.get(key) ?? { focusSec: 0, leisureSec: 0, count: 0 };
+    if (bucketOf(s.attention) === "focus") acc.focusSec += sessionActiveSec(s);
+    else acc.leisureSec += sessionActiveSec(s);
+    acc.count++;
+    byDate.set(key, acc);
+  }
+
+  const out: DailyHours[] = [];
+  for (let i = 0; i < days; i++) {
+    const key = toDateKey(startDay + i * MS_PER_DAY);
+    const acc = byDate.get(key);
+    out.push({
+      date: key,
+      focusHours: acc ? acc.focusSec / 3600 : 0,
+      leisureHours: acc ? acc.leisureSec / 3600 : 0,
+      sessionCount: acc?.count ?? 0,
+    });
+  }
+  return out;
+}
+
 export type AppUsage = { exe: string; seconds: number };
 
 // Total foreground seconds per app across every session, top N. Note: focus
