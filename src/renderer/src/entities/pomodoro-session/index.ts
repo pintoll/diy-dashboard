@@ -23,6 +23,7 @@ export type {
   IntentOutcomeMatrix,
   HourBucket,
   AppUsage,
+  DailyHours,
 } from "./model/aggregations";
 export {
   countToday,
@@ -30,6 +31,7 @@ export {
   computeCurrentStreak,
   buildHeatmapCells,
   weeklyActiveHours,
+  dailyActiveHours,
   lifetimeStats,
   intentOutcomeMatrix,
   timeOfDayPattern,
