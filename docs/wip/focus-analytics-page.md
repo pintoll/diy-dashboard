@@ -32,7 +32,7 @@ separate worktree):
 - session note — optional, sparse free text, for "that day, why?" context.
   Statistical analysis of note text is out of scope.
 
-## Phase 1 — Route + weekly hero
+## Phase 1 — Route + weekly hero (DONE)
 
 - **What:** new route reachable from the pomodoro surface. Hero is
   this-week-vs-last-week **active hours**, stacked `total = focus + leisure`,
@@ -42,8 +42,11 @@ separate worktree):
   only the link is added.
 - **Seam:** local ISO week (Mon start); reuse the boundary logic in
   `entities/pomodoro-session/model/aggregations.ts`. Works on current data.
+- **Landed:** route `/focus-analytics` (`App.tsx`); page in
+  `pages/focus-analytics/` (`FocusAnalyticsPage`, `WeeklyHero`); hero reads
+  `weeklyActiveHours`; "See more" `Link` added to `PomodoroStatsClient`.
 
-## Phase 2 — Celebration surface
+## Phase 2 — Celebration surface (DONE)
 
 - **What:** cumulative focused hours, current streak, contribution heatmap,
   overtime ("went beyond the plan"). Session **count** lives here as a
@@ -53,6 +56,14 @@ separate worktree):
   larger scale** (e.g. full year vs the widget's short window) — reuse the same
   `pomodoro-stats` aggregations, one source of truth, don't fork. Widget = small
   heatmap, page = full heatmap.
+- **Landed:** totals are **all-time** via new `lifetimeStats` aggregation
+  (focus / leisure / overtime hours + session count); streak reuses
+  `computeCurrentStreak`. The widget `Heatmap` was **promoted to the entity
+  layer** (`entities/pomodoro-session/ui/Heatmap.tsx`, exported via
+  `client.ts`) and made configurable (`cellSizePx`, `showMonthLabels`); the
+  widget renders it fluidly, the page renders a GitHub-style **52-week** grid
+  with month labels and horizontal scroll. New page parts:
+  `CelebrationStats`, `ContributionHeatmap`.
 
 ## Phase 3 — Diagnosis surface
 
@@ -77,9 +88,9 @@ separate worktree):
 
 ## Open seam / UX questions
 
-- **Legacy `mixed` sessions:** bucket as leisure, as focus, or surface an
-  "unmarked" slice? Affects hero accuracy for old data.
-- **No-last-week state:** first week has nothing to compare against — what the
-  hero shows then.
-- **Layout:** one scrolling page (celebration on top, diagnosis below) vs an
-  explicit lens toggle.
+- **Legacy `mixed` sessions:** RESOLVED — bucketed as leisure (`bucketOf` in
+  `aggregations.ts`); applies to hero and lifetime totals alike.
+- **No-last-week state:** RESOLVED — hero shows "No comparison data yet" and
+  omits the last-week bar when there is no history before this week.
+- **Layout:** RESOLVED for P2 — one scrolling page (celebration below the
+  hero). Diagnosis (P3) placement / lens toggle still open.

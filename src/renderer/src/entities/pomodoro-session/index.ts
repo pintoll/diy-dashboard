@@ -17,6 +17,7 @@ export type {
   HeatmapLevel,
   WeeklyHours,
   WeeklyHoursComparison,
+  LifetimeStats,
 } from "./model/aggregations";
 export {
   countToday,
@@ -24,4 +25,5 @@ export {
   computeCurrentStreak,
   buildHeatmapCells,
   weeklyActiveHours,
+  lifetimeStats,
 } from "./model/aggregations";

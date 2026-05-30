@@ -8,8 +8,8 @@ import {
   computeCurrentStreak,
   buildHeatmapCells,
 } from "@/src/entities/pomodoro-session";
+import { Heatmap } from "@/src/entities/pomodoro-session/client";
 import { StatTile } from "./StatTile";
-import { Heatmap } from "./Heatmap";
 
 const HEATMAP_WEEKS = 12;
 
