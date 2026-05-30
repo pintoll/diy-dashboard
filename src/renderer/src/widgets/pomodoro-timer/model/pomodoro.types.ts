@@ -59,6 +59,7 @@ export type PomodoroActions = {
   start: () => void;
   pause: () => void;
   reset: () => void;
+  stop: () => void;
   skip: () => void;
   tick: () => void;
   syncTime: () => PomodoroPhase | null;
