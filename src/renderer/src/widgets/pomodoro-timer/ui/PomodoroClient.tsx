@@ -121,6 +121,7 @@ export function PomodoroClient({
     phaseEndPulse,
     lastOvertimeAlarmThresholdSec,
     pendingReview,
+    intendedMode,
   } = store();
   const {
     start,
@@ -137,6 +138,7 @@ export function PomodoroClient({
     setPreset,
     setNotificationsEnabled,
     setConfigFlag,
+    setIntendedMode,
     confirmReview,
     addToBucket,
     addLeisureProcess,
@@ -293,6 +295,30 @@ export function PomodoroClient({
       <div className={`text-5xl font-mono font-bold tabular-nums ${timeColor}`}>
         {timeText}
       </div>
+
+      {phase === "work" && (
+        <div role="radiogroup" aria-label="Session intent" className="flex gap-1.5">
+          {(["focus", "leisure"] as const).map((mode) => {
+            const selected = intendedMode === mode;
+            return (
+              <Button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                variant={selected ? "default" : "outline"}
+                size="sm"
+                className="h-7 px-3 text-xs capitalize"
+                disabled={active}
+                onClick={() => setIntendedMode(mode)}
+                title="Declare your intent before starting"
+              >
+                {mode}
+              </Button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="flex items-center gap-2">
         {isOvertime ? (

@@ -122,7 +122,8 @@ function sessionActiveSec(s: PomodoroSessionRecord): number {
   return s.durationSec + s.overtimeSec;
 }
 
-// Legacy `mixed` records bucket as leisure (so do explicit leisure records).
+// Attention is binary (focus/leisure) after the v2 migration; this stays a
+// total function over the union as a defensive normalizer.
 function bucketOf(attention: AttentionVerdict): "focus" | "leisure" {
   return attention === "focus" ? "focus" : "leisure";
 }
@@ -195,6 +196,107 @@ export function lifetimeStats(sessions: PomodoroSessionRecord[]): LifetimeStats 
     overtimeHours: overtimeSec / 3600,
     sessionCount: sessions.length,
   };
+}
+
+// --- Phase 3: diagnosis aggregations ---
+
+export type IntentOutcomeCell = { count: number; hours: number };
+
+// intent (declared at start) x outcome (verdict at end). `collapse` (intended
+// focus, ended leisure) is the headline metric. Sessions with no declared
+// intent (legacy `intendedMode === null`) are excluded from the 2x2.
+export type IntentOutcomeMatrix = {
+  heldLine: IntentOutcomeCell; // focus -> focus
+  collapse: IntentOutcomeCell; // focus -> leisure
+  bonus: IntentOutcomeCell; // leisure -> focus
+  honestRest: IntentOutcomeCell; // leisure -> leisure
+  excludedNullIntent: number;
+};
+
+export function intentOutcomeMatrix(
+  sessions: PomodoroSessionRecord[]
+): IntentOutcomeMatrix {
+  const cell = (): IntentOutcomeCell => ({ count: 0, hours: 0 });
+  const matrix: IntentOutcomeMatrix = {
+    heldLine: cell(),
+    collapse: cell(),
+    bonus: cell(),
+    honestRest: cell(),
+    excludedNullIntent: 0,
+  };
+
+  for (const s of sessions) {
+    if (s.intendedMode === null) {
+      matrix.excludedNullIntent++;
+      continue;
+    }
+    const outcome = bucketOf(s.attention);
+    const target =
+      s.intendedMode === "focus"
+        ? outcome === "focus"
+          ? matrix.heldLine
+          : matrix.collapse
+        : outcome === "focus"
+          ? matrix.bonus
+          : matrix.honestRest;
+    target.count++;
+    target.hours += sessionActiveSec(s) / 3600;
+  }
+
+  return matrix;
+}
+
+export type HourBucket = {
+  hour: number; // 0-23, local
+  focusCount: number;
+  leisureCount: number;
+  collapseCount: number; // intended focus, ended leisure
+};
+
+// 24 local-hour buckets keyed by session start, so leisure/collapse clustering
+// ("this hour is where I weaken") is visible.
+export function timeOfDayPattern(
+  sessions: PomodoroSessionRecord[]
+): HourBucket[] {
+  const buckets: HourBucket[] = Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    focusCount: 0,
+    leisureCount: 0,
+    collapseCount: 0,
+  }));
+
+  for (const s of sessions) {
+    const bucket = buckets[new Date(s.startedAt).getHours()];
+    const outcome = bucketOf(s.attention);
+    if (outcome === "focus") bucket.focusCount++;
+    else bucket.leisureCount++;
+    if (s.intendedMode === "focus" && outcome === "leisure") {
+      bucket.collapseCount++;
+    }
+  }
+
+  return buckets;
+}
+
+export type AppUsage = { exe: string; seconds: number };
+
+// Total foreground seconds per app across every session, top N. Note: focus
+// mode blocks leisure sites, so a collapse leaves little trace here — the
+// blocked browser never loads (see docs/design/focus-mode.md).
+export function appBreakdown(
+  sessions: PomodoroSessionRecord[],
+  topN = 8
+): AppUsage[] {
+  const totals = new Map<string, number>();
+  for (const s of sessions) {
+    for (const [exe, sec] of Object.entries(s.processBuckets)) {
+      totals.set(exe, (totals.get(exe) ?? 0) + sec);
+    }
+  }
+  return [...totals.entries()]
+    .map(([exe, seconds]) => ({ exe, seconds }))
+    .sort((a, b) => b.seconds - a.seconds)
+    .slice(0, topN);
 }
 
 export function buildHeatmapCells(
