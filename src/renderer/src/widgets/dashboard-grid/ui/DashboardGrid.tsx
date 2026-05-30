@@ -15,7 +15,6 @@ import {
 import { useDashboardStore } from "../model/use-dashboard-store";
 import { WidgetWrapper } from "./WidgetWrapper";
 import { WidgetPickerDialog } from "@/src/features/manage-widget/ui/WidgetPickerDialog";
-import { FocusModeTab } from "@/src/features/focus-mode/client";
 import { widgetRegistry } from "@/src/widgets/widget-registry";
 import "react-grid-layout/css/styles.css";
 
@@ -72,7 +71,6 @@ export function DashboardGrid() {
         <header className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold">Dashboard</h1>
-            <FocusModeTab />
           </div>
           <div className="flex items-center gap-2">
             <Button
