@@ -2,6 +2,7 @@ import { useEffect, useRef, useSyncExternalStore, useCallback } from "react";
 import { Play, Pause, RotateCcw, SkipForward, Square } from "lucide-react";
 import { Button } from "@/src/shared/ui/button";
 import type { WidgetProps } from "@/src/shared/types";
+import { useFocusModeStore } from "@/src/entities/focus-mode";
 import type { PomodoroConfig, PomodoroPhase } from "../model/pomodoro.types";
 import { usePomodoroStore } from "../model/use-pomodoro-store";
 import {
@@ -201,6 +202,18 @@ export function PomodoroClient({
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [isOvertime, pollIdle]);
+
+  // Publish work-session-active to the shared focus-mode signal so the block
+  // controller can enforce/release. Independent of detectionEnabled — blocking
+  // must work even with active-window telemetry off.
+  const setSessionActive = useFocusModeStore((s) => s.setSessionActive);
+  const isWorkSession = phase === "work" && active;
+  useEffect(() => {
+    setSessionActive(isWorkSession);
+  }, [isWorkSession, setSessionActive]);
+  useEffect(() => {
+    return () => setSessionActive(false);
+  }, [setSessionActive]);
 
   const isWorkSessionActive =
     phase === "work" && (isRunning || isOvertime) && currentConfig.detectionEnabled;

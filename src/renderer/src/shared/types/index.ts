@@ -10,3 +10,5 @@ export type {
 } from "./widget";
 
 export { WIDGET_CATEGORY_LABELS } from "./widget";
+
+export type { FocusMode } from "./focus-mode";

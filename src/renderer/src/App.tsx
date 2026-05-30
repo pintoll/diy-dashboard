@@ -3,7 +3,12 @@ import { Routes, Route } from "react-router-dom";
 import { DashboardGrid } from "@/src/widgets/dashboard-grid/client";
 import { registerAllWidgets } from "@/src/widgets/widget-registry";
 import { UpdateToast } from "@/src/features/check-app-update/client";
-import { FocusGuardPanel, AppGuardPanel } from "@/src/features/focus-mode/client";
+import {
+  FocusGuardPanel,
+  AppGuardPanel,
+  FocusModeController,
+  BlocklistSettings,
+} from "@/src/features/focus-mode/client";
 
 function HomePage() {
   const [ready, setReady] = useState(false);
@@ -31,6 +36,8 @@ export default function App() {
         <Route path="/" element={<HomePage />} />
       </Routes>
       <UpdateToast />
+      <FocusModeController />
+      <BlocklistSettings />
       <FocusGuardPanel />
       <AppGuardPanel />
     </>

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { createWidgetStore } from "@/src/shared/lib/create-widget-store";
 import { useSessionLogStore } from "@/src/entities/pomodoro-session";
+import { useFocusModeStore } from "@/src/entities/focus-mode";
 import type {
   ConfirmReviewInput,
   PendingReview,
@@ -76,6 +77,7 @@ function recordCompletedWorkSession(state: PomodoroState & { config: PomodoroCon
     durationSec,
     presetId: state.activePresetId,
     processBuckets: state.processBuckets,
+    intendedMode: useFocusModeStore.getState().intendedMode,
   });
 }
 
@@ -100,6 +102,9 @@ function buildPendingReview(
     idleSec,
     cappedAt60m: capped,
     processBuckets: state.processBuckets,
+    // Snapshot intent at session end: the tab unlocks once the session is over,
+    // so the review (confirmed later) must not pick up a post-session flip.
+    intendedMode: useFocusModeStore.getState().intendedMode,
   };
 }
 
@@ -396,6 +401,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             idleSec: 0,
             cappedAt60m: false,
             processBuckets: state.processBuckets,
+            intendedMode: useFocusModeStore.getState().intendedMode,
           };
 
           set({
@@ -556,6 +562,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             idleSec: pendingReview.idleSec,
             cappedAt60m: pendingReview.cappedAt60m,
             processBuckets: pendingReview.processBuckets,
+            intendedMode: pendingReview.intendedMode,
             attention: input.attention,
             attentionSource: input.attentionSource,
           });
