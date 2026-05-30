@@ -299,6 +299,17 @@ export function appBreakdown(
     .slice(0, topN);
 }
 
+// All sessions that ended on the given local day (`YYYY-MM-DD`), ordered by
+// start time. Keyed by `endedAt` to match the heatmap's per-day counts.
+export function sessionsOnDate(
+  sessions: PomodoroSessionRecord[],
+  date: string
+): PomodoroSessionRecord[] {
+  return sessions
+    .filter((s) => toDateKey(s.endedAt) === date)
+    .sort((a, b) => a.startedAt - b.startedAt);
+}
+
 export function buildHeatmapCells(
   sessions: PomodoroSessionRecord[],
   weeks: number,

@@ -9,6 +9,9 @@ type HeatmapProps = {
   /** Render a month-label row above the grid, aligned to week columns.
    *  Only meaningful in fixed mode (requires `cellSizePx`). */
   showMonthLabels?: boolean;
+  /** When set, days with at least one session become clickable (drill-down).
+   *  Empty/future cells stay inert. */
+  onCellClick?: (date: string) => void;
 };
 
 const LEVEL_CLASS: Record<HeatmapLevel, string> = {
@@ -44,7 +47,35 @@ function monthStarts(cells: HeatmapCell[], weeks: number): { col: number; label:
   return out;
 }
 
-export function Heatmap({ cells, weeks, cellSizePx, showMonthLabels }: HeatmapProps) {
+function CellSquare({
+  cell,
+  onCellClick,
+}: {
+  cell: HeatmapCell;
+  onCellClick?: (date: string) => void;
+}) {
+  const className = `rounded-[2px] ${LEVEL_CLASS[cell.level]}`;
+  const title = `${cell.date}: ${cell.count}`;
+  if (onCellClick && cell.count > 0) {
+    return (
+      <button
+        type="button"
+        title={title}
+        onClick={() => onCellClick(cell.date)}
+        className={`${className} cursor-pointer transition-transform hover:ring-1 hover:ring-ring focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none`}
+      />
+    );
+  }
+  return <div title={title} className={className} />;
+}
+
+export function Heatmap({
+  cells,
+  weeks,
+  cellSizePx,
+  showMonthLabels,
+  onCellClick,
+}: HeatmapProps) {
   if (cellSizePx) {
     const columns = `repeat(${weeks}, ${cellSizePx}px)`;
     return (
@@ -92,10 +123,10 @@ export function Heatmap({ cells, weeks, cellSizePx, showMonthLabels }: HeatmapPr
               }}
             >
               {cells.map((cell) => (
-                <div
+                <CellSquare
                   key={cell.date}
-                  title={`${cell.date}: ${cell.count}`}
-                  className={`rounded-[2px] ${LEVEL_CLASS[cell.level]}`}
+                  cell={cell}
+                  onCellClick={onCellClick}
                 />
               ))}
             </div>
@@ -126,11 +157,7 @@ export function Heatmap({ cells, weeks, cellSizePx, showMonthLabels }: HeatmapPr
         }}
       >
         {cells.map((cell) => (
-          <div
-            key={cell.date}
-            title={`${cell.date}: ${cell.count}`}
-            className={`rounded-[2px] ${LEVEL_CLASS[cell.level]}`}
-          />
+          <CellSquare key={cell.date} cell={cell} onCellClick={onCellClick} />
         ))}
       </div>
     </div>

@@ -34,4 +34,5 @@ export {
   intentOutcomeMatrix,
   timeOfDayPattern,
   appBreakdown,
+  sessionsOnDate,
 } from "./model/aggregations";

@@ -53,4 +53,8 @@ export type PomodoroSessionRecord = {
   attentionSource: AttentionSource;
   processBuckets: Record<string, number>;
   cappedAt60m: boolean;
+  // Optional free-text memo for "that day, why?" context, authored after the
+  // fact in the analytics day drill-down. null = no note (same null-as-absent
+  // convention as `intendedMode`).
+  note: string | null;
 };
