@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { createWidgetStore } from "@/src/shared/lib/create-widget-store";
 import { useSessionLogStore } from "@/src/entities/pomodoro-session";
+import { useFocusModeStore } from "@/src/entities/focus-mode";
 import type {
   ConfirmReviewInput,
-  FocusMode,
   PendingReview,
   PomodoroConfig,
   PomodoroPhase,
@@ -77,7 +77,7 @@ function recordCompletedWorkSession(state: PomodoroState & { config: PomodoroCon
     durationSec,
     presetId: state.activePresetId,
     processBuckets: state.processBuckets,
-    intendedMode: state.intendedMode,
+    intendedMode: useFocusModeStore.getState().intendedMode,
   });
 }
 
@@ -101,8 +101,12 @@ function buildPendingReview(
     overtimeSec,
     idleSec,
     cappedAt60m: capped,
+    // Overtime exits all happen after the work timer already reached 0.
+    sessionEndType: "completed",
     processBuckets: state.processBuckets,
-    intendedMode: state.intendedMode,
+    // Snapshot intent at session end: the tab unlocks once the session is over,
+    // so the review (confirmed later) must not pick up a post-session flip.
+    intendedMode: useFocusModeStore.getState().intendedMode,
   };
 }
 
@@ -253,9 +257,8 @@ function migrateState(persistedState: unknown, version: number): PomodoroStore {
     };
   }
 
-  if (version < 13) {
-    state = { ...state, intendedMode: (state.intendedMode as FocusMode) ?? "focus" };
-  }
+  // Intent declaration moved out of this store into useFocusModeStore (shared
+  // with the focus-mode block engine); no per-instance intendedMode to backfill.
 
   return state as unknown as PomodoroStore;
 }
@@ -275,7 +278,6 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       lastOvertimeAlarmThresholdSec: null,
       pendingReview: null,
       processBuckets: {},
-      intendedMode: "focus",
       config,
 
       start: () => {},
@@ -289,7 +291,6 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       setPreset: () => {},
       setNotificationsEnabled: () => {},
       setConfigFlag: () => {},
-      setIntendedMode: () => {},
       enterOvertime: () => {},
       pollIdle: () => {},
       stopOvertime: () => {},
@@ -404,8 +405,10 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             overtimeSec: 0,
             idleSec: 0,
             cappedAt60m: false,
+            // Stopped with time still on the clock — the temptation surrender.
+            sessionEndType: "early-stop",
             processBuckets: state.processBuckets,
-            intendedMode: state.intendedMode,
+            intendedMode: useFocusModeStore.getState().intendedMode,
           };
 
           set({
@@ -474,14 +477,6 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
         setConfigFlag: (key, enabled) => {
           const { config } = get();
           set({ config: { ...config, [key]: enabled } });
-        },
-
-        setIntendedMode: (mode: FocusMode) => {
-          // Intent is declared before the session starts and is immutable once
-          // a work session is running or in overtime.
-          const state = get();
-          if (state.isRunning || state.overtime !== null) return;
-          set({ intendedMode: mode });
         },
 
         enterOvertime: () => {
@@ -573,6 +568,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             overtimeSec: Math.max(0, Math.floor(input.overtimeSec)),
             idleSec: pendingReview.idleSec,
             cappedAt60m: pendingReview.cappedAt60m,
+            sessionEndType: pendingReview.sessionEndType,
             processBuckets: pendingReview.processBuckets,
             intendedMode: pendingReview.intendedMode,
             attention: input.attention,

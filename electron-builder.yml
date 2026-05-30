@@ -9,6 +9,10 @@ files:
 asarUnpack:
   - "node_modules/get-windows/lib/**/*"
   - "node_modules/get-windows/main"
+extraResources:
+  - from: resources/focus-guard
+    to: focus-guard
+    filter: ["**/*.ps1"]
 publish:
   provider: github
   owner: pintoll

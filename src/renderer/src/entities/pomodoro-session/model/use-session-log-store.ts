@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type { PomodoroSessionRecord } from "./pomodoro-session.types";
 
-const STORE_VERSION = 3;
+const STORE_VERSION = 4;
 
 // Fields with safe defaults: callers may omit them and migrations backfill them.
 type DefaultedField =
@@ -11,6 +11,7 @@ type DefaultedField =
   | "idleSec"
   | "attention"
   | "attentionSource"
+  | "sessionEndType"
   | "processBuckets"
   | "cappedAt60m"
   | "intendedMode"
@@ -25,6 +26,7 @@ const RECORD_DEFAULTS: Pick<PomodoroSessionRecord, DefaultedField> = {
   idleSec: 0,
   attention: "focus",
   attentionSource: "auto",
+  sessionEndType: "completed",
   processBuckets: {},
   cappedAt60m: false,
   // null = intent was never declared. Never backfilled to a real value — a
@@ -49,21 +51,22 @@ function migrate(persistedState: unknown, version: number): SessionLogState {
     sessions = sessions.map((s) => ({ ...RECORD_DEFAULTS, ...s }));
   }
 
-  // v1 -> v2: `mixed` verdict removed (buckets as leisure); add intendedMode.
-  if (version < 2) {
+  // v1 -> v4: the stats and focus-mode branches independently bumped to v2/v3
+  // with divergent semantics (mixed-verdict removal, intendedMode, note,
+  // sessionEndType). This consolidating step is idempotent and backfills every
+  // newer field regardless of which branch's data is on disk: collapse the
+  // removed `mixed` verdict to leisure and default the optional fields.
+  if (version < 4) {
     sessions = sessions.map((s) => ({
       ...s,
-      attention: (s.attention as string) === "mixed" ? "leisure" : s.attention,
+      attention: (s.attention as string) === "mixed" ? "leisure" : (s.attention ?? "focus"),
       intendedMode: s.intendedMode ?? null,
+      sessionEndType: s.sessionEndType ?? "completed",
+      note: s.note ?? null,
     }));
   }
 
-  // v2 -> v3: add the optional session note field.
-  if (version < 3) {
-    sessions = sessions.map((s) => ({ ...s, note: s.note ?? null }));
-  }
-
-  return { ...(state as object), sessions } as SessionLogState;
+  return { ...(state as object), sessions: sessions as PomodoroSessionRecord[] } as SessionLogState;
 }
 
 export const useSessionLogStore = create<SessionLogState>()(

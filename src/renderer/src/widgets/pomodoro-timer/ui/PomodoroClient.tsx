@@ -2,6 +2,7 @@ import { useEffect, useRef, useSyncExternalStore, useCallback } from "react";
 import { Play, Pause, RotateCcw, SkipForward, Square } from "lucide-react";
 import { Button } from "@/src/shared/ui/button";
 import type { WidgetProps } from "@/src/shared/types";
+import { useFocusModeStore } from "@/src/entities/focus-mode";
 import type { PomodoroConfig, PomodoroPhase } from "../model/pomodoro.types";
 import { usePomodoroStore } from "../model/use-pomodoro-store";
 import {
@@ -11,6 +12,7 @@ import {
 } from "../model/notifications";
 import { playChime } from "../model/chime";
 import { formatTime } from "../lib/format";
+import { FocusModeTab, BlocklistButton } from "@/src/features/focus-mode/client";
 import { PomodoroSettings } from "./PomodoroSettings";
 import { SessionReviewDialog } from "./SessionReviewDialog";
 
@@ -121,7 +123,6 @@ export function PomodoroClient({
     phaseEndPulse,
     lastOvertimeAlarmThresholdSec,
     pendingReview,
-    intendedMode,
   } = store();
   const {
     start,
@@ -138,7 +139,6 @@ export function PomodoroClient({
     setPreset,
     setNotificationsEnabled,
     setConfigFlag,
-    setIntendedMode,
     confirmReview,
     addToBucket,
     addLeisureProcess,
@@ -203,6 +203,18 @@ export function PomodoroClient({
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [isOvertime, pollIdle]);
+
+  // Publish work-session-active to the shared focus-mode signal so the block
+  // controller can enforce/release. Independent of detectionEnabled — blocking
+  // must work even with active-window telemetry off.
+  const setSessionActive = useFocusModeStore((s) => s.setSessionActive);
+  const isWorkSession = phase === "work" && active;
+  useEffect(() => {
+    setSessionActive(isWorkSession);
+  }, [isWorkSession, setSessionActive]);
+  useEffect(() => {
+    return () => setSessionActive(false);
+  }, [setSessionActive]);
 
   const isWorkSessionActive =
     phase === "work" && (isRunning || isOvertime) && currentConfig.detectionEnabled;
@@ -270,7 +282,11 @@ export function PomodoroClient({
 
   return (
     <div className="relative flex flex-col items-center justify-center h-full gap-4">
-      <div className="absolute top-0 right-0">
+      <div className="absolute top-0 left-0">
+        <FocusModeTab />
+      </div>
+      <div className="absolute top-0 right-0 flex items-center gap-0.5">
+        <BlocklistButton />
         <PomodoroSettings
           activePresetId={activePresetId}
           config={currentConfig}
@@ -295,30 +311,6 @@ export function PomodoroClient({
       <div className={`text-5xl font-mono font-bold tabular-nums ${timeColor}`}>
         {timeText}
       </div>
-
-      {phase === "work" && (
-        <div role="radiogroup" aria-label="Session intent" className="flex gap-1.5">
-          {(["focus", "leisure"] as const).map((mode) => {
-            const selected = intendedMode === mode;
-            return (
-              <Button
-                key={mode}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                variant={selected ? "default" : "outline"}
-                size="sm"
-                className="h-7 px-3 text-xs capitalize"
-                disabled={active}
-                onClick={() => setIntendedMode(mode)}
-                title="Declare your intent before starting"
-              >
-                {mode}
-              </Button>
-            );
-          })}
-        </div>
-      )}
 
       <div className="flex items-center gap-2">
         {isOvertime ? (
