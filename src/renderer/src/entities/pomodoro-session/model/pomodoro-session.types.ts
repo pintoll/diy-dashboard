@@ -33,6 +33,12 @@ export type PomodoroConfig = {
 export type AttentionVerdict = "focus" | "leisure" | "mixed";
 export type AttentionSource = "auto" | "user";
 
+// How the work session ended. completed = the work timer reached 0 (natural
+// finish, skip, or any overtime exit — the core block was completed).
+// early-stop = stopped with time still on the clock (the temptation surrender
+// the early-stop / collapse metrics exist to catch).
+export type SessionEndType = "completed" | "early-stop";
+
 export type PomodoroSessionRecord = {
   id: string;
   phase: "work";
@@ -48,6 +54,7 @@ export type PomodoroSessionRecord = {
   intendedMode: FocusMode | null;
   attention: AttentionVerdict;
   attentionSource: AttentionSource;
+  sessionEndType: SessionEndType;
   processBuckets: Record<string, number>;
   cappedAt60m: boolean;
 };

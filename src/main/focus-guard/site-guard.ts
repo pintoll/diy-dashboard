@@ -1,4 +1,4 @@
-import { promises as fs } from "fs";
+import { promises as fs, readFileSync, writeFileSync } from "fs";
 import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -201,6 +201,22 @@ export async function unblock(): Promise<SiteGuardDiagnostics> {
 function isPermissionError(err: unknown): boolean {
   const code = (err as NodeJS.ErrnoException)?.code;
   return code === "EACCES" || code === "EPERM";
+}
+
+/**
+ * Synchronous best-effort strip of our managed block, for the before-quit path
+ * where async fs cannot be awaited. No DNS flush (the entries are already gone;
+ * the next lookup repopulates). Swallows errors — quit must never block.
+ */
+export function stripFocusBlockSync(): void {
+  if (process.platform !== "win32") return;
+  try {
+    const content = readFileSync(HOSTS_PATH, "utf8");
+    if (!content.includes(BLOCK_START)) return;
+    writeFileSync(HOSTS_PATH, stripBlock(content), "utf8");
+  } catch {
+    // best-effort: a leftover block is cleared on the next startup strip anyway.
+  }
 }
 
 export function recordGrant(ok: boolean, message?: string): void {

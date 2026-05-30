@@ -15,6 +15,7 @@ import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./auto-updater
 import { registerMarketIpc } from "./market/ipc";
 import { registerFocusGuardIpc } from "./focus-guard/ipc";
 import { handleForeground } from "./focus-guard/app-guard";
+import { unblock as unblockSites, stripFocusBlockSync } from "./focus-guard/site-guard";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -311,6 +312,9 @@ let isQuitting = false;
 
 app.on("before-quit", () => {
   isQuitting = true;
+  // Release the hosts block on real quit (close-to-tray does not fire this, so
+  // an active session keeps blocking while hidden and releases only on quit).
+  stripFocusBlockSync();
 });
 
 app.on("window-all-closed", () => {
@@ -342,6 +346,12 @@ app.whenReady().then(async () => {
   createTray();
   registerMarketIpc();
   registerFocusGuardIpc();
+  // A focus session is never active on a fresh launch (sessionActive is
+  // ephemeral), so strip any hosts block left over from a crash or force-quit —
+  // keeps the "any exit = unblock" invariant airtight across restarts.
+  if (process.platform === "win32") {
+    void unblockSites();
+  }
   createWindow();
 
   if (app.isPackaged && mainWindow) {

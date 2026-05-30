@@ -101,6 +101,8 @@ function buildPendingReview(
     overtimeSec,
     idleSec,
     cappedAt60m: capped,
+    // Overtime exits all happen after the work timer already reached 0.
+    sessionEndType: "completed",
     processBuckets: state.processBuckets,
     // Snapshot intent at session end: the tab unlocks once the session is over,
     // so the review (confirmed later) must not pick up a post-session flip.
@@ -400,6 +402,8 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             overtimeSec: 0,
             idleSec: 0,
             cappedAt60m: false,
+            // Stopped with time still on the clock — the temptation surrender.
+            sessionEndType: "early-stop",
             processBuckets: state.processBuckets,
             intendedMode: useFocusModeStore.getState().intendedMode,
           };
@@ -561,6 +565,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             overtimeSec: Math.max(0, Math.floor(input.overtimeSec)),
             idleSec: pendingReview.idleSec,
             cappedAt60m: pendingReview.cappedAt60m,
+            sessionEndType: pendingReview.sessionEndType,
             processBuckets: pendingReview.processBuckets,
             intendedMode: pendingReview.intendedMode,
             attention: input.attention,
