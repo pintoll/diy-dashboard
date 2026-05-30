@@ -168,6 +168,35 @@ export function weeklyActiveHours(
   };
 }
 
+export type LifetimeStats = {
+  focusHours: number;
+  leisureHours: number;
+  totalHours: number;
+  overtimeHours: number;
+  sessionCount: number;
+};
+
+// All-time celebration totals: one fold over the entire log. Reuses the same
+// active-time and focus/leisure bucketing as the weekly hero, so the page and
+// the widget never disagree.
+export function lifetimeStats(sessions: PomodoroSessionRecord[]): LifetimeStats {
+  let focusSec = 0;
+  let leisureSec = 0;
+  let overtimeSec = 0;
+  for (const s of sessions) {
+    if (bucketOf(s.attention) === "focus") focusSec += sessionActiveSec(s);
+    else leisureSec += sessionActiveSec(s);
+    overtimeSec += s.overtimeSec;
+  }
+  return {
+    focusHours: focusSec / 3600,
+    leisureHours: leisureSec / 3600,
+    totalHours: (focusSec + leisureSec) / 3600,
+    overtimeHours: overtimeSec / 3600,
+    sessionCount: sessions.length,
+  };
+}
+
 export function buildHeatmapCells(
   sessions: PomodoroSessionRecord[],
   weeks: number,

@@ -4,6 +4,8 @@ import { ArrowLeft } from "lucide-react";
 import {
   useSessionLogStore,
   weeklyActiveHours,
+  lifetimeStats,
+  computeCurrentStreak,
 } from "@/src/entities/pomodoro-session";
 import {
   Card,
@@ -13,11 +15,15 @@ import {
   CardTitle,
 } from "@/src/shared/ui/card";
 import { WeeklyHero } from "./WeeklyHero";
+import { CelebrationStats } from "./CelebrationStats";
+import { ContributionHeatmap } from "./ContributionHeatmap";
 
 export function FocusAnalyticsPage() {
   const sessions = useSessionLogStore((s) => s.sessions);
 
   const weekly = useMemo(() => weeklyActiveHours(sessions), [sessions]);
+  const lifetime = useMemo(() => lifetimeStats(sessions), [sessions]);
+  const streak = useMemo(() => computeCurrentStreak(sessions), [sessions]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -50,6 +56,10 @@ export function FocusAnalyticsPage() {
             <WeeklyHero data={weekly} />
           </CardContent>
         </Card>
+
+        <CelebrationStats stats={lifetime} streak={streak} />
+
+        <ContributionHeatmap sessions={sessions} />
       </div>
     </div>
   );
