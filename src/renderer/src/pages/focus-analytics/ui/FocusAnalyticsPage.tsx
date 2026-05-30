@@ -6,6 +6,9 @@ import {
   weeklyActiveHours,
   lifetimeStats,
   computeCurrentStreak,
+  intentOutcomeMatrix,
+  timeOfDayPattern,
+  appBreakdown,
 } from "@/src/entities/pomodoro-session";
 import {
   Card,
@@ -17,6 +20,9 @@ import {
 import { WeeklyHero } from "./WeeklyHero";
 import { CelebrationStats } from "./CelebrationStats";
 import { ContributionHeatmap } from "./ContributionHeatmap";
+import { IntentOutcomeGrid } from "./IntentOutcomeGrid";
+import { TimeOfDayChart } from "./TimeOfDayChart";
+import { AppBreakdownList } from "./AppBreakdownList";
 
 export function FocusAnalyticsPage() {
   const sessions = useSessionLogStore((s) => s.sessions);
@@ -24,6 +30,9 @@ export function FocusAnalyticsPage() {
   const weekly = useMemo(() => weeklyActiveHours(sessions), [sessions]);
   const lifetime = useMemo(() => lifetimeStats(sessions), [sessions]);
   const streak = useMemo(() => computeCurrentStreak(sessions), [sessions]);
+  const matrix = useMemo(() => intentOutcomeMatrix(sessions), [sessions]);
+  const hourly = useMemo(() => timeOfDayPattern(sessions), [sessions]);
+  const apps = useMemo(() => appBreakdown(sessions), [sessions]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -60,6 +69,19 @@ export function FocusAnalyticsPage() {
         <CelebrationStats stats={lifetime} streak={streak} />
 
         <ContributionHeatmap sessions={sessions} />
+
+        <div className="mt-2 flex flex-col gap-1">
+          <h2 className="text-lg font-semibold">Diagnosis</h2>
+          <p className="text-sm text-muted-foreground">
+            When and where focus slips — the honest half.
+          </p>
+        </div>
+
+        <IntentOutcomeGrid matrix={matrix} />
+
+        <TimeOfDayChart data={hourly} />
+
+        <AppBreakdownList apps={apps} />
       </div>
     </div>
   );

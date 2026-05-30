@@ -4,6 +4,7 @@ export type {
   PomodoroPreset,
   PomodoroConfig,
   PomodoroSessionRecord,
+  FocusMode,
   AttentionVerdict,
   AttentionSource,
 } from "./model/pomodoro-session.types";
@@ -18,6 +19,10 @@ export type {
   WeeklyHours,
   WeeklyHoursComparison,
   LifetimeStats,
+  IntentOutcomeCell,
+  IntentOutcomeMatrix,
+  HourBucket,
+  AppUsage,
 } from "./model/aggregations";
 export {
   countToday,
@@ -26,4 +31,7 @@ export {
   buildHeatmapCells,
   weeklyActiveHours,
   lifetimeStats,
+  intentOutcomeMatrix,
+  timeOfDayPattern,
+  appBreakdown,
 } from "./model/aggregations";

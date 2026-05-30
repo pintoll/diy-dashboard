@@ -23,7 +23,6 @@ const AUTO_CONFIRM_SECONDS = 60;
 const ATTENTION_OPTIONS: { value: AttentionVerdict; label: string }[] = [
   { value: "focus", label: "Focus" },
   { value: "leisure", label: "Leisure" },
-  { value: "mixed", label: "Mixed" },
 ];
 
 type Props = {

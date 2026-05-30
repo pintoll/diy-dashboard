@@ -19,7 +19,6 @@ export type ComputeAttentionInput = {
 };
 
 const LEISURE_THRESHOLD = 0.5;
-const MIXED_THRESHOLD = 0.15;
 
 function formatDuration(sec: number): string {
   const total = Math.max(0, Math.floor(sec));
@@ -44,18 +43,13 @@ export function computeAttentionVerdict(input: ComputeAttentionInput): Attention
   const leisureSec = leisureBuckets.reduce((sum, b) => sum + b.sec, 0);
   const ratio = activeSec > 0 ? leisureSec / activeSec : 0;
 
-  let verdict: AttentionVerdict;
-  if (ratio > LEISURE_THRESHOLD) verdict = "leisure";
-  else if (ratio > MIXED_THRESHOLD) verdict = "mixed";
-  else verdict = "focus";
+  const verdict: AttentionVerdict = ratio > LEISURE_THRESHOLD ? "leisure" : "focus";
 
   const pct = Math.round(ratio * 100);
   let reason: string | null = null;
   if (verdict === "leisure" && leisureBuckets.length > 0) {
     const top = leisureBuckets[0];
     reason = `Detected leisure: ${formatDuration(top.sec)} in ${top.exe} (${pct}% of active time)`;
-  } else if (verdict === "mixed") {
-    reason = `Mixed focus: ${formatDuration(leisureSec)} leisure (${pct}% of active time)`;
   }
 
   return { verdict, leisureSec, activeSec, ratio, leisureBuckets, reason };

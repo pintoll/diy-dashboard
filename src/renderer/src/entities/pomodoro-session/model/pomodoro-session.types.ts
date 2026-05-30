@@ -28,7 +28,12 @@ export type PomodoroConfig = {
   flashEnabled: boolean;
 };
 
-export type AttentionVerdict = "focus" | "leisure" | "mixed";
+// Binary focus/leisure label on both axes (intent at start, outcome at end).
+// The legacy `mixed` verdict has been removed; the model is binary so the
+// diagnosis analysis is a clean 2x2 (see docs/wip/focus-analytics-page.md).
+export type FocusMode = "focus" | "leisure";
+// Deprecated alias kept so existing consumers keep compiling; prefer FocusMode.
+export type AttentionVerdict = FocusMode;
 export type AttentionSource = "auto" | "user";
 
 export type PomodoroSessionRecord = {
@@ -40,7 +45,11 @@ export type PomodoroSessionRecord = {
   presetId: PomodoroPresetId;
   overtimeSec: number;
   idleSec: number;
-  attention: AttentionVerdict;
+  // Intent declared at session start, immutable. null = legacy / not declared
+  // (never backfilled — a fake intent would pollute collapse analysis).
+  intendedMode: FocusMode | null;
+  // Outcome verdict at session end (auto-computed or user-overridden).
+  attention: FocusMode;
   attentionSource: AttentionSource;
   processBuckets: Record<string, number>;
   cappedAt60m: boolean;
