@@ -13,6 +13,9 @@ import {
 import path from "path";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./auto-updater";
 import { registerMarketIpc } from "./market/ipc";
+import { registerFocusGuardIpc } from "./focus-guard/ipc";
+import { handleForeground } from "./focus-guard/app-guard";
+import { unblock as unblockSites, stripFocusBlockSync } from "./focus-guard/site-guard";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -110,7 +113,7 @@ let activeSessionRefCount = 0;
 type ActiveWindowFn = () => Promise<{
   title?: string;
   bounds?: { x: number; y: number; width: number; height: number };
-  owner?: { name?: string };
+  owner?: { name?: string; processId?: number };
 } | null | undefined>;
 let cachedActiveWindow: ActiveWindowFn | null | "unavailable" = null;
 
@@ -234,6 +237,10 @@ async function pollActiveWindow(): Promise<void> {
     return;
   }
 
+  // App block (kill-on-sight): kill a blocked foreground app on any monitor.
+  // Runs before the primary-display filter below, which is telemetry-only.
+  void handleForeground(exeName, result.owner.processId);
+
   const center = {
     x: Math.round(result.bounds.x + result.bounds.width / 2),
     y: Math.round(result.bounds.y + result.bounds.height / 2),
@@ -305,6 +312,9 @@ let isQuitting = false;
 
 app.on("before-quit", () => {
   isQuitting = true;
+  // Release the hosts block on real quit (close-to-tray does not fire this, so
+  // an active session keeps blocking while hidden and releases only on quit).
+  stripFocusBlockSync();
 });
 
 app.on("window-all-closed", () => {
@@ -335,6 +345,13 @@ app.whenReady().then(async () => {
   createAppMenu();
   createTray();
   registerMarketIpc();
+  registerFocusGuardIpc();
+  // A focus session is never active on a fresh launch (sessionActive is
+  // ephemeral), so strip any hosts block left over from a crash or force-quit —
+  // keeps the "any exit = unblock" invariant airtight across restarts.
+  if (process.platform === "win32") {
+    void unblockSites();
+  }
   createWindow();
 
   if (app.isPackaged && mainWindow) {

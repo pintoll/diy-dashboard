@@ -15,7 +15,6 @@ export { POMODORO_PRESETS } from "@/src/entities/pomodoro-session";
 import type {
   AttentionSource,
   AttentionVerdict,
-  FocusMode,
   PomodoroPhase,
   PomodoroPresetId,
   PomodoroConfig,
@@ -29,9 +28,11 @@ export type OvertimeState = {
   isIdle: boolean;
 };
 
+// `note` is authored later in the analytics day drill-down, never during the
+// review flow, so it is not part of the pending review.
 export type PendingReview = Omit<
   PomodoroSessionRecord,
-  "id" | "phase" | "attention" | "attentionSource"
+  "id" | "phase" | "attention" | "attentionSource" | "note"
 >;
 
 export type ConfirmReviewInput = {
@@ -55,9 +56,6 @@ export type PomodoroState = {
   lastOvertimeAlarmThresholdSec: number | null;
   pendingReview: PendingReview | null;
   processBuckets: Record<string, number>;
-  // Intent declared before the work session starts; recorded as the session's
-  // intendedMode. Immutable once a session is running.
-  intendedMode: FocusMode;
 };
 
 export type PomodoroActions = {
@@ -72,7 +70,6 @@ export type PomodoroActions = {
   setPreset: (presetId: PomodoroPresetId, config: PomodoroConfig) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
   setConfigFlag: (key: ConfigFlagKey, enabled: boolean) => void;
-  setIntendedMode: (mode: FocusMode) => void;
   enterOvertime: () => void;
   pollIdle: (idleSec: number) => void;
   stopOvertime: () => void;

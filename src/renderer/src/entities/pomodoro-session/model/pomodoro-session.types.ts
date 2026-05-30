@@ -1,3 +1,5 @@
+import type { FocusMode } from "@/src/shared/types";
+
 export type PomodoroPhase = "work" | "shortBreak" | "longBreak";
 
 export type PomodoroPresetId = "25:5" | "50:10" | "100:20" | "120:30" | "custom";
@@ -29,12 +31,19 @@ export type PomodoroConfig = {
 };
 
 // Binary focus/leisure label on both axes (intent at start, outcome at end).
-// The legacy `mixed` verdict has been removed; the model is binary so the
-// diagnosis analysis is a clean 2x2 (see docs/wip/focus-analytics-page.md).
-export type FocusMode = "focus" | "leisure";
+// The single source of truth lives in shared/types; the legacy `mixed` verdict
+// has been removed so the diagnosis analysis is a clean 2x2 (see
+// docs/wip/focus-analytics-page.md). Re-exported here for existing consumers.
+export type { FocusMode };
 // Deprecated alias kept so existing consumers keep compiling; prefer FocusMode.
 export type AttentionVerdict = FocusMode;
 export type AttentionSource = "auto" | "user";
+
+// How the work session ended. completed = the work timer reached 0 (natural
+// finish, skip, or any overtime exit — the core block was completed).
+// early-stop = stopped with time still on the clock (the temptation surrender
+// the early-stop / collapse metrics exist to catch).
+export type SessionEndType = "completed" | "early-stop";
 
 export type PomodoroSessionRecord = {
   id: string;
@@ -51,6 +60,7 @@ export type PomodoroSessionRecord = {
   // Outcome verdict at session end (auto-computed or user-overridden).
   attention: FocusMode;
   attentionSource: AttentionSource;
+  sessionEndType: SessionEndType;
   processBuckets: Record<string, number>;
   cappedAt60m: boolean;
   // Optional free-text memo for "that day, why?" context, authored after the

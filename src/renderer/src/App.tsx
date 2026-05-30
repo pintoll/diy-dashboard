@@ -4,6 +4,11 @@ import { DashboardGrid } from "@/src/widgets/dashboard-grid/client";
 import { registerAllWidgets } from "@/src/widgets/widget-registry";
 import { UpdateToast } from "@/src/features/check-app-update/client";
 import { FocusAnalyticsPage } from "@/src/pages/focus-analytics/client";
+import {
+  FocusGuardPanel,
+  AppGuardPanel,
+  FocusModeController,
+} from "@/src/features/focus-mode/client";
 
 function HomePage() {
   const [ready, setReady] = useState(false);
@@ -32,6 +37,9 @@ export default function App() {
         <Route path="/focus-analytics" element={<FocusAnalyticsPage />} />
       </Routes>
       <UpdateToast />
+      <FocusModeController />
+      <FocusGuardPanel />
+      <AppGuardPanel />
     </>
   );
 }
