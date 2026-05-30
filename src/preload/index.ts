@@ -40,6 +40,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("pomodoro:get-detection-diagnostics"),
   setTrayTooltip: (text: string | null) =>
     ipcRenderer.invoke("tray:set-tooltip", text),
+  siteGuard: {
+    getStatus: () => ipcRenderer.invoke("focus:site:get-status"),
+    grantPermission: () => ipcRenderer.invoke("focus:site:grant-permission"),
+    block: (domains: string[]) => ipcRenderer.invoke("focus:site:block", domains),
+    unblock: () => ipcRenderer.invoke("focus:site:unblock"),
+  },
   onActiveWindow: (callback: (data: ActiveWindowPayload) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: ActiveWindowPayload) =>
       callback(data);
