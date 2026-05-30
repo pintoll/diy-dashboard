@@ -1,3 +1,5 @@
+import type { FocusMode } from "@/src/shared/types";
+
 export type PomodoroPhase = "work" | "shortBreak" | "longBreak";
 
 export type PomodoroPresetId = "25:5" | "50:10" | "100:20" | "120:30" | "custom";
@@ -40,6 +42,10 @@ export type PomodoroSessionRecord = {
   presetId: PomodoroPresetId;
   overtimeSec: number;
   idleSec: number;
+  // Declared at session start, immutable. null for legacy records predating the
+  // focus-mode feature — never backfilled (a fake intent would pollute the
+  // intent-vs-outcome 2x2), and excluded from that analysis.
+  intendedMode: FocusMode | null;
   attention: AttentionVerdict;
   attentionSource: AttentionSource;
   processBuckets: Record<string, number>;

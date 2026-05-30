@@ -3,27 +3,29 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type { PomodoroSessionRecord } from "./pomodoro-session.types";
 
-const STORE_VERSION = 1;
+const STORE_VERSION = 2;
 
-type StageOneFields =
+type DefaultedFields =
   | "overtimeSec"
   | "idleSec"
   | "attention"
   | "attentionSource"
   | "processBuckets"
-  | "cappedAt60m";
+  | "cappedAt60m"
+  | "intendedMode";
 
 type RecordSessionInput =
-  Omit<PomodoroSessionRecord, "id" | StageOneFields>
-  & Partial<Pick<PomodoroSessionRecord, StageOneFields>>;
+  Omit<PomodoroSessionRecord, "id" | DefaultedFields>
+  & Partial<Pick<PomodoroSessionRecord, DefaultedFields>>;
 
-const STAGE_ONE_DEFAULTS: Pick<PomodoroSessionRecord, StageOneFields> = {
+const RECORD_DEFAULTS: Pick<PomodoroSessionRecord, DefaultedFields> = {
   overtimeSec: 0,
   idleSec: 0,
   attention: "focus",
   attentionSource: "auto",
   processBuckets: {},
   cappedAt60m: false,
+  intendedMode: null,
 };
 
 type SessionLogState = {
@@ -34,14 +36,19 @@ type SessionLogState = {
 
 function migrate(persistedState: unknown, version: number): SessionLogState {
   const state = (persistedState ?? {}) as { sessions?: Partial<PomodoroSessionRecord>[] };
+  let sessions = state.sessions ?? [];
+
   if (version < 1) {
-    const sessions: PomodoroSessionRecord[] = (state.sessions ?? []).map((s) => ({
-      ...STAGE_ONE_DEFAULTS,
-      ...s,
-    })) as PomodoroSessionRecord[];
-    return { ...(state as object), sessions } as SessionLogState;
+    sessions = sessions.map((s) => ({ ...RECORD_DEFAULTS, ...s }));
   }
-  return persistedState as SessionLogState;
+
+  // v2 adds intendedMode. Legacy records are never backfilled — null marks an
+  // undeclared intent and is excluded from the intent-vs-outcome 2x2.
+  if (version < 2) {
+    sessions = sessions.map((s) => ({ ...s, intendedMode: s.intendedMode ?? null }));
+  }
+
+  return { ...(state as object), sessions: sessions as PomodoroSessionRecord[] } as SessionLogState;
 }
 
 export const useSessionLogStore = create<SessionLogState>()(
@@ -52,7 +59,7 @@ export const useSessionLogStore = create<SessionLogState>()(
       recordSession: (record) => {
         const entry: PomodoroSessionRecord = {
           id: nanoid(),
-          ...STAGE_ONE_DEFAULTS,
+          ...RECORD_DEFAULTS,
           ...record,
         };
         set((state) => ({ sessions: [...state.sessions, entry] }));
