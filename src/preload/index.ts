@@ -46,6 +46,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     block: (domains: string[]) => ipcRenderer.invoke("focus:site:block", domains),
     unblock: () => ipcRenderer.invoke("focus:site:unblock"),
   },
+  appGuard: {
+    getStatus: () => ipcRenderer.invoke("focus:app:get-status"),
+    enforce: (exes: string[]) => ipcRenderer.invoke("focus:app:enforce", exes),
+    release: () => ipcRenderer.invoke("focus:app:release"),
+  },
   onActiveWindow: (callback: (data: ActiveWindowPayload) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: ActiveWindowPayload) =>
       callback(data);

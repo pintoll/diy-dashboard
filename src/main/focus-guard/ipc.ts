@@ -9,6 +9,12 @@ import {
   type SiteGuardDiagnostics,
 } from "./site-guard";
 import { grantHostsAccess } from "./elevate";
+import {
+  enforce as enforceApps,
+  getStatus as getAppStatus,
+  release as releaseApps,
+  type AppGuardDiagnostics,
+} from "./app-guard";
 
 export function registerFocusGuardIpc(): void {
   ipcMain.handle(
@@ -48,6 +54,27 @@ export function registerFocusGuardIpc(): void {
     (): Promise<SiteGuardDiagnostics> => {
       if (process.platform !== "win32") return getStatus();
       return unblock();
+    }
+  );
+
+  ipcMain.handle(
+    "focus:app:get-status",
+    (): AppGuardDiagnostics => getAppStatus()
+  );
+
+  ipcMain.handle(
+    "focus:app:enforce",
+    (_event, exes: string[]): AppGuardDiagnostics => {
+      if (process.platform !== "win32") return getAppStatus();
+      return enforceApps(Array.isArray(exes) ? exes : []);
+    }
+  );
+
+  ipcMain.handle(
+    "focus:app:release",
+    (): AppGuardDiagnostics => {
+      if (process.platform !== "win32") return getAppStatus();
+      return releaseApps();
     }
   );
 }

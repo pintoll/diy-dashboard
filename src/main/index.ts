@@ -14,6 +14,7 @@ import path from "path";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./auto-updater";
 import { registerMarketIpc } from "./market/ipc";
 import { registerFocusGuardIpc } from "./focus-guard/ipc";
+import { handleForeground } from "./focus-guard/app-guard";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -111,7 +112,7 @@ let activeSessionRefCount = 0;
 type ActiveWindowFn = () => Promise<{
   title?: string;
   bounds?: { x: number; y: number; width: number; height: number };
-  owner?: { name?: string };
+  owner?: { name?: string; processId?: number };
 } | null | undefined>;
 let cachedActiveWindow: ActiveWindowFn | null | "unavailable" = null;
 
@@ -234,6 +235,10 @@ async function pollActiveWindow(): Promise<void> {
     recordOutcome("empty_exe");
     return;
   }
+
+  // App block (kill-on-sight): kill a blocked foreground app on any monitor.
+  // Runs before the primary-display filter below, which is telemetry-only.
+  void handleForeground(exeName, result.owner.processId);
 
   const center = {
     x: Math.round(result.bounds.x + result.bounds.width / 2),
