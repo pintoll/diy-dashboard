@@ -1,6 +1,6 @@
 export type PomodoroPhase = "work" | "shortBreak" | "longBreak";
 
-export type PomodoroPresetId = "25:5" | "50:10" | "120:30" | "custom";
+export type PomodoroPresetId = "25:5" | "50:10" | "100:20" | "120:30" | "custom";
 
 export type PomodoroPreset = {
   id: PomodoroPresetId;
@@ -13,6 +13,7 @@ export type PomodoroPreset = {
 export const POMODORO_PRESETS: PomodoroPreset[] = [
   { id: "25:5", label: "25 : 5", workDuration: 25, shortBreakDuration: 5, longBreakDuration: 15 },
   { id: "50:10", label: "50 : 10", workDuration: 50, shortBreakDuration: 10, longBreakDuration: 30 },
+  { id: "100:20", label: "100 : 20", workDuration: 100, shortBreakDuration: 20, longBreakDuration: 60 },
   { id: "120:30", label: "120 : 30", workDuration: 120, shortBreakDuration: 30, longBreakDuration: 90 },
 ];
 

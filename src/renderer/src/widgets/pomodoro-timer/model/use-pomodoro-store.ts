@@ -273,6 +273,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       start: () => {},
       pause: () => {},
       reset: () => {},
+      stop: () => {},
       skip: () => {},
       tick: () => {},
       syncTime: () => null,
@@ -351,6 +352,55 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             overtime: null,
             pendingReview: null,
             processBuckets: {},
+          });
+        },
+
+        stop: () => {
+          const state = get();
+          if (state.overtime !== null) return;
+
+          const clearToIdle = () =>
+            set({
+              isRunning: false,
+              startedAt: null,
+              pausedTimeRemaining: null,
+              processBuckets: {},
+            });
+
+          // Only the work phase produces a reviewable session.
+          if (state.phase !== "work") {
+            clearToIdle();
+            return;
+          }
+
+          const remaining = computeTimeRemaining(state, state.config);
+          const phaseDuration = getDurationForPhase("work", state.config);
+          const elapsedSec = Math.max(0, phaseDuration - remaining);
+
+          // Nothing ran yet — just clear back to a fresh work phase.
+          if (elapsedSec === 0) {
+            clearToIdle();
+            return;
+          }
+
+          // End the session at the time actually spent and open the review
+          // so the user can log feedback for the partial session.
+          const endedAt = Date.now();
+          const startedAt = state.startedAt ?? endedAt - elapsedSec * 1000;
+          const pendingReview: PendingReview = {
+            startedAt,
+            endedAt,
+            durationSec: elapsedSec,
+            presetId: state.activePresetId,
+            overtimeSec: 0,
+            idleSec: 0,
+            cappedAt60m: false,
+            processBuckets: state.processBuckets,
+          };
+
+          set({
+            ...completePhase(state),
+            pendingReview,
           });
         },
 

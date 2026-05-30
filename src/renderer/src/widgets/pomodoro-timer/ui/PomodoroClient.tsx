@@ -116,6 +116,7 @@ export function PomodoroClient({
     completedPomodoros,
     activePresetId,
     notificationsEnabled,
+    pausedTimeRemaining,
     overtime,
     phaseEndPulse,
     lastOvertimeAlarmThresholdSec,
@@ -125,6 +126,7 @@ export function PomodoroClient({
     start,
     pause,
     reset,
+    stop,
     skip,
     tick,
     syncTime,
@@ -309,6 +311,11 @@ export function PomodoroClient({
         <Button variant="outline" size="icon" onClick={reset} title={isOvertime ? "Discard overtime" : "Reset"}>
           <RotateCcw className="h-4 w-4" />
         </Button>
+        {!isOvertime && phase === "work" && (isRunning || pausedTimeRemaining !== null) && (
+          <Button variant="outline" size="icon" onClick={stop} title="Stop & log time spent">
+            <Square className="h-4 w-4" />
+          </Button>
+        )}
         {!isOvertime && (
           <Button variant="outline" size="icon" onClick={skip}>
             <SkipForward className="h-4 w-4" />
