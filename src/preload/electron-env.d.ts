@@ -63,6 +63,35 @@ interface SiteGuardAPI {
   unblock: () => Promise<SiteGuardDiagnostics>;
 }
 
+type AppGuardAction = "enforce" | "release" | "kill";
+
+interface AppGuardHistoryEntry {
+  at: number;
+  action: AppGuardAction;
+  ok: boolean;
+  message?: string;
+}
+
+interface AppGuardDiagnostics {
+  platform: string;
+  supported: boolean;
+  enforcing: boolean;
+  blockedExes: string[];
+  killCount: number;
+  lastKilledExe: string | null;
+  lastKilledAt: number | null;
+  lastAction: AppGuardAction | null;
+  lastActionAt: number | null;
+  lastError: string | null;
+  history: AppGuardHistoryEntry[];
+}
+
+interface AppGuardAPI {
+  getStatus: () => Promise<AppGuardDiagnostics>;
+  enforce: (exes: string[]) => Promise<AppGuardDiagnostics>;
+  release: () => Promise<AppGuardDiagnostics>;
+}
+
 interface ElectronAPI {
   showNotification: (payload: { title: string; body: string }) => Promise<void>;
   isNotificationSupported: () => Promise<boolean>;
@@ -77,6 +106,7 @@ interface ElectronAPI {
   getDetectionDiagnostics: () => Promise<DetectionDiagnostics>;
   setTrayTooltip: (text: string | null) => Promise<void>;
   siteGuard: SiteGuardAPI;
+  appGuard: AppGuardAPI;
 }
 
 interface MarketSeriesPoint {
