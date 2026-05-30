@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import {
@@ -23,9 +23,12 @@ import { ContributionHeatmap } from "./ContributionHeatmap";
 import { IntentOutcomeGrid } from "./IntentOutcomeGrid";
 import { TimeOfDayChart } from "./TimeOfDayChart";
 import { AppBreakdownList } from "./AppBreakdownList";
+import { DayDrillDown } from "./DayDrillDown";
 
 export function FocusAnalyticsPage() {
   const sessions = useSessionLogStore((s) => s.sessions);
+  const updateSessionNote = useSessionLogStore((s) => s.updateSessionNote);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const weekly = useMemo(() => weeklyActiveHours(sessions), [sessions]);
   const lifetime = useMemo(() => lifetimeStats(sessions), [sessions]);
@@ -68,7 +71,7 @@ export function FocusAnalyticsPage() {
 
         <CelebrationStats stats={lifetime} streak={streak} />
 
-        <ContributionHeatmap sessions={sessions} />
+        <ContributionHeatmap sessions={sessions} onCellClick={setSelectedDate} />
 
         <div className="mt-2 flex flex-col gap-1">
           <h2 className="text-lg font-semibold">Diagnosis</h2>
@@ -83,6 +86,13 @@ export function FocusAnalyticsPage() {
 
         <AppBreakdownList apps={apps} />
       </div>
+
+      <DayDrillDown
+        date={selectedDate}
+        sessions={sessions}
+        onClose={() => setSelectedDate(null)}
+        onSaveNote={updateSessionNote}
+      />
     </div>
   );
 }

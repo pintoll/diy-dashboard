@@ -14,12 +14,16 @@ import {
 
 type ContributionHeatmapProps = {
   sessions: PomodoroSessionRecord[];
+  onCellClick?: (date: string) => void;
 };
 
 const YEAR_WEEKS = 52;
 const CELL_SIZE_PX = 11;
 
-export function ContributionHeatmap({ sessions }: ContributionHeatmapProps) {
+export function ContributionHeatmap({
+  sessions,
+  onCellClick,
+}: ContributionHeatmapProps) {
   const cells = useMemo(
     () => buildHeatmapCells(sessions, YEAR_WEEKS),
     [sessions]
@@ -37,6 +41,7 @@ export function ContributionHeatmap({ sessions }: ContributionHeatmapProps) {
           weeks={YEAR_WEEKS}
           cellSizePx={CELL_SIZE_PX}
           showMonthLabels
+          onCellClick={onCellClick}
         />
       </CardContent>
     </Card>

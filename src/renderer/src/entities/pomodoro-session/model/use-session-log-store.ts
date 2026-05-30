@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type { PomodoroSessionRecord } from "./pomodoro-session.types";
 
-const STORE_VERSION = 2;
+const STORE_VERSION = 3;
 
 // Fields with safe defaults: callers may omit them and migrations backfill them.
 type DefaultedField =
@@ -13,7 +13,8 @@ type DefaultedField =
   | "attentionSource"
   | "processBuckets"
   | "cappedAt60m"
-  | "intendedMode";
+  | "intendedMode"
+  | "note";
 
 type RecordSessionInput =
   Omit<PomodoroSessionRecord, "id" | DefaultedField>
@@ -29,11 +30,13 @@ const RECORD_DEFAULTS: Pick<PomodoroSessionRecord, DefaultedField> = {
   // null = intent was never declared. Never backfilled to a real value — a
   // fake intent would pollute the intent/outcome collapse analysis.
   intendedMode: null,
+  note: null,
 };
 
 type SessionLogState = {
   sessions: PomodoroSessionRecord[];
   recordSession: (record: RecordSessionInput) => void;
+  updateSessionNote: (id: string, note: string) => void;
   clearAll: () => void;
 };
 
@@ -55,6 +58,11 @@ function migrate(persistedState: unknown, version: number): SessionLogState {
     }));
   }
 
+  // v2 -> v3: add the optional session note field.
+  if (version < 3) {
+    sessions = sessions.map((s) => ({ ...s, note: s.note ?? null }));
+  }
+
   return { ...(state as object), sessions } as SessionLogState;
 }
 
@@ -70,6 +78,16 @@ export const useSessionLogStore = create<SessionLogState>()(
           ...record,
         };
         set((state) => ({ sessions: [...state.sessions, entry] }));
+      },
+
+      updateSessionNote: (id, note) => {
+        const trimmed = note.trim();
+        const next = trimmed.length > 0 ? trimmed : null;
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === id ? { ...s, note: next } : s
+          ),
+        }));
       },
 
       clearAll: () => {

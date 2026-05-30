@@ -103,13 +103,27 @@ project memory for the recommended unification.
   (`mixed -> leisure`, `intendedMode` defaulted `null`) and the pomodoro store
   `v12 -> v13`.
 
-## Phase 4 — Day drill-down + memos
+## Phase 4 — Day drill-down + memos (DONE)
 
-- **What:** click a day (hero bar / heatmap cell) -> that day's sessions with
-  labels, intent, app breakdown, and any session notes. The "that day, why?"
+- **What:** click a **heatmap cell** -> that day's sessions with labels, intent,
+  per-session app breakdown, and an editable session note. The "that day, why?"
   connective tissue.
-- **Flow:** drill from any aggregate down to the day, then the session.
-- **Seam:** depends on the session note field.
+- **Flow:** drill from the contribution heatmap down to the day, then the
+  session. Notes are authored/edited **inline in the drill-down** (no
+  pomodoro-surface change). Only the heatmap is a drill entry point — hero bars
+  are week-level aggregates and don't map to a single day.
+- **Seam:** required the session note field, which did not exist yet.
+- **Landed:** added `note: string | null` to `PomodoroSessionRecord` and an
+  `updateSessionNote(id, note)` action to `useSessionLogStore` (the store was
+  write-once; note is trimmed, empty -> `null`); session-log store migrated
+  `v2 -> v3` (backfill `note: null`). New pure helper `sessionsOnDate` in
+  `aggregations.ts`. `Heatmap` gained an opt-in `onCellClick?(date)` prop —
+  days with `count > 0` render as buttons, empty/future cells stay inert; the
+  pomodoro-stats widget passes no handler so it is unchanged. New page part
+  `DayDrillDown` (Radix `Dialog`) lists the day's sessions with intent/outcome
+  badges (collapse emphasized), top apps from `processBuckets`, and a per-session
+  note textarea saved on blur. Wired via `selectedDate` state in
+  `FocusAnalyticsPage`, threaded through `ContributionHeatmap`.
 
 ## Open seam / UX questions
 
