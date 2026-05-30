@@ -1,4 +1,7 @@
-import type { PomodoroSessionRecord } from "./pomodoro-session.types";
+import type {
+  AttentionVerdict,
+  PomodoroSessionRecord,
+} from "./pomodoro-session.types";
 
 export type HeatmapLevel = 0 | 1 | 2 | 3 | 4;
 
@@ -100,6 +103,69 @@ export function computeCurrentStreak(
     cursor -= MS_PER_DAY;
   }
   return streak;
+}
+
+export type WeeklyHours = {
+  focusHours: number;
+  leisureHours: number;
+  totalHours: number;
+};
+
+export type WeeklyHoursComparison = {
+  thisWeek: WeeklyHours;
+  lastWeek: WeeklyHours | null;
+};
+
+// Active engaged time: planned work plus real overtime. idleSec is already
+// excluded from both fields at record time, so it is not subtracted here.
+function sessionActiveSec(s: PomodoroSessionRecord): number {
+  return s.durationSec + s.overtimeSec;
+}
+
+// Legacy `mixed` records bucket as leisure (so do explicit leisure records).
+function bucketOf(attention: AttentionVerdict): "focus" | "leisure" {
+  return attention === "focus" ? "focus" : "leisure";
+}
+
+function sumHours(sessions: PomodoroSessionRecord[]): WeeklyHours {
+  let focusSec = 0;
+  let leisureSec = 0;
+  for (const s of sessions) {
+    if (bucketOf(s.attention) === "focus") focusSec += sessionActiveSec(s);
+    else leisureSec += sessionActiveSec(s);
+  }
+  return {
+    focusHours: focusSec / 3600,
+    leisureHours: leisureSec / 3600,
+    totalHours: (focusSec + leisureSec) / 3600,
+  };
+}
+
+export function weeklyActiveHours(
+  sessions: PomodoroSessionRecord[],
+  now: number = Date.now()
+): WeeklyHoursComparison {
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const thisWeekStart = startOfIsoWeek(now);
+  const lastWeekStart = thisWeekStart - 7 * MS_PER_DAY;
+
+  const thisWeekSessions: PomodoroSessionRecord[] = [];
+  const lastWeekSessions: PomodoroSessionRecord[] = [];
+  let hasHistoryBeforeThisWeek = false;
+
+  for (const s of sessions) {
+    if (s.endedAt >= thisWeekStart) {
+      thisWeekSessions.push(s);
+    } else {
+      hasHistoryBeforeThisWeek = true;
+      if (s.endedAt >= lastWeekStart) lastWeekSessions.push(s);
+    }
+  }
+
+  return {
+    thisWeek: sumHours(thisWeekSessions),
+    lastWeek: hasHistoryBeforeThisWeek ? sumHours(lastWeekSessions) : null,
+  };
 }
 
 export function buildHeatmapCells(
