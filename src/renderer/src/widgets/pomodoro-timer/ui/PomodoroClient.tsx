@@ -12,6 +12,7 @@ import {
 } from "../model/notifications";
 import { playChime } from "../model/chime";
 import { formatTime } from "../lib/format";
+import { FocusModeTab, BlocklistButton } from "@/src/features/focus-mode/client";
 import { PomodoroSettings } from "./PomodoroSettings";
 import { SessionReviewDialog } from "./SessionReviewDialog";
 
@@ -281,7 +282,11 @@ export function PomodoroClient({
 
   return (
     <div className="relative flex flex-col items-center justify-center h-full gap-4">
-      <div className="absolute top-0 right-0">
+      <div className="absolute top-0 left-0">
+        <FocusModeTab />
+      </div>
+      <div className="absolute top-0 right-0 flex items-center gap-0.5">
+        <BlocklistButton />
         <PomodoroSettings
           activePresetId={activePresetId}
           config={currentConfig}

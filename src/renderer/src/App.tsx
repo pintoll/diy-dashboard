@@ -7,7 +7,6 @@ import {
   FocusGuardPanel,
   AppGuardPanel,
   FocusModeController,
-  BlocklistSettings,
 } from "@/src/features/focus-mode/client";
 
 function HomePage() {
@@ -37,7 +36,6 @@ export default function App() {
       </Routes>
       <UpdateToast />
       <FocusModeController />
-      <BlocklistSettings />
       <FocusGuardPanel />
       <AppGuardPanel />
     </>
