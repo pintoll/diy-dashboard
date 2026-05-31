@@ -6,15 +6,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/src/shared/ui/card";
+import { formatHours } from "@/src/shared/lib/format-duration";
 
 type CelebrationStatsProps = {
   stats: LifetimeStats;
   streak: number;
 };
-
-function formatHours(value: number): string {
-  return `${value.toFixed(1)}h`;
-}
 
 function StatBlock({ label, value }: { label: string; value: string }) {
   return (

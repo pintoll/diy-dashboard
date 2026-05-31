@@ -1,5 +1,6 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { errorMessage, recordDiagnostic } from "./diagnostics";
 
 const execFileAsync = promisify(execFile);
 
@@ -26,8 +27,6 @@ export interface AppGuardDiagnostics {
   history: AppGuardHistoryEntry[];
 }
 
-const HISTORY_LIMIT = 30;
-
 const blockedExes = new Set<string>();
 
 const diagnostics: AppGuardDiagnostics = {
@@ -44,19 +43,8 @@ const diagnostics: AppGuardDiagnostics = {
   history: [],
 };
 
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-}
-
 function record(action: AppGuardAction, ok: boolean, message?: string): void {
-  const at = Date.now();
-  diagnostics.lastAction = action;
-  diagnostics.lastActionAt = at;
-  diagnostics.lastError = ok ? null : (message ?? "unknown error");
-  diagnostics.history.push({ at, action, ok, message });
-  if (diagnostics.history.length > HISTORY_LIMIT) {
-    diagnostics.history.splice(0, diagnostics.history.length - HISTORY_LIMIT);
-  }
+  recordDiagnostic(diagnostics, action, ok, message);
 }
 
 export function enforce(exeList: string[]): AppGuardDiagnostics {
