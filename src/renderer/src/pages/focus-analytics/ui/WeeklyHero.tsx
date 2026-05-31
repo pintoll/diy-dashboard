@@ -8,6 +8,7 @@ import {
   YAxis,
 } from "recharts";
 import type { WeeklyHoursComparison } from "@/src/entities/pomodoro-session";
+import { formatHours } from "@/src/shared/lib/format-duration";
 
 type WeeklyHeroProps = {
   data: WeeklyHoursComparison;
@@ -15,10 +16,6 @@ type WeeklyHeroProps = {
 
 const FOCUS_COLOR = "var(--chart-1)";
 const LEISURE_COLOR = "var(--chart-3)";
-
-function formatHours(value: number): string {
-  return `${value.toFixed(1)}h`;
-}
 
 export function WeeklyHero({ data }: WeeklyHeroProps) {
   const { thisWeek, lastWeek } = data;

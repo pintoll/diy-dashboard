@@ -6,19 +6,11 @@ import {
   CardTitle,
 } from "@/src/shared/ui/card";
 import type { AppUsage } from "@/src/entities/pomodoro-session";
+import { formatSeconds } from "@/src/shared/lib/format-duration";
 
 type Props = {
   apps: AppUsage[];
 };
-
-function formatSeconds(sec: number): string {
-  const total = Math.max(0, Math.floor(sec));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
-  if (m > 0) return `${m}m`;
-  return `${total}s`;
-}
 
 export function AppBreakdownList({ apps }: Props) {
   const max = apps.reduce((m, a) => Math.max(m, a.seconds), 0);

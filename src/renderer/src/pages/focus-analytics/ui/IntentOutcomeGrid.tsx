@@ -9,14 +9,11 @@ import type {
   IntentOutcomeCell,
   IntentOutcomeMatrix,
 } from "@/src/entities/pomodoro-session";
+import { formatHours } from "@/src/shared/lib/format-duration";
 
 type Props = {
   matrix: IntentOutcomeMatrix;
 };
-
-function formatHours(hours: number): string {
-  return `${(Math.round(hours * 10) / 10).toFixed(1)}h`;
-}
 
 type CellSpec = {
   key: keyof Omit<IntentOutcomeMatrix, "excludedNullIntent">;
