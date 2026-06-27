@@ -1,5 +1,5 @@
-import { useEffect, useCallback, useMemo } from "react";
-import { RefreshCw } from "lucide-react";
+import { useEffect, useCallback, useMemo, useState } from "react";
+import { RefreshCw, Loader2 } from "lucide-react";
 import { cn } from "@/src/shared/lib/utils";
 import { formatTimeAgo } from "@/src/shared/lib/format-time-ago";
 import { Button } from "@/src/shared/ui/button";
@@ -9,6 +9,22 @@ import { CATEGORIES, CATEGORY_META } from "../model/daily-news.types";
 import { useDailyNewsStore } from "../model/use-daily-news-store";
 import { NewsItem as NewsItemComponent } from "./NewsItem";
 import { DailyNewsEmpty } from "./DailyNewsEmpty";
+
+// Human label for the small "Updating..." progress line in the header.
+function stageLabel(status: DailyNewsStatus): string | null {
+  switch (status.phase) {
+    case "fetching":
+      return "fetching feeds";
+    case "scoring":
+      return status.total > 1
+        ? `scoring ${status.current}/${status.total}`
+        : "scoring articles";
+    case "saving":
+      return "saving";
+    default:
+      return null;
+  }
+}
 
 function groupByCategory(items: NewsItem[]): Record<NewsCategory, NewsItem[]> {
   const grouped: Record<NewsCategory, NewsItem[]> = {
@@ -32,6 +48,12 @@ export function DailyNewsClient({
   const items = useMemo(() => stateItems ?? [], [stateItems]);
   const { fetchedAt, fetchStatus, errorMessage, activeTab, feedback, fetchNews, setActiveTab, sendFeedback } = state;
 
+  // Transient pipeline-progress indicator, driven by main-process push events.
+  // Kept in component state (not the persisted store) so a reload never leaves a
+  // stale "Updating..." stuck on screen.
+  const [updating, setUpdating] = useState(false);
+  const [updateStage, setUpdateStage] = useState<string | null>(null);
+
   const handleFetch = useCallback(() => {
     fetchNews();
   }, [fetchNews]);
@@ -41,6 +63,28 @@ export function DailyNewsClient({
       handleFetch();
     }
   }, [handleFetch, items.length]);
+
+  // Subscribe to ingest progress. A background (scheduled) run and an explicit
+  // refresh look identical here: the existing articles stay until the run
+  // finishes, then "done" pulls the freshly ingested set in.
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.dailyNews.onStatus((status) => {
+      if (status.phase === "done") {
+        setUpdating(false);
+        setUpdateStage(null);
+        fetchNews();
+      } else if (status.phase === "error") {
+        setUpdating(false);
+        setUpdateStage(null);
+      } else {
+        setUpdating(true);
+        setUpdateStage(stageLabel(status));
+      }
+    });
+    return unsubscribe;
+  }, [fetchNews]);
+
+  const isBusy = updating || fetchStatus === "loading";
 
   const grouped = useMemo(() => groupByCategory(items), [items]);
   const hasItems = items.length > 0;
@@ -52,21 +96,23 @@ export function DailyNewsClient({
       {/* Header */}
       <div className="flex items-center justify-between px-2 py-1.5 shrink-0">
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60">
-          {fetchedAt && <span>Updated {formatTimeAgo(fetchedAt)}</span>}
+          {updating ? (
+            <span className="flex items-center gap-1">
+              <Loader2 className="size-2.5 animate-spin" />
+              Updating{updateStage ? `… ${updateStage}` : "…"}
+            </span>
+          ) : (
+            fetchedAt && <span>Updated {formatTimeAgo(fetchedAt)}</span>
+          )}
         </div>
         <div className="flex items-center gap-0.5">
           <Button
             variant="ghost"
             size="icon-xs"
             onClick={handleFetch}
-            disabled={fetchStatus === "loading"}
+            disabled={isBusy}
           >
-            <RefreshCw
-              className={cn(
-                "size-3.5",
-                fetchStatus === "loading" && "animate-spin"
-              )}
-            />
+            <RefreshCw className={cn("size-3.5", isBusy && "animate-spin")} />
           </Button>
         </div>
       </div>

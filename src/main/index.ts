@@ -16,6 +16,8 @@ import { registerMarketIpc } from "./market/ipc";
 import { registerFocusGuardIpc } from "./focus-guard/ipc";
 import { handleForeground } from "./focus-guard/app-guard";
 import { unblock as unblockSites, stripFocusBlockSync } from "./focus-guard/site-guard";
+import { registerDailyNewsIpc } from "./daily-news/ipc";
+import { startDailyNewsScheduler } from "./daily-news/scheduler";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -346,6 +348,8 @@ app.whenReady().then(async () => {
   createTray();
   registerMarketIpc();
   registerFocusGuardIpc();
+  registerDailyNewsIpc();
+  startDailyNewsScheduler();
   // A focus session is never active on a fresh launch (sessionActive is
   // ephemeral), so strip any hosts block left over from a crash or force-quit —
   // keeps the "any exit = unblock" invariant airtight across restarts.

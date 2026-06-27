@@ -9,6 +9,7 @@ files:
 asarUnpack:
   - "node_modules/get-windows/lib/**/*"
   - "node_modules/get-windows/main"
+  - "node_modules/better-sqlite3/**/*"
 extraResources:
   - from: resources/focus-guard
     to: focus-guard

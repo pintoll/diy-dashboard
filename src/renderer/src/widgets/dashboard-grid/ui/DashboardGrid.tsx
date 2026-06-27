@@ -5,8 +5,9 @@ import {
   type Layout,
   type LayoutItem,
 } from "react-grid-layout";
-import { Edit, Lock, Plus } from "lucide-react";
+import { Edit, Lock, Plus, Settings } from "lucide-react";
 import { Button } from "@/src/shared/ui/button";
+import { SettingsDialog } from "@/src/features/manage-settings/client";
 import {
   GRID_COLS,
   GRID_ROW_HEIGHT,
@@ -22,6 +23,7 @@ export function DashboardGrid() {
   const { widgets, isEditMode, toggleEditMode, updateLayouts } =
     useDashboardStore();
   const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [clientMounted, setClientMounted] = useState(false);
   const { width, containerRef } = useContainerWidth({
     initialWidth: 1280,
@@ -94,6 +96,13 @@ export function DashboardGrid() {
               <Plus className="h-4 w-4 mr-2" />
               Add Widget
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsSettingsOpen(true)}
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
           </div>
         </header>
       )}
@@ -141,6 +150,13 @@ export function DashboardGrid() {
         <WidgetPickerDialog
           open={isPickerOpen}
           onOpenChange={setIsPickerOpen}
+        />
+      )}
+
+      {clientMounted && (
+        <SettingsDialog
+          open={isSettingsOpen}
+          onOpenChange={setIsSettingsOpen}
         />
       )}
     </div>
