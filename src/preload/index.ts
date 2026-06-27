@@ -59,4 +59,24 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.removeListener("pomodoro:active-window", listener);
     };
   },
+  dailyNews: {
+    fetch: () => ipcRenderer.invoke("dailyNews:fetch"),
+    sendFeedback: (payload: {
+      articleId: number;
+      action: "like" | "dislike" | "unlike" | "undislike" | "click";
+    }) => ipcRenderer.invoke("dailyNews:feedback", payload),
+    onStatus: (callback: (status: DailyNewsStatus) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, status: DailyNewsStatus) =>
+        callback(status);
+      ipcRenderer.on("dailyNews:status", listener);
+      return () => {
+        ipcRenderer.removeListener("dailyNews:status", listener);
+      };
+    },
+  },
+  settings: {
+    getGeminiKey: () => ipcRenderer.invoke("settings:getGeminiKey"),
+    setGeminiKey: (key: string) =>
+      ipcRenderer.invoke("settings:setGeminiKey", key),
+  },
 });

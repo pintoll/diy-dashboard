@@ -92,6 +92,41 @@ interface AppGuardAPI {
   release: () => Promise<AppGuardDiagnostics>;
 }
 
+type DailyNewsFetchResult = {
+  fetchedAt: string;
+  items: Array<{
+    id: string;
+    title: string;
+    summary: string;
+    url: string;
+    source: string;
+    category: string;
+    publishedAt: string;
+    relevanceScore: number;
+  }>;
+};
+
+type DailyNewsStatus =
+  | { phase: "fetching" }
+  | { phase: "scoring"; current: number; total: number }
+  | { phase: "saving" }
+  | { phase: "done"; inserted: number }
+  | { phase: "error"; message: string };
+
+interface DailyNewsAPI {
+  fetch: () => Promise<DailyNewsFetchResult>;
+  sendFeedback: (payload: {
+    articleId: number;
+    action: "like" | "dislike" | "unlike" | "undislike" | "click";
+  }) => Promise<void>;
+  onStatus: (callback: (status: DailyNewsStatus) => void) => () => void;
+}
+
+interface SettingsAPI {
+  getGeminiKey: () => Promise<string>;
+  setGeminiKey: (key: string) => Promise<void>;
+}
+
 interface ElectronAPI {
   showNotification: (payload: { title: string; body: string }) => Promise<void>;
   isNotificationSupported: () => Promise<boolean>;
@@ -107,6 +142,8 @@ interface ElectronAPI {
   setTrayTooltip: (text: string | null) => Promise<void>;
   siteGuard: SiteGuardAPI;
   appGuard: AppGuardAPI;
+  dailyNews: DailyNewsAPI;
+  settings: SettingsAPI;
 }
 
 interface MarketSeriesPoint {
