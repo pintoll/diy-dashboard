@@ -33,6 +33,23 @@
   --chart-4: #a371f7;
   --chart-5: #f85149;
 
+  /* Finance ledger series.
+     Snapped from the --chart-* hues into the dark-mode OKLCH lightness band
+     (0.48-0.67) so each fill clears 3:1 against --card and adjacent pairs stay
+     separable under deuteranopia, protanopia and tritanopia. Verified with the
+     dataviz palette validator; do not hand-tune a value without re-running it. */
+  --finance-cash: #256cfe;
+  --finance-savings: #13af6c;
+  --finance-investment: #a472f9;
+  --finance-crypto: #d97324;
+  --finance-debt: #f85149;
+
+  /* Money flow. Orange left your net worth; green and blue are still yours. */
+  --flow-spending: #d97324;
+  --flow-into-assets: #13af6c;
+  --flow-left-over: #256cfe;
+  --flow-income: #a472f9;
+
   /* Sidebar */
   --sidebar: #0d1117;
   --sidebar-foreground: #e6edf3;
