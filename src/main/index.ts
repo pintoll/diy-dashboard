@@ -26,6 +26,24 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 const DEFAULT_TRAY_TOOLTIP = "DIY Dashboard";
 
+// Closing the window only hides it to the tray, so a "closed" app is still
+// running. Without this lock, launching the app again spawns a rival instance:
+// two trays, two news schedulers, two active-window pollers, and a fight over
+// the agent-api port that leaves the visible window unable to see writes the
+// agent makes against the other instance. Surface the existing window instead.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow === null) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
+
 function createTray(): void {
   const iconPath = path.join(__dirname, "../../resources/tray-icon.png");
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
@@ -317,6 +335,10 @@ let isQuitting = false;
 
 app.on("before-quit", () => {
   isQuitting = true;
+  // A rejected second instance quits through here too. It owns none of this
+  // shared state, and stripping the hosts block would unblock sites for the
+  // live instance's running focus session.
+  if (!gotSingleInstanceLock) return;
   // Release the hosts block on real quit (close-to-tray does not fire this, so
   // an active session keeps blocking while hidden and releases only on quit).
   stripFocusBlockSync();
@@ -348,6 +370,10 @@ function createAppMenu(): void {
 }
 
 app.whenReady().then(async () => {
+  // The lock loser is already quitting; it must not create a tray, bind the
+  // agent-api port, or start the scheduler on its way out.
+  if (!gotSingleInstanceLock) return;
+
   createAppMenu();
   createTray();
   registerMarketIpc();
