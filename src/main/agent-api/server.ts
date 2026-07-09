@@ -1,5 +1,5 @@
 import { createServer, type Server } from "http";
-import { unlinkSync, writeFileSync } from "fs";
+import { readFileSync, unlinkSync, writeFileSync } from "fs";
 import path from "path";
 import { app } from "electron";
 import { nanoid } from "nanoid";
@@ -103,7 +103,11 @@ export function startAgentApi(): void {
   const instance = buildServer(todosRoutes, token);
   server = instance;
 
-  const onListening = () => {
+  // Attached with `once` rather than passed to listen(): a listen() callback is
+  // registered as a one-shot "listening" listener that survives a failed bind,
+  // so passing it to both the preferred and the fallback listen would fire it
+  // twice on the fallback's success.
+  instance.once("listening", () => {
     const address = instance.address();
     if (typeof address === "object" && address !== null) {
       try {
@@ -113,30 +117,43 @@ export function startAgentApi(): void {
       }
       console.log(`agent-api listening on 127.0.0.1:${address.port}`);
     }
-  };
-
-  instance.once("error", (error: NodeJS.ErrnoException) => {
-    if (error.code === "EADDRINUSE") {
-      // The preferred port is taken (another app, or a second instance).
-      // Fall back to an OS-assigned port; agents discover it via the file.
-      console.warn(`agent-api: port ${preferredPort()} in use, falling back to ephemeral`);
-      instance.listen(0, "127.0.0.1", onListening);
-    } else {
-      console.error("agent-api failed to start:", error);
-      server = null;
-    }
   });
 
-  instance.listen(preferredPort(), "127.0.0.1", onListening);
+  let retriedOnBusyPort = false;
+  instance.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE" && !retriedOnBusyPort) {
+      // The preferred port is taken (another app, or a second instance of this
+      // one). Fall back to an OS-assigned port; agents discover it via the file.
+      retriedOnBusyPort = true;
+      console.warn(`agent-api: port ${preferredPort()} in use, falling back to ephemeral`);
+      instance.listen(0, "127.0.0.1");
+      return;
+    }
+    console.error("agent-api failed to start:", error);
+    server = null;
+  });
+
+  instance.listen(preferredPort(), "127.0.0.1");
 }
 
 export function stopAgentApi(): void {
   if (server === null) return;
   server.close();
   server = null;
+  removeOwnPortFile();
+}
+
+// Only remove the discovery file if this process wrote it. Two instances can
+// run at once (there is no single-instance lock), and the second one binds a
+// fallback port and rewrites the file. A quitting first instance must not
+// delete the live second instance's file and leave agents unable to discover
+// a running app.
+function removeOwnPortFile(): void {
   try {
+    const raw = JSON.parse(readFileSync(portFilePath(), "utf8")) as { pid?: number };
+    if (raw.pid !== process.pid) return;
     unlinkSync(portFilePath());
   } catch {
-    // Best effort; a stale file is detectable via its pid field.
+    // No file, unreadable, or already gone — nothing to clean up.
   }
 }
