@@ -1,0 +1,111 @@
+import { useEffect } from "react";
+import { Link } from "react-router-dom";
+import { ArrowRight } from "lucide-react";
+import { useFocusModeStore } from "@/src/entities/focus-mode";
+import { kstToday, useTodoStore } from "@/src/entities/todo";
+import { AddTodoForm, TodoRow } from "@/src/features/manage-todo/client";
+import { cn } from "@/src/shared/lib/utils";
+
+export type TodoTodayConfig = Record<string, never>;
+
+export function TodoTodayClient() {
+  const status = useTodoStore((s) => s.status);
+  const error = useTodoStore((s) => s.error);
+  const todos = useTodoStore((s) => s.todos);
+  const overdue = useTodoStore((s) => s.overdue);
+  const selectedDate = useTodoStore((s) => s.selectedDate);
+  const activeTodo = useTodoStore((s) => s.activeTodo);
+  const setDate = useTodoStore((s) => s.setDate);
+  const sessionActive = useFocusModeStore((s) => s.sessionActive);
+
+  // The store's selectedDate is shared with the /todos page (routes are
+  // exclusive, so the two never render at once). Snap back to today on mount
+  // and again when the day rolls over, so this widget is always "today".
+  useEffect(() => {
+    const syncToday = () => {
+      const today = kstToday();
+      if (useTodoStore.getState().selectedDate !== today) void setDate(today);
+    };
+    syncToday();
+    void useTodoStore.getState().ensureLoaded();
+    const timer = setInterval(syncToday, 60_000);
+    return () => clearInterval(timer);
+  }, [setDate]);
+
+  if (status === "error") {
+    return (
+      <p className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
+        {error}
+      </p>
+    );
+  }
+
+  const openCount = todos.filter((t) => !t.done).length;
+
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col gap-2">
+      {activeTodo && (
+        <div className="flex shrink-0 items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-2.5 py-1.5">
+          <span className="relative flex size-2 shrink-0">
+            {sessionActive && (
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+            )}
+            <span
+              className={cn(
+                "relative inline-flex size-2 rounded-full",
+                sessionActive ? "bg-primary" : "bg-muted-foreground"
+              )}
+            />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+              {sessionActive ? "Working" : "Up next"}
+            </p>
+            <p className="truncate text-sm font-medium">{activeTodo.title}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
+        {overdue.length > 0 && (
+          <>
+            <p className="px-2 text-[9px] font-medium uppercase tracking-wide text-destructive">
+              Overdue · {overdue.length}
+            </p>
+            {overdue.map((todo) => (
+              <TodoRow key={todo.id} todo={todo} showDate compact />
+            ))}
+            <p className="px-2 pt-1 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+              Today
+            </p>
+          </>
+        )}
+        {todos.length === 0 && overdue.length === 0 && status === "ready" && (
+          <p className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
+            Nothing planned today.
+          </p>
+        )}
+        {todos.map((todo) => (
+          <TodoRow key={todo.id} todo={todo} compact />
+        ))}
+      </div>
+
+      <div className="shrink-0">
+        <AddTodoForm date={selectedDate} />
+      </div>
+
+      <div className="flex shrink-0 items-center justify-between gap-2">
+        <span className="text-[10px] text-muted-foreground">
+          {openCount === 0 ? "All clear" : `${openCount} open`}
+        </span>
+        <Link
+          to="/todos"
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          All todos
+          <ArrowRight className="h-3 w-3" />
+        </Link>
+      </div>
+    </div>
+  );
+}

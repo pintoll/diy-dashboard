@@ -19,6 +19,8 @@ import { unblock as unblockSites, stripFocusBlockSync } from "./focus-guard/site
 import { registerDailyNewsIpc } from "./daily-news/ipc";
 import { startDailyNewsScheduler } from "./daily-news/scheduler";
 import { registerFinanceIpc } from "./finance/ipc";
+import { registerTodosIpc } from "./todos/ipc";
+import { startAgentApi, stopAgentApi } from "./agent-api/server";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -318,6 +320,7 @@ app.on("before-quit", () => {
   // Release the hosts block on real quit (close-to-tray does not fire this, so
   // an active session keeps blocking while hidden and releases only on quit).
   stripFocusBlockSync();
+  stopAgentApi();
 });
 
 app.on("window-all-closed", () => {
@@ -351,6 +354,8 @@ app.whenReady().then(async () => {
   registerFocusGuardIpc();
   registerDailyNewsIpc();
   registerFinanceIpc();
+  registerTodosIpc();
+  startAgentApi();
   startDailyNewsScheduler();
   // A focus session is never active on a fresh launch (sessionActive is
   // ephemeral), so strip any hosts block left over from a crash or force-quit —

@@ -2,7 +2,12 @@ import { readFileSync, writeFileSync } from "fs";
 import path from "path";
 import { app } from "electron";
 
-export type AppSettings = { geminiApiKey?: string; usdKrwRate?: number };
+export type AppSettings = {
+  geminiApiKey?: string;
+  usdKrwRate?: number;
+  agentApiPort?: number;
+  agentApiToken?: string;
+};
 
 // Won per US dollar. The finance ledger converts USD rows to KRW at read time
 // using this, so there is no FX API to key, rate-limit, or cache. Editing it

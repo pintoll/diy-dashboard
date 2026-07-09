@@ -351,6 +351,81 @@ interface FinanceAPI {
   };
 }
 
+// Date-based todos. `date` is the planned day (yyyy-MM-dd, Asia/Seoul) and is
+// never mutated by overdue carry-over; `completedOn` is the day it was
+// actually finished. `workedSec` is pomodoro time accrued via recordWork.
+type TodoSource = "user" | "agent";
+
+interface TodoItem {
+  id: string;
+  date: string;
+  title: string;
+  note: string | null;
+  done: boolean;
+  completedOn: string | null;
+  sortOrder: number;
+  workedSec: number;
+  source: TodoSource;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface TodoCreateInput {
+  title: string;
+  date?: string;
+  note?: string | null;
+}
+
+interface TodoPatch {
+  title?: string;
+  note?: string | null;
+  date?: string;
+  done?: boolean;
+  sortOrder?: number;
+}
+
+interface TodoListFilter {
+  date?: string;
+  from?: string;
+  to?: string;
+}
+
+interface TodoRecordWorkInput {
+  todoId: string;
+  sessionId: string;
+  startedAt: number;
+  endedAt: number;
+  workedSec: number;
+}
+
+type TodosChangedReason =
+  | "create"
+  | "update"
+  | "delete"
+  | "reorder"
+  | "active"
+  | "work";
+
+interface TodosChangedPayload {
+  reason: TodosChangedReason;
+  id?: string;
+}
+
+interface TodosAPI {
+  list: (filter?: TodoListFilter) => Promise<TodoItem[]>;
+  overdue: (before?: string) => Promise<TodoItem[]>;
+  create: (input: TodoCreateInput) => Promise<TodoItem>;
+  update: (id: string, patch: TodoPatch) => Promise<TodoItem>;
+  remove: (id: string) => Promise<void>;
+  reorder: (date: string, ids: string[]) => Promise<void>;
+  active: {
+    get: () => Promise<TodoItem | null>;
+    set: (id: string | null) => Promise<TodoItem | null>;
+  };
+  recordWork: (input: TodoRecordWorkInput) => Promise<void>;
+  onChanged: (callback: (payload: TodosChangedPayload) => void) => () => void;
+}
+
 interface ElectronAPI {
   showNotification: (payload: { title: string; body: string }) => Promise<void>;
   isNotificationSupported: () => Promise<boolean>;
@@ -368,6 +443,7 @@ interface ElectronAPI {
   appGuard: AppGuardAPI;
   dailyNews: DailyNewsAPI;
   settings: SettingsAPI;
+  todos: TodosAPI;
   finance: FinanceAPI;
 }
 
