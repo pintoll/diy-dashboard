@@ -15,8 +15,6 @@ type Props = {
   todo: Todo;
   // Overdue rows show the day they were planned for.
   showDate?: boolean;
-  // The widget hides edit affordances to stay compact; the page shows them.
-  compact?: boolean;
 };
 
 // Errors from row actions are not surfaced inline: the todos:changed push
@@ -25,7 +23,7 @@ function run(action: Promise<unknown>): void {
   action.catch((error) => console.warn("todo action failed:", error));
 }
 
-export function TodoRow({ todo, showDate = false, compact = false }: Props) {
+export function TodoRow({ todo, showDate = false }: Props) {
   const activeTodoId = useTodoStore((s) => s.activeTodoId);
   const [editing, setEditing] = useState(false);
   const isActive = activeTodoId === todo.id;
@@ -57,15 +55,17 @@ export function TodoRow({ todo, showDate = false, compact = false }: Props) {
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
             className={cn(
-              "truncate text-sm",
+              "cursor-pointer truncate text-left text-sm underline-offset-2 hover:underline",
               todo.done && "text-muted-foreground line-through"
             )}
             title={todo.note ?? undefined}
           >
             {todo.title}
-          </span>
+          </button>
           {todo.source === "agent" && (
             <Bot className="size-3 shrink-0 text-muted-foreground" aria-label="Added by agent" />
           )}
@@ -99,20 +99,16 @@ export function TodoRow({ todo, showDate = false, compact = false }: Props) {
         </Button>
       )}
 
-      {!compact && (
-        <>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={() => setEditing(true)}
-            className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-            aria-label="Edit todo"
-          >
-            <Pencil />
-          </Button>
-          <EditTodoDialog todo={todo} open={editing} onOpenChange={setEditing} />
-        </>
-      )}
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        onClick={() => setEditing(true)}
+        className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+        aria-label="Edit todo"
+      >
+        <Pencil />
+      </Button>
+      <EditTodoDialog todo={todo} open={editing} onOpenChange={setEditing} />
     </div>
   );
 }

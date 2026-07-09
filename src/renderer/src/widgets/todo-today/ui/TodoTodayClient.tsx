@@ -73,7 +73,7 @@ export function TodoTodayClient() {
               Overdue · {overdue.length}
             </p>
             {overdue.map((todo) => (
-              <TodoRow key={todo.id} todo={todo} showDate compact />
+              <TodoRow key={todo.id} todo={todo} showDate />
             ))}
             <p className="px-2 pt-1 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
               Today
@@ -86,7 +86,7 @@ export function TodoTodayClient() {
           </p>
         )}
         {todos.map((todo) => (
-          <TodoRow key={todo.id} todo={todo} compact />
+          <TodoRow key={todo.id} todo={todo} />
         ))}
       </div>
 
