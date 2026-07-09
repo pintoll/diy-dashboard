@@ -13,6 +13,7 @@ import {
 } from "@/src/shared/ui/dialog";
 import { Input } from "@/src/shared/ui/input";
 import { Label } from "@/src/shared/ui/label";
+import { Textarea } from "@/src/shared/ui/textarea";
 
 type Props = {
   todo: Todo;
@@ -68,11 +69,12 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
       </div>
       <div className="flex flex-col gap-2">
         <Label htmlFor="todo-note">Note</Label>
-        <Input
+        <Textarea
           id="todo-note"
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="Optional"
+          className="max-h-72 min-h-40"
         />
       </div>
       <div className="flex flex-col gap-2">
@@ -108,7 +110,7 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
 export function EditTodoDialog({ todo, open, onOpenChange }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit todo</DialogTitle>
         </DialogHeader>
