@@ -5,6 +5,7 @@ import { dailyNewsWidget } from "@/src/widgets/daily-news";
 import { macroIndicatorsWidget } from "@/src/widgets/macro-indicators";
 import { economicCalendarWidget } from "@/src/widgets/economic-calendar";
 import { moneyFlowWidget } from "@/src/widgets/money-flow";
+import { todoTodayWidget } from "@/src/widgets/todo-today";
 import {
   testSmallWidget,
   testWideWidget,
@@ -19,6 +20,7 @@ export function registerAllWidgets() {
   widgetRegistry.register(macroIndicatorsWidget);
   widgetRegistry.register(economicCalendarWidget);
   widgetRegistry.register(moneyFlowWidget);
+  widgetRegistry.register(todoTodayWidget);
 
   if (import.meta.env.DEV) {
     widgetRegistry.register(testSmallWidget);

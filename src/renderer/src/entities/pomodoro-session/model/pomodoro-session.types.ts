@@ -63,6 +63,10 @@ export type PomodoroSessionRecord = {
   sessionEndType: SessionEndType;
   processBuckets: Record<string, number>;
   cappedAt60m: boolean;
+  // Snapshot of the globally active todo at session end (same snapshot rule
+  // as `intendedMode`). null = no todo was active / legacy record. The todo's
+  // accrued worked_sec lives in SQLite; this is the renderer-side link.
+  todoId: string | null;
   // Optional free-text memo for "that day, why?" context, authored after the
   // fact in the analytics day drill-down. null = no note (same null-as-absent
   // convention as `intendedMode`).

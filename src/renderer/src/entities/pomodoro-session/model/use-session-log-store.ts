@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type { PomodoroSessionRecord } from "./pomodoro-session.types";
 
-const STORE_VERSION = 4;
+const STORE_VERSION = 5;
 
 // Fields with safe defaults: callers may omit them and migrations backfill them.
 type DefaultedField =
@@ -15,7 +15,8 @@ type DefaultedField =
   | "processBuckets"
   | "cappedAt60m"
   | "intendedMode"
-  | "note";
+  | "note"
+  | "todoId";
 
 type RecordSessionInput =
   Omit<PomodoroSessionRecord, "id" | DefaultedField>
@@ -33,11 +34,15 @@ const RECORD_DEFAULTS: Pick<PomodoroSessionRecord, DefaultedField> = {
   // fake intent would pollute the intent/outcome collapse analysis.
   intendedMode: null,
   note: null,
+  // null = no todo was active. Same never-backfill rule as intendedMode.
+  todoId: null,
 };
 
 type SessionLogState = {
   sessions: PomodoroSessionRecord[];
-  recordSession: (record: RecordSessionInput) => void;
+  // Returns the created record so callers can reference its id (the todo
+  // accrual links todo_sessions rows by session id).
+  recordSession: (record: RecordSessionInput) => PomodoroSessionRecord;
   updateSessionNote: (id: string, note: string) => void;
   clearAll: () => void;
 };
@@ -66,6 +71,11 @@ function migrate(persistedState: unknown, version: number): SessionLogState {
     }));
   }
 
+  // v4 -> v5: sessions gained the active-todo link.
+  if (version < 5) {
+    sessions = sessions.map((s) => ({ ...s, todoId: s.todoId ?? null }));
+  }
+
   return { ...(state as object), sessions: sessions as PomodoroSessionRecord[] } as SessionLogState;
 }
 
@@ -81,6 +91,7 @@ export const useSessionLogStore = create<SessionLogState>()(
           ...record,
         };
         set((state) => ({ sessions: [...state.sessions, entry] }));
+        return entry;
       },
 
       updateSessionNote: (id, note) => {

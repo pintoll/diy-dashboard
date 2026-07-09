@@ -79,6 +79,30 @@ contextBridge.exposeInMainWorld("electronAPI", {
     setGeminiKey: (key: string) =>
       ipcRenderer.invoke("settings:setGeminiKey", key),
   },
+  todos: {
+    list: (filter?: TodoListFilter) => ipcRenderer.invoke("todos:list", filter),
+    overdue: (before?: string) => ipcRenderer.invoke("todos:overdue", before),
+    create: (input: TodoCreateInput) => ipcRenderer.invoke("todos:create", input),
+    update: (id: string, patch: TodoPatch) =>
+      ipcRenderer.invoke("todos:update", { id, patch }),
+    remove: (id: string) => ipcRenderer.invoke("todos:delete", id),
+    reorder: (date: string, ids: string[]) =>
+      ipcRenderer.invoke("todos:reorder", { date, ids }),
+    active: {
+      get: () => ipcRenderer.invoke("todos:active:get"),
+      set: (id: string | null) => ipcRenderer.invoke("todos:active:set", id),
+    },
+    recordWork: (input: TodoRecordWorkInput) =>
+      ipcRenderer.invoke("todos:record-work", input),
+    onChanged: (callback: (payload: TodosChangedPayload) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: TodosChangedPayload) =>
+        callback(payload);
+      ipcRenderer.on("todos:changed", listener);
+      return () => {
+        ipcRenderer.removeListener("todos:changed", listener);
+      };
+    },
+  },
   finance: {
     accounts: {
       list: () => ipcRenderer.invoke("finance:accounts:list"),

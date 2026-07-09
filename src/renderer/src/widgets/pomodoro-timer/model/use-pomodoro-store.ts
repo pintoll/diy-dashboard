@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { createWidgetStore } from "@/src/shared/lib/create-widget-store";
 import { useSessionLogStore } from "@/src/entities/pomodoro-session";
 import { useFocusModeStore } from "@/src/entities/focus-mode";
+import { accrueTodoWork, useTodoStore } from "@/src/entities/todo";
 import type {
   ConfirmReviewInput,
   PendingReview,
@@ -15,7 +16,7 @@ import type {
 
 type PomodoroStore = PomodoroState & PomodoroActions & { config: PomodoroConfig };
 
-const STORE_VERSION = 13;
+const STORE_VERSION = 14;
 export const OVERTIME_CAP_SEC = 3600;
 const OVERTIME_IDLE_THRESHOLD_SEC = 60;
 const OVERTIME_ALARM_THRESHOLDS_SEC = [300, 600, 1200, 1800, 3600] as const;
@@ -70,7 +71,7 @@ function recordCompletedWorkSession(state: PomodoroState & { config: PomodoroCon
   const durationSec = state.config.workDuration * 60;
   const endedAt = Date.now();
   const startedAt = state.startedAt ?? endedAt - durationSec * 1000;
-  useSessionLogStore.getState().recordSession({
+  const entry = useSessionLogStore.getState().recordSession({
     phase: "work",
     startedAt,
     endedAt,
@@ -78,7 +79,9 @@ function recordCompletedWorkSession(state: PomodoroState & { config: PomodoroCon
     presetId: state.activePresetId,
     processBuckets: state.processBuckets,
     intendedMode: useFocusModeStore.getState().intendedMode,
+    todoId: useTodoStore.getState().activeTodoId,
   });
+  accrueTodoWork(entry);
 }
 
 function buildPendingReview(
@@ -107,6 +110,9 @@ function buildPendingReview(
     // Snapshot intent at session end: the tab unlocks once the session is over,
     // so the review (confirmed later) must not pick up a post-session flip.
     intendedMode: useFocusModeStore.getState().intendedMode,
+    // Same snapshot rule: the review must credit the todo that was active
+    // during the session, not one activated afterwards.
+    todoId: useTodoStore.getState().activeTodoId,
   };
 }
 
@@ -260,6 +266,19 @@ function migrateState(persistedState: unknown, version: number): PomodoroStore {
   // Intent declaration moved out of this store into useFocusModeStore (shared
   // with the focus-mode block engine); no per-instance intendedMode to backfill.
 
+  if (version < 14) {
+    // pendingReview gained the active-todo link.
+    const pendingReview = state.pendingReview as
+      | ({ todoId?: string | null } & Record<string, unknown>)
+      | null;
+    if (pendingReview) {
+      state = {
+        ...state,
+        pendingReview: { ...pendingReview, todoId: pendingReview.todoId ?? null },
+      };
+    }
+  }
+
   return state as unknown as PomodoroStore;
 }
 
@@ -409,6 +428,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             sessionEndType: "early-stop",
             processBuckets: state.processBuckets,
             intendedMode: useFocusModeStore.getState().intendedMode,
+            todoId: useTodoStore.getState().activeTodoId,
           };
 
           set({
@@ -559,7 +579,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
         confirmReview: (input: ConfirmReviewInput) => {
           const { pendingReview } = get();
           if (pendingReview === null) return;
-          useSessionLogStore.getState().recordSession({
+          const entry = useSessionLogStore.getState().recordSession({
             phase: "work",
             startedAt: pendingReview.startedAt,
             endedAt: pendingReview.endedAt,
@@ -571,9 +591,11 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             sessionEndType: pendingReview.sessionEndType,
             processBuckets: pendingReview.processBuckets,
             intendedMode: pendingReview.intendedMode,
+            todoId: pendingReview.todoId,
             attention: input.attention,
             attentionSource: input.attentionSource,
           });
+          accrueTodoWork(entry);
           set({ pendingReview: null, processBuckets: {} });
         },
 
