@@ -79,4 +79,59 @@ contextBridge.exposeInMainWorld("electronAPI", {
     setGeminiKey: (key: string) =>
       ipcRenderer.invoke("settings:setGeminiKey", key),
   },
+  finance: {
+    accounts: {
+      list: () => ipcRenderer.invoke("finance:accounts:list"),
+      create: (input: FinanceAccountInput) =>
+        ipcRenderer.invoke("finance:accounts:create", input),
+      update: (id: number, patch: Partial<FinanceAccountInput>) =>
+        ipcRenderer.invoke("finance:accounts:update", { id, patch }),
+      archive: (id: number) => ipcRenderer.invoke("finance:accounts:archive", id),
+    },
+    categories: {
+      list: () => ipcRenderer.invoke("finance:categories:list"),
+      create: (input: FinanceCategoryInput) =>
+        ipcRenderer.invoke("finance:categories:create", input),
+    },
+    transactions: {
+      list: (filter?: FinanceTransactionFilter) =>
+        ipcRenderer.invoke("finance:transactions:list", filter),
+      create: (input: FinanceTransactionInput) =>
+        ipcRenderer.invoke("finance:transactions:create", input),
+      update: (id: number, patch: Partial<FinanceTransactionInput>) =>
+        ipcRenderer.invoke("finance:transactions:update", { id, patch }),
+      remove: (id: number) => ipcRenderer.invoke("finance:transactions:delete", id),
+    },
+    valuations: {
+      list: (accountId: number) =>
+        ipcRenderer.invoke("finance:valuations:list", accountId),
+      upsert: (input: FinanceValuationInput) =>
+        ipcRenderer.invoke("finance:valuations:upsert", input),
+    },
+    recurring: {
+      list: () => ipcRenderer.invoke("finance:recurring:list"),
+      create: (input: FinanceRecurringRuleInput) =>
+        ipcRenderer.invoke("finance:recurring:create", input),
+      update: (id: number, patch: Partial<FinanceRecurringRuleInput>) =>
+        ipcRenderer.invoke("finance:recurring:update", { id, patch }),
+      remove: (id: number) => ipcRenderer.invoke("finance:recurring:delete", id),
+      pending: (ym: string) => ipcRenderer.invoke("finance:recurring:pending", ym),
+      confirm: (input: FinanceConfirmChargeInput) =>
+        ipcRenderer.invoke("finance:recurring:confirm", input),
+      skip: (input: FinanceSkipChargeInput) =>
+        ipcRenderer.invoke("finance:recurring:skip", input),
+      unskip: (input: FinanceSkipChargeInput) =>
+        ipcRenderer.invoke("finance:recurring:unskip", input),
+    },
+    summary: {
+      monthly: (ym: string) => ipcRenderer.invoke("finance:summary:monthly", ym),
+      recent: (months: number, endYm?: string) =>
+        ipcRenderer.invoke("finance:summary:recent", { months, endYm }),
+    },
+    overview: () => ipcRenderer.invoke("finance:overview"),
+    rate: {
+      get: () => ipcRenderer.invoke("finance:rate:get"),
+      set: (rate: number) => ipcRenderer.invoke("finance:rate:set", rate),
+    },
+  },
 });

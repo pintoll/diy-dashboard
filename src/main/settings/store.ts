@@ -2,7 +2,12 @@ import { readFileSync, writeFileSync } from "fs";
 import path from "path";
 import { app } from "electron";
 
-export type AppSettings = { geminiApiKey?: string };
+export type AppSettings = { geminiApiKey?: string; usdKrwRate?: number };
+
+// Won per US dollar. The finance ledger converts USD rows to KRW at read time
+// using this, so there is no FX API to key, rate-limit, or cache. Editing it
+// reflows every USD figure in the ledger at once.
+export const DEFAULT_USD_KRW_RATE = 1380;
 
 function settingsPath(): string {
   return path.join(app.getPath("userData"), "settings.json");
@@ -27,4 +32,16 @@ export function getGeminiApiKey(): string | undefined {
 
 export function setGeminiApiKey(key: string): void {
   setSettings({ geminiApiKey: key });
+}
+
+export function getUsdKrwRate(): number {
+  const rate = getSettings().usdKrwRate;
+  return typeof rate === "number" && rate > 0 ? rate : DEFAULT_USD_KRW_RATE;
+}
+
+export function setUsdKrwRate(rate: number): void {
+  if (!Number.isFinite(rate) || rate <= 0) {
+    throw new Error("Exchange rate must be a positive number");
+  }
+  setSettings({ usdKrwRate: rate });
 }

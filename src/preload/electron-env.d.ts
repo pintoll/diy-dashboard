@@ -127,6 +127,230 @@ interface SettingsAPI {
   setGeminiKey: (key: string) => Promise<void>;
 }
 
+// Finance ledger. Amounts are integers in the minor unit of their own row's
+// currency (KRW has none, USD is cents). Anything named `*Krw` has already been
+// normalized to won at the manual rate and is only valid for display.
+type FinanceCurrency = "KRW" | "USD";
+type FinanceAccountKind =
+  | "cash"
+  | "savings"
+  | "investment"
+  | "crypto"
+  | "liability";
+type FinanceTransactionKind = "income" | "expense" | "transfer";
+type FinanceCategoryKind = "expense" | "income";
+
+interface FinanceAccount {
+  id: number;
+  name: string;
+  kind: FinanceAccountKind;
+  currency: FinanceCurrency;
+  openingBalance: number;
+  isArchived: boolean;
+  sortOrder: number;
+}
+
+interface FinanceAccountInput {
+  name: string;
+  kind: FinanceAccountKind;
+  currency: FinanceCurrency;
+  openingBalance: number;
+  sortOrder?: number;
+}
+
+interface FinanceCategory {
+  id: number;
+  name: string;
+  groupName: string;
+  kind: FinanceCategoryKind;
+  isFixed: boolean;
+  sortOrder: number;
+}
+
+interface FinanceCategoryInput {
+  name: string;
+  groupName: string;
+  kind: FinanceCategoryKind;
+  isFixed: boolean;
+}
+
+interface FinanceTransaction {
+  id: number;
+  kind: FinanceTransactionKind;
+  date: string;
+  amount: number;
+  currency: FinanceCurrency;
+  fromAccountId: number | null;
+  toAccountId: number | null;
+  categoryId: number | null;
+  memo: string | null;
+  recurringRuleId: number | null;
+  amountKrw: number;
+  fromAccountName: string | null;
+  toAccountName: string | null;
+  categoryName: string | null;
+}
+
+interface FinanceTransactionInput {
+  kind: FinanceTransactionKind;
+  date: string;
+  amount: number;
+  currency: FinanceCurrency;
+  fromAccountId?: number | null;
+  toAccountId?: number | null;
+  categoryId?: number | null;
+  memo?: string | null;
+  recurringRuleId?: number | null;
+}
+
+interface FinanceTransactionFilter {
+  ym?: string;
+  limit?: number;
+}
+
+interface FinanceRecurringRule {
+  id: number;
+  name: string;
+  kind: FinanceTransactionKind;
+  amount: number;
+  currency: FinanceCurrency;
+  variable: boolean;
+  billingDay: number;
+  categoryId: number | null;
+  fromAccountId: number | null;
+  toAccountId: number | null;
+  startYm: string;
+  endYm: string | null;
+  active: boolean;
+  categoryName: string | null;
+}
+
+interface FinanceRecurringRuleInput {
+  name: string;
+  kind: FinanceTransactionKind;
+  amount: number;
+  currency: FinanceCurrency;
+  variable: boolean;
+  billingDay: number;
+  categoryId?: number | null;
+  fromAccountId?: number | null;
+  toAccountId?: number | null;
+  startYm: string;
+  endYm?: string | null;
+  active?: boolean;
+}
+
+interface FinancePendingCharge extends FinanceRecurringRule {
+  dueDate: string;
+}
+
+interface FinanceConfirmChargeInput {
+  ruleId: number;
+  ym: string;
+  amount?: number;
+  date?: string;
+}
+
+interface FinanceSkipChargeInput {
+  ruleId: number;
+  ym: string;
+}
+
+interface FinanceValuation {
+  id: number;
+  accountId: number;
+  asOfDate: string;
+  balance: number;
+  currency: FinanceCurrency;
+  memo: string | null;
+}
+
+interface FinanceValuationInput {
+  accountId: number;
+  asOfDate: string;
+  balance: number;
+  currency: FinanceCurrency;
+  memo?: string | null;
+}
+
+interface FinanceMonthlySummary {
+  ym: string;
+  income: number;
+  spending: number;
+  intoAssets: number;
+  totalOut: number;
+  leftOver: number;
+  savingsRate: number;
+}
+
+interface FinanceAccountBalance {
+  id: number;
+  name: string;
+  kind: FinanceAccountKind;
+  currency: FinanceCurrency;
+  balanceKrw: number;
+}
+
+interface FinanceAssetSlice {
+  kind: FinanceAccountKind;
+  total: number;
+}
+
+interface FinanceOverview {
+  netWorth: number;
+  assets: FinanceAssetSlice[];
+  liabilities: number;
+  balances: FinanceAccountBalance[];
+}
+
+interface FinanceAPI {
+  accounts: {
+    list: () => Promise<FinanceAccount[]>;
+    create: (input: FinanceAccountInput) => Promise<number>;
+    update: (id: number, patch: Partial<FinanceAccountInput>) => Promise<void>;
+    archive: (id: number) => Promise<void>;
+  };
+  categories: {
+    list: () => Promise<FinanceCategory[]>;
+    create: (input: FinanceCategoryInput) => Promise<number>;
+  };
+  transactions: {
+    list: (filter?: FinanceTransactionFilter) => Promise<FinanceTransaction[]>;
+    create: (input: FinanceTransactionInput) => Promise<number>;
+    update: (
+      id: number,
+      patch: Partial<FinanceTransactionInput>
+    ) => Promise<void>;
+    remove: (id: number) => Promise<void>;
+  };
+  valuations: {
+    list: (accountId: number) => Promise<FinanceValuation[]>;
+    upsert: (input: FinanceValuationInput) => Promise<void>;
+  };
+  recurring: {
+    list: () => Promise<FinanceRecurringRule[]>;
+    create: (input: FinanceRecurringRuleInput) => Promise<number>;
+    update: (
+      id: number,
+      patch: Partial<FinanceRecurringRuleInput>
+    ) => Promise<void>;
+    remove: (id: number) => Promise<void>;
+    pending: (ym: string) => Promise<FinancePendingCharge[]>;
+    confirm: (input: FinanceConfirmChargeInput) => Promise<number>;
+    skip: (input: FinanceSkipChargeInput) => Promise<void>;
+    unskip: (input: FinanceSkipChargeInput) => Promise<void>;
+  };
+  summary: {
+    monthly: (ym: string) => Promise<FinanceMonthlySummary>;
+    recent: (months: number, endYm?: string) => Promise<FinanceMonthlySummary[]>;
+  };
+  overview: () => Promise<FinanceOverview>;
+  rate: {
+    get: () => Promise<number>;
+    set: (rate: number) => Promise<void>;
+  };
+}
+
 interface ElectronAPI {
   showNotification: (payload: { title: string; body: string }) => Promise<void>;
   isNotificationSupported: () => Promise<boolean>;
@@ -144,6 +368,7 @@ interface ElectronAPI {
   appGuard: AppGuardAPI;
   dailyNews: DailyNewsAPI;
   settings: SettingsAPI;
+  finance: FinanceAPI;
 }
 
 interface MarketSeriesPoint {

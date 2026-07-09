@@ -4,6 +4,7 @@ import { pomodoroStatsWidget } from "@/src/widgets/pomodoro-stats";
 import { dailyNewsWidget } from "@/src/widgets/daily-news";
 import { macroIndicatorsWidget } from "@/src/widgets/macro-indicators";
 import { economicCalendarWidget } from "@/src/widgets/economic-calendar";
+import { moneyFlowWidget } from "@/src/widgets/money-flow";
 import {
   testSmallWidget,
   testWideWidget,
@@ -17,6 +18,7 @@ export function registerAllWidgets() {
   widgetRegistry.register(dailyNewsWidget);
   widgetRegistry.register(macroIndicatorsWidget);
   widgetRegistry.register(economicCalendarWidget);
+  widgetRegistry.register(moneyFlowWidget);
 
   if (import.meta.env.DEV) {
     widgetRegistry.register(testSmallWidget);
