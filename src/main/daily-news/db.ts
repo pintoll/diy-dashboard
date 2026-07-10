@@ -48,6 +48,12 @@ CREATE TABLE IF NOT EXISTS interest_signals (
   last_seen TEXT NOT NULL DEFAULT CURRENT_DATE,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Serves both hot paths on a table that grows forever: the scheduler's
+-- COUNT(*) WHERE fetched_date=? and the widget's WHERE fetched_date=?
+-- ORDER BY final_score DESC (reverse index scan, no filesort).
+CREATE INDEX IF NOT EXISTS idx_articles_fetched_date
+  ON articles(fetched_date, final_score);
 `;
 
 // Fresh-start seed: only the 2 profile rows with the current live content.
@@ -69,6 +75,9 @@ export function getDb(): Database.Database {
   const dbPath = path.join(app.getPath("userData"), "daily-news.db");
   db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
+  // Off by default in SQLite; without it the feedback→articles FK is
+  // decorative. The other two app DBs already enable it.
+  db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
   seedProfile(db);
 
