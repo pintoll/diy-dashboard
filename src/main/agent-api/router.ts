@@ -35,7 +35,13 @@ function matchPattern(pattern: string, pathname: string): RouteParams | null {
     const expected = patternParts[i];
     const actual = pathParts[i];
     if (expected.startsWith(":")) {
-      params[expected.slice(1)] = decodeURIComponent(actual);
+      try {
+        params[expected.slice(1)] = decodeURIComponent(actual);
+      } catch {
+        // Malformed percent-escape: treat as non-matching (404) instead of
+        // letting the URIError escape route dispatch and hang the response.
+        return null;
+      }
     } else if (expected !== actual) {
       return null;
     }

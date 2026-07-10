@@ -57,6 +57,15 @@ function writePortFile(port: number, token: string): void {
 
 function buildServer(routes: Route[], token: string): Server {
   return createServer(async (req, res) => {
+    // The bind is loopback-only, but a browser page can still reach 127.0.0.1
+    // via DNS rebinding — those requests arrive with a foreign Host header.
+    // Reject anything not addressed to localhost before touching any route.
+    const host = (req.headers.host ?? "").replace(/:\d+$/, "").toLowerCase();
+    if (host !== "127.0.0.1" && host !== "localhost" && host !== "[::1]") {
+      sendError(res, 403, "Invalid Host header");
+      return;
+    }
+
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
 
     if (req.method === "GET" && url.pathname === "/api/health") {
@@ -143,11 +152,10 @@ export function stopAgentApi(): void {
   removeOwnPortFile();
 }
 
-// Only remove the discovery file if this process wrote it. Two instances can
-// run at once (there is no single-instance lock), and the second one binds a
-// fallback port and rewrites the file. A quitting first instance must not
-// delete the live second instance's file and leave agents unable to discover
-// a running app.
+// Only remove the discovery file if this process wrote it. The single-instance
+// lock makes overlap rare, but a restart can race the dying instance's quit
+// path: if the new instance has already rewritten the file, the old one must
+// not delete it and leave agents unable to discover the running app.
 function removeOwnPortFile(): void {
   try {
     const raw = JSON.parse(readFileSync(portFilePath(), "utf8")) as { pid?: number };
