@@ -61,7 +61,10 @@ export function ymOf(date: string): string {
   return date.slice(0, 7);
 }
 
+// KST, matching todos/date.ts and daily-news/kst.ts. Local time would flip
+// "this month" nine hours late on a UTC machine (e.g. WSL) around month ends.
 export function currentYm(): string {
-  const now = new Date();
-  return `${pad4(now.getFullYear())}-${pad2(now.getMonth() + 1)}`;
+  return new Date()
+    .toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" })
+    .slice(0, 7);
 }

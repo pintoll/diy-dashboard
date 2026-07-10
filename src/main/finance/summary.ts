@@ -38,14 +38,33 @@ SELECT
 FROM tx
 `;
 
+// Same buckets as MONTHLY_SQL, grouped per month over one range scan. substr()
+// appears only in SELECT/GROUP BY; the WHERE stays a range predicate so it can
+// still use the `date` index.
+const RANGE_SQL = `
+WITH tx AS (
+  SELECT substr(t.date, 1, 7) AS ym,
+         t.kind,
+         ${toKrw("t.amount", "t.currency")} AS norm,
+         ta.kind AS to_kind
+  FROM transactions t
+  LEFT JOIN accounts ta ON ta.id = t.to_account_id
+  WHERE t.date >= @rangeStart AND t.date < @rangeEnd
+)
+SELECT
+  ym,
+  COALESCE(SUM(CASE WHEN kind = 'income'  THEN norm END), 0) AS income,
+  COALESCE(SUM(CASE WHEN kind = 'expense' THEN norm END), 0) AS spending,
+  COALESCE(SUM(CASE WHEN kind = 'transfer'
+                     AND to_kind IN (${sqlKindList(ASSET_SINK_KINDS)})
+                    THEN norm END), 0)                       AS intoAssets
+FROM tx
+GROUP BY ym
+`;
+
 type MonthlyRow = { income: number; spending: number; intoAssets: number };
 
-export function monthlySummary(ym: string, rate: number): MonthlySummary {
-  const { monthStart, monthEnd } = ymRange(ym);
-  const row = getFinanceDb()
-    .prepare(MONTHLY_SQL)
-    .get({ r: rate, monthStart, monthEnd }) as MonthlyRow;
-
+function toSummary(ym: string, row: MonthlyRow): MonthlySummary {
   const { income, spending, intoAssets } = row;
   const totalOut = spending + intoAssets;
   const leftOver = income - totalOut;
@@ -63,7 +82,17 @@ export function monthlySummary(ym: string, rate: number): MonthlySummary {
   };
 }
 
+export function monthlySummary(ym: string, rate: number): MonthlySummary {
+  const { monthStart, monthEnd } = ymRange(ym);
+  const row = getFinanceDb()
+    .prepare(MONTHLY_SQL)
+    .get({ r: rate, monthStart, monthEnd }) as MonthlyRow;
+  return toSummary(ym, row);
+}
+
 // Oldest first, ending at `endYm` inclusive, so a bar chart reads left to right.
+// Months with no transactions come back as all-zero rows so the series stays
+// continuous.
 export function recentMonths(
   months: number,
   rate: number,
@@ -71,9 +100,19 @@ export function recentMonths(
 ): MonthlySummary[] {
   const end = endYm ?? currentYm();
   const count = Math.max(1, Math.min(24, Math.floor(months)));
+  const { monthStart: rangeStart } = ymRange(shiftYm(end, -(count - 1)));
+  const { monthEnd: rangeEnd } = ymRange(end);
+
+  const rows = getFinanceDb()
+    .prepare(RANGE_SQL)
+    .all({ r: rate, rangeStart, rangeEnd }) as Array<MonthlyRow & { ym: string }>;
+  const byYm = new Map(rows.map((row) => [row.ym, row]));
+
+  const empty: MonthlyRow = { income: 0, spending: 0, intoAssets: 0 };
   const result: MonthlySummary[] = [];
   for (let i = count - 1; i >= 0; i--) {
-    result.push(monthlySummary(shiftYm(end, -i), rate));
+    const ym = shiftYm(end, -i);
+    result.push(toSummary(ym, byYm.get(ym) ?? empty));
   }
   return result;
 }
