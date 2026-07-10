@@ -8,7 +8,17 @@ Method: 8 parallel finders (secrets, agent-api, focus-guard command exec, IPC
 surface, renderer/CSP, performance, DB integrity, error handling), then dedup +
 spot verification of the most severe items against source.
 
-Legend: 🔴 blocker before publish · 🟠 high · 🟡 medium · ⚪ low / informational.
+Legend: 🔴 blocker before publish · 🟠 high · 🟡 medium · ⚪ low / informational
+· ✅ fixed.
+
+**Status (2026-07-10):** first fix pass applied on `feature/upgrade-pomodoro`.
+Scope: every item that needs **no design decision** *and* **changes no intended
+behavior** — marked ✅ inline below. Verified with eslint, `tsc --noEmit` (both
+projects), and `electron-vite build`; the focus-guard changes still need the
+same Windows runtime pass the feature itself is waiting on. Everything
+unmarked either needs a product/design decision (key handling, pruning policy,
+error-surfacing UX) or changes observable behavior and should be done
+deliberately (CSP, health response, decay ordering, packaging).
 
 ---
 
@@ -55,6 +65,10 @@ source). `.env.example` documents only FRED, not `MAIN_VITE_GEMINI_API_KEY`. No
 setup / key-acquisition / platform-support (focus-guard is Windows-only) / build
 docs.
 
+- ✅ *Partially fixed (2026-07-10):* `.env.example` now documents
+  `MAIN_VITE_GEMINI_API_KEY` and notes that runtime Settings takes precedence.
+  LICENSE (license choice) and README content remain open.
+
 ---
 
 ## 🟠 Security
@@ -68,33 +82,48 @@ items below have "if the renderer is compromised" as a realistic precondition.
   limit means localStorage can be exfiltrated. `sandbox: false` amplifies blast
   radius. Add a strict CSP (`default-src 'self'; connect-src 'self'; object-src
   'none'; frame-src 'none'`), loosened only for the Vite dev server.
+  *Deferred:* the directive set needs a runtime pass (Vite's inline dev
+  preamble, any external images) in both dev and packaged builds before
+  enforcing — not safe to land blind.
 
-- 🟠 **`shell.openExternal` with no scheme allowlist** (`src/main/index.ts:90`,
+- ✅ ~~🟠~~ **`shell.openExternal` with no scheme allowlist** (`src/main/index.ts:90`,
   reached from `NewsItem.tsx:18` `window.open(item.url)`). `item.url` is untrusted
   RSS/Gemini data. A crafted feed link can be a UNC/SMB path (NTLM hash leak), an
   `ms-msdt:`/`search-ms:` protocol handler (classic openExternal RCE), or
   `file://`. Allowlist `http:`/`https:` in the handler and validate in `NewsItem`.
+  *Fixed 2026-07-10:* window-open handler only forwards `http(s):` to
+  `openExternal`; `NewsItem` also checks the scheme before `window.open`.
 
-- 🟠 **PowerShell argument injection in elevation** (`src/main/focus-guard/elevate.ts:39`).
+- ✅ ~~🟠~~ **PowerShell argument injection in elevation** (`src/main/focus-guard/elevate.ts:39`).
   `${ps1}` and `${user}` are interpolated into a single-quoted `-ArgumentList`
   then passed to `powershell -Command`. A `'` in the username (`O'Brien`) or
   install path breaks the quoting; crafted metacharacters give code execution
   under the RunAs (elevated) prompt. Pass args via the `execFile` array instead of
   a `-Command` string.
+  *Fixed 2026-07-10:* every interpolated value is single-quote-escaped
+  (`psQuote`, `'` → `''` — the only metacharacter inside a PS single-quoted
+  literal). Kept the `-Command` structure since `Start-Process -Verb RunAs`
+  needs it; needs the pending Windows verification pass.
 
-- 🟠 **hosts-file line injection** (`src/main/focus-guard/site-guard.ts:104`).
+- ✅ ~~🟠~~ **hosts-file line injection** (`src/main/focus-guard/site-guard.ts:104`).
   `block(domains)` only `.trim().toLowerCase()`s renderer-supplied domains, never
   strips newlines/whitespace; `buildBlock` writes `0.0.0.0\t${domain}` per line.
   A domain like `x\n1.2.3.4 login.mybank.com` injects an arbitrary IP→domain
   mapping (DNS hijack / phishing). Validate each entry against a strict hostname
   regex; reject whitespace/control chars.
+  *Fixed 2026-07-10:* entries must match a strict RFC-1123 hostname regex;
+  invalid ones are dropped and counted in the diagnostics history message.
 
-- 🟠 **Forged end-marker survives cleanup** (`src/main/focus-guard/site-guard.ts:73`).
+- ✅ ~~🟠~~ **Forged end-marker survives cleanup** (`src/main/focus-guard/site-guard.ts:73`).
   `stripBlock` removes only up to the *first* `BLOCK_END`. A domain that embeds
   the end-marker text leaves attacker lines outside the stripped region, so a
   redirect persists after unblock / quit / restart. Rewrite the managed region
   wholesale instead of marker-splicing, and sanitize `#`/marker text out of
   domains.
+  *Fixed 2026-07-10:* `stripBlock` now removes the span from the first marker
+  line through the last marker line with whole-line marker matching (embedded
+  marker text can't terminate the region early); the hostname regex above keeps
+  marker/`#` text out of domains in the first place.
 
 - 🟡 **Persistent hosts ACL grant** (`resources/focus-guard/grant-hosts-access.ps1:13`).
   `icacls hosts /grant User:(M)` permanently gives the user Modify rights on the
@@ -119,11 +148,16 @@ items below have "if the renderer is compromised" as a realistic precondition.
   Health leaks version + port with no token, enabling DNS-rebinding recon
   (writes still gated by the bearer token). Reject Host not in
   `{127.0.0.1, localhost}`; don't leak version pre-auth.
+  ✅ *Host check fixed 2026-07-10:* requests whose Host (port stripped) is not
+  `127.0.0.1`/`localhost`/`[::1]` get 403 before any route. The version field in
+  unauth `/api/health` is still returned — removing it changes the health
+  contract external agents may read, so it's left as a decision.
 
-- 🟡 **Route param decode can hang the handler** (`src/main/agent-api/router.ts:38`).
+- ✅ ~~🟡~~ **Route param decode can hang the handler** (`src/main/agent-api/router.ts:38`).
   `decodeURIComponent` throws on malformed `%` escapes, outside the try/catch at
   `server.ts:75` → unhandled rejection, no response, client hangs ~300s. Wrap the
   decode to return null on `URIError`.
+  *Fixed 2026-07-10:* malformed escapes now read as a non-matching route (404).
 
 - 🟡 **Unvalidated IPC inputs**: `show-notification` (`index.ts:109`) passes
   renderer title/body straight into a native `Notification` (system-alert
@@ -131,38 +165,57 @@ items below have "if the renderer is compromised" as a realistic precondition.
   cap on `seriesIds` → `Promise.all` over a huge array can exhaust the main
   process. Add runtime validation at the IPC boundary generally (no handler
   checks the sender frame or arg shapes at runtime).
+  ✅ *The two named handlers fixed 2026-07-10:* `show-notification` type-checks
+  and caps title (128) / body (512); all three `market:fred:*` handlers validate
+  types and cap batch arrays at 50 items. Blanket per-handler runtime validation
+  across the rest of the IPC surface is still open.
 
 - ⚪ **Missing `will-navigate` guard** (`index.ts`) — nothing pins the renderer to
   the app origin. Consider `sandbox: true` (preload is only an IPC bridge).
+  ✅ *Guard fixed 2026-07-10:* navigation is pinned to the renderer's `file://`
+  root (dev: the Vite server URL); everything else is `preventDefault`ed.
+  `sandbox: true` not attempted — needs a runtime pass.
 
 - ⚪ Correctly assessed as **non-issues** by the finders (recorded so we don't
   re-litigate): non-constant-time token compare (nanoid = 192 bits, no oracle),
   no rate limiting (brute force infeasible), JSON `__proto__` prototype pollution
   (no merge sink; parameterized SQL). Stale comment in `server.ts:145-150` claims
   "no single-instance lock" but `index.ts:34` now takes one — fix the comment.
+  ✅ *Comment fixed 2026-07-10* (now describes the restart-race rationale).
 
 ---
 
 ## 🟠 Performance
 
-- 🟠 **`getSettings()` re-reads + parses settings.json on every call**
+- ✅ ~~🟠~~ **`getSettings()` re-reads + parses settings.json on every call**
   (`src/main/settings/store.ts:23`). `getUsdKrwRate()` runs in 5 finance handlers,
   so one FinancePage load does 5 redundant sync disk reads, each blocking the main
   event loop (and thus all IPC). Cache in memory, invalidate on write.
+  *Fixed 2026-07-10:* module-level cache, updated on every write; callers get a
+  copy so the cache can't be mutated externally.
 
-- 🟡 **articles table has no indexes** (`src/main/daily-news/db.ts`). The 30-min
+- ✅ ~~🟡~~ **articles table has no indexes** (`src/main/daily-news/db.ts`). The 30-min
   scheduler does `COUNT(*) WHERE fetched_date=?` and the widget does
   `WHERE fetched_date=? ORDER BY final_score DESC` — full scans + filesort on a
   table that grows forever. Add `idx_articles_fetched_date`.
+  *Fixed 2026-07-10:* `idx_articles_fetched_date(fetched_date, final_score)` in
+  the schema (`IF NOT EXISTS`, so existing DBs get it on next launch); serves
+  both the count and the reverse-ordered read.
 
-- 🟡 **`recentMonths()` N+1** (`src/main/finance/summary.ts:75`). Loops
+- ✅ ~~🟡~~ **`recentMonths()` N+1** (`src/main/finance/summary.ts:75`). Loops
   `monthlySummary()` per month (6, up to 24), recompiling the same CTE and doing a
   separate scan each time. Replace with one `GROUP BY substr(date,1,7)`.
+  *Fixed 2026-07-10:* single range scan grouped by month; the WHERE stays a
+  range predicate (index-friendly), months without rows are zero-filled in JS so
+  the output shape is unchanged.
 
 - 🟡 **macro store serializes ~0.5MB per `set()`** (`use-macro-indicators-store.ts`).
   6 series × 1300 points persisted with no `partialize`; every transient
   `set({status:'loading'})` and timeframe click runs `JSON.stringify` + sync
   `localStorage.setItem` (tens of ms main-thread stall).
+  *Deferred:* `partialize` alone doesn't help — the snapshots *are* the 0.5MB.
+  Choosing what to persist (drop snapshots? debounce?) changes reload behavior,
+  so it needs a decision.
 
 - 🟡 **Unbounded session log → silent data loss**
   (`src/renderer/src/entities/pomodoro-session/model/use-session-log-store.ts:93`).
@@ -184,26 +237,35 @@ items below have "if the renderer is compromised" as a realistic precondition.
 
 ## 🟡 Functional / robustness
 
-- 🟠 **Non-atomic settings write + swallowed read error = permanent loss**
+- ✅ ~~🟠~~ **Non-atomic settings write + swallowed read error = permanent loss**
   (`src/main/settings/store.ts:31`). `setSettings` is read-modify-write with a
   direct `writeFileSync` (no temp+rename/fsync); `getSettings` returns `{}` on any
   read error. A crash mid-write → next launch `ensureToken` rewrites the emptied
   file: Gemini key gone, agent token regenerated (breaks external agent configs),
   FX rate reverts to 1380 (silently re-values every USD ledger row). No error
   shown. Write atomically; back up / warn on read failure.
+  *Fixed 2026-07-10:* temp-file + fsync + rename; a corrupt-but-present file is
+  backed up as `settings.json.corrupt` and logged instead of silently becoming
+  `{}`. A user-visible warning UI is still open.
 
 - 🟡 **No schema migration**. All three `db.ts` just `db.exec(SCHEMA)` with
   `CREATE TABLE IF NOT EXISTS`. Adding a column later is a no-op on existing DBs →
   the first INSERT naming it throws at runtime. Add `PRAGMA user_version` +
   migrations.
+  *Deferred:* infra addition with no behavior today; best landed together with
+  the first real migration so the runner is exercised, not dead code.
 
-- 🟡 **daily-news DB missing `PRAGMA foreign_keys = ON`** (`daily-news/db.ts`; the
+- ✅ ~~🟡~~ **daily-news DB missing `PRAGMA foreign_keys = ON`** (`daily-news/db.ts`; the
   other two DBs set it). FK is decorative → orphan feedback rows silently dropped
   from the learning JOIN.
+  *Fixed 2026-07-10.* Safe to enable: no code path deletes articles yet, so
+  enforcement cannot break existing flows.
 
-- 🟡 **finance uses local TZ, everything else uses KST** (`src/main/finance/month.ts:66`
+- ✅ ~~🟡~~ **finance uses local TZ, everything else uses KST** (`src/main/finance/month.ts:66`
   vs `todos/date.ts`, `daily-news/kst.ts`). On a UTC/WSL machine, "this month" is
   wrong between KST midnight and 09:00.
+  *Fixed 2026-07-10:* `currentYm()` now derives from `Asia/Seoul` like the todos
+  and daily-news date helpers. No-op on a KST machine.
 
 - 🟡 **`dailyNews:fetch` swallows non-key errors** (`src/main/daily-news/ipc.ts:16`).
   Returns an empty result marked success on network/429/RSS failures — user can't
@@ -217,6 +279,9 @@ items below have "if the renderer is compromised" as a realistic precondition.
 - 🟡 **Weekly decay committed before the Gemini call** (`src/main/daily-news/profile.ts:42`).
   Repeated failures (expired key, outage) bleed interest signals below the
   stability threshold with no learning applied, erasing the profile.
+  *Deferred:* fix direction is clear (decay only after a successful call) but it
+  changes failure-path learning behavior — do deliberately, not in a
+  no-behavior-change pass.
 
 - 🟡 **`archiveAccount` has no zero-balance guard** (`src/main/finance/accounts.ts:76`).
   Archiving a funded account drops net worth with no warning; past transactions
@@ -226,10 +291,15 @@ items below have "if the renderer is compromised" as a realistic precondition.
   hosts write permission looks active but blocks nothing; a crash/uninstall while
   active leaves `0.0.0.0` entries system-wide (only an app relaunch clears them).
 
-- 🟡 **Korean UI strings in market widgets** (`MacroIndicatorsClient.tsx`,
+- ✅ ~~🟡~~ **Korean UI strings in market widgets** (`MacroIndicatorsClient.tsx`,
   `EconomicCalendarClient.tsx`, widget `README.md`). Violates the English-only
   source convention; the FRED empty state is the first onboarding screen and is
   both untranslated and factually wrong for packaged builds.
+  *Fixed 2026-07-10:* macro-indicators client empty state, widget description,
+  timeframe labels, and README are English now; the empty state says
+  "(development builds)" until the runtime key UI (blocker 3) exists. Correction:
+  `EconomicCalendarClient.tsx` had no Korean at fix time — that finder claim was
+  stale; a repo-wide Hangul grep now only matches this audit's history.
 
 - ⚪ **Unbounded tables/logs**: `articles`, `interest_signals`, `todo_sessions`,
   the pomodoro session log — no pruning anywhere.
@@ -241,8 +311,8 @@ items below have "if the renderer is compromised" as a realistic precondition.
 1. Revoke the PAT + rewrite history + redesign updates (blocker 1).
 2. Remove build-time keys; make FRED/Gemini runtime-entered + `safeStorage`
    (blockers 2–3).
-3. LICENSE + README + `.env.example` (blocker 4).
-4. CSP + `openExternal` allowlist + `will-navigate` (renderer-compromise chain).
-5. hosts domain validation + `elevate.ts` execFile args.
-6. Atomic settings write + schema migrations.
-7. Market-widget Korean → English.
+3. LICENSE + README (blocker 4; ✅ `.env.example` done).
+4. CSP (✅ `openExternal` allowlist + `will-navigate` done).
+5. ✅ hosts domain validation + `elevate.ts` quoting.
+6. Schema migrations (✅ atomic settings write done).
+7. ✅ Market-widget Korean → English.
