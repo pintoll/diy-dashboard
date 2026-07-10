@@ -126,7 +126,14 @@ function createWindow(): void {
 // IPC handlers
 ipcMain.handle(
   "show-notification",
-  (_event, { title, body }: { title: string; body: string }) => {
+  (_event, payload: { title?: unknown; body?: unknown }) => {
+    // IPC boundary: don't trust the renderer's payload shape. The caps keep a
+    // hijacked renderer from stuffing arbitrary content into system alerts.
+    const title =
+      typeof payload?.title === "string" ? payload.title.slice(0, 128) : "";
+    const body =
+      typeof payload?.body === "string" ? payload.body.slice(0, 512) : "";
+    if (title === "" && body === "") return;
     const notification = new Notification({ title, body });
 
     notification.on("click", () => {
