@@ -11,6 +11,7 @@ import {
   shell,
 } from "electron";
 import path from "path";
+import { pathToFileURL } from "url";
 import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./auto-updater";
 import { registerMarketIpc } from "./market/ipc";
 import { registerFocusGuardIpc } from "./focus-guard/ipc";
@@ -87,8 +88,25 @@ function createWindow(): void {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    // URLs here include untrusted RSS/Gemini news links. Only real web links
+    // may reach the OS: file:, UNC paths, and protocol handlers like ms-msdt:
+    // are openExternal code-execution footguns.
+    if (/^https?:/i.test(url)) {
+      shell.openExternal(url);
+    }
     return { action: "deny" };
+  });
+
+  // The app never navigates after load (HashRouter changes only the fragment),
+  // so block real navigations: a compromised renderer must not be able to
+  // replace itself with a remote origin that still holds the full IPC bridge.
+  const rendererRoot = pathToFileURL(path.join(__dirname, "../renderer")).href + "/";
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    const devServerUrl = process.env["ELECTRON_RENDERER_URL"];
+    const isDevServer = !app.isPackaged && !!devServerUrl && url.startsWith(devServerUrl);
+    if (!isDevServer && !url.startsWith(rendererRoot)) {
+      event.preventDefault();
+    }
   });
 
   mainWindow.on("close", (event) => {

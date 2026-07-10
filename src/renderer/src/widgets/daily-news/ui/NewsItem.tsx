@@ -15,7 +15,12 @@ type NewsItemProps = {
 
 export function NewsItem({ item, feedbackState, onFeedback }: NewsItemProps) {
   const handleClick = () => {
-    window.open(item.url, "_blank");
+    // Feed URLs are untrusted RSS/Gemini output; only real web links may open.
+    // The main process allowlists schemes too — this keeps bad links from even
+    // reaching IPC.
+    if (/^https?:\/\//i.test(item.url)) {
+      window.open(item.url, "_blank");
+    }
     onFeedback(item.id, "click");
   };
 
