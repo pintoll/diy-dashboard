@@ -66,19 +66,31 @@ async function writeHosts(content: string): Promise<void> {
   await fs.writeFile(HOSTS_PATH, content, "utf8");
 }
 
-/** Strip our managed block (markers inclusive) from hosts content. */
+/**
+ * Strip our managed region (markers inclusive) from hosts content. Spans the
+ * first marker line through the last marker line: the app only ever writes one
+ * region, so anything between markers is either ours or was forged into the
+ * file — splicing on the *first* end marker would leave forged lines behind
+ * after unblock. Marker matching is whole-line, so marker text embedded inside
+ * a line cannot terminate the region early.
+ */
 function stripBlock(content: string): string {
-  const startIdx = content.indexOf(BLOCK_START);
-  if (startIdx === -1) return content;
-  const endMarkerIdx = content.indexOf(BLOCK_END, startIdx);
-  if (endMarkerIdx === -1) {
-    // Malformed (start without end): drop from start to EOF to recover.
-    return content.slice(0, startIdx).replace(/\s+$/, "") + "\n";
+  const lines = content.split(/\r?\n/);
+  const isMarker = (line: string): boolean => {
+    const trimmed = line.trim();
+    return trimmed === BLOCK_START || trimmed === BLOCK_END;
+  };
+  const first = lines.findIndex(isMarker);
+  if (first === -1) return content;
+  let last = first;
+  for (let i = lines.length - 1; i > first; i--) {
+    if (isMarker(lines[i])) {
+      last = i;
+      break;
+    }
   }
-  const endIdx = endMarkerIdx + BLOCK_END.length;
-  const before = content.slice(0, startIdx).replace(/\s+$/, "");
-  const after = content.slice(endIdx).replace(/^\s+/, "");
-  const joined = [before, after].filter((part) => part.length > 0).join("\n");
+  const kept = [...lines.slice(0, first), ...lines.slice(last + 1)];
+  const joined = kept.join("\n").replace(/^\s+/, "").replace(/\s+$/, "");
   return joined.length > 0 ? joined + "\n" : "";
 }
 
@@ -149,10 +161,17 @@ export async function getStatus(): Promise<SiteGuardDiagnostics> {
   return diagnostics;
 }
 
+// RFC-1123 hostname: dot-separated alphanumeric/hyphen labels. Anything else
+// (whitespace, '#', marker text) must never reach the hosts file, where a
+// stray newline in a "domain" would inject an arbitrary IP-to-domain mapping.
+const HOSTNAME_PATTERN =
+  /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
+
 export async function block(domains: string[]): Promise<SiteGuardDiagnostics> {
   const cleaned = domains
     .map((domain) => domain.trim().toLowerCase())
-    .filter((domain) => domain.length > 0);
+    .filter((domain) => HOSTNAME_PATTERN.test(domain));
+  const dropped = domains.length - cleaned.length;
   try {
     const content = await readHosts();
     const stripped = stripBlock(content);
@@ -161,7 +180,12 @@ export async function block(domains: string[]): Promise<SiteGuardDiagnostics> {
     await writeHosts(next);
     await flushDns();
     diagnostics.hasWritePermission = true;
-    record("block", true, `${cleaned.length} domain(s)`);
+    record(
+      "block",
+      true,
+      `${cleaned.length} domain(s)` +
+        (dropped > 0 ? `, ${dropped} invalid entr${dropped === 1 ? "y" : "ies"} dropped` : "")
+    );
   } catch (err) {
     if (isPermissionError(err)) diagnostics.hasWritePermission = false;
     record("block", false, errorMessage(err));
