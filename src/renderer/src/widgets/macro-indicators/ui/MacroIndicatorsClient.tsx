@@ -83,14 +83,14 @@ export function MacroIndicatorsClient({
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
           <KeyRound className="size-5 text-muted-foreground/60" />
           <div className="text-xs font-medium text-muted-foreground">
-            FRED API key가 설정되지 않았어요
+            FRED API key is not configured
           </div>
           <div className="text-[10px] text-muted-foreground/60 leading-relaxed">
-            프로젝트 루트의 <code className="rounded bg-muted/40 px-1">.env</code>에{" "}
-            <code className="rounded bg-muted/40 px-1">MAIN_VITE_FRED_API_KEY</code>를
-            추가하고 앱을 재시작하세요.
+            Add <code className="rounded bg-muted/40 px-1">MAIN_VITE_FRED_API_KEY</code>{" "}
+            to <code className="rounded bg-muted/40 px-1">.env</code> in the project
+            root and restart the app (development builds).
             <br />
-            무료 키 발급:{" "}
+            Get a free key:{" "}
             <span className="text-muted-foreground/80">
               fredaccount.stlouisfed.org/apikey
             </span>

@@ -21,12 +21,12 @@ const TIMEFRAME_DAYS: Record<Timeframe, number> = {
 };
 
 export const TIMEFRAME_LABELS: Record<Timeframe, string> = {
-  "1W": "1주",
-  "1M": "1개월",
-  "3M": "3개월",
-  "6M": "6개월",
-  "1Y": "1년",
-  "5Y": "5년",
+  "1W": "1 week",
+  "1M": "1 month",
+  "3M": "3 months",
+  "6M": "6 months",
+  "1Y": "1 year",
+  "5Y": "5 years",
 };
 
 export type TimeframeWindow = {

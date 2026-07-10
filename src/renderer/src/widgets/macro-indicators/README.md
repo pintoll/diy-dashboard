@@ -1,23 +1,25 @@
 # Macro Indicators Widget
 
-FRED API 기반 매크로 지표 6개를 카드 그리드로 표시. 타임프레임 탭(`1W`~`5Y`)으로 기간 전환, 각 카드는 **값 + 1D 변화 + 기간 변화 + 스파크라인** 구성.
+Shows 6 FRED-sourced macro indicators as a card grid. Timeframe tabs (`1W`-`5Y`)
+switch the window; each card shows **value + 1D change + window change + sparkline**.
 
-## 지표
+## Indicators
 
-| Series | Label | 의미 |
+| Series | Label | Meaning |
 |---|---|---|
-| `DGS10` | 10Y UST | 10년 미국채 수익률 |
-| `DGS2` | 2Y UST | 2년 미국채 수익률 |
-| `DFF` | Fed Funds | 연방기금 유효금리 |
-| `DTWEXBGS` | DXY | 광의 달러지수 |
-| `VIXCLS` | VIX | 변동성(공포)지수 |
-| `DEXKOUS` | USD/KRW | 원달러 환율 |
+| `DGS10` | 10Y UST | 10-year US Treasury yield |
+| `DGS2` | 2Y UST | 2-year US Treasury yield |
+| `DFF` | Fed Funds | Effective federal funds rate |
+| `DTWEXBGS` | DXY | Broad dollar index |
+| `VIXCLS` | VIX | Volatility (fear) index |
+| `DEXKOUS` | USD/KRW | Won-dollar exchange rate |
 
-## 설정
+## Setup
 
-`.env`에 `MAIN_VITE_FRED_API_KEY=<키>`. 무료 키: https://fredaccount.stlouisfed.org/apikey
+Set `MAIN_VITE_FRED_API_KEY=<key>` in `.env`. Free key:
+https://fredaccount.stlouisfed.org/apikey
 
-## 데이터 흐름
+## Data flow
 
 ```
 Store.fetchAll()
@@ -27,30 +29,34 @@ Store.fetchAll()
   → FRED api.stlouisfed.org/fred/series/observations
 ```
 
-지표당 1300 영업일(~5년)을 한 번 페치 → 탭 전환은 로컬 슬라이싱(`getTimeframeWindow`)으로 즉시 처리.
+Fetches 1300 business days (~5 years) per indicator in one shot; switching tabs
+is instant local slicing (`getTimeframeWindow`).
 
-## 구조
+## Structure
 
 ```
 macro-indicators/
 ├── index.ts / client.ts            defineWidget + re-export
 ├── model/
 │   ├── macro-indicators.types.ts   State / Actions / Config
-│   ├── indicators-catalog.ts       6개 지표 메타
+│   ├── indicators-catalog.ts       metadata for the 6 indicators
 │   ├── timeframe.ts                Timeframe + getTimeframeWindow()
 │   └── use-macro-indicators-store.ts  Zustand store (persist v2)
 └── ui/
-    ├── MacroIndicatorsClient.tsx   헤더(탭+refresh) + 카드 그리드
-    ├── IndicatorCard.tsx           값 + 듀얼 델타 + 스파크라인
-    └── Sparkline.tsx               Recharts LineChart 래퍼
+    ├── MacroIndicatorsClient.tsx   header (tabs + refresh) + card grid
+    ├── IndicatorCard.tsx           value + dual delta + sparkline
+    └── Sparkline.tsx               Recharts LineChart wrapper
 ```
 
-## 캐시 & 상태
+## Cache & state
 
-localStorage persist(v2), 6시간 stale → 마운트 시 자동 재페치. 수동 refresh 버튼 상시 가용. 선택 타임프레임도 persist.
+localStorage persist (v2), 6-hour staleness → auto refetch on mount. Manual
+refresh button always available. The selected timeframe persists too.
 
-## 확장
+## Extending
 
-- **지표 추가**: `indicators-catalog.ts`의 `MACRO_INDICATORS`에 한 줄 추가 (카드 7개 이상이면 `grid-cols-*` 조정)
-- **다른 FRED 위젯**: `src/main/market/` + `window.marketAPI.fred` 그대로 재사용
-- **시계열 타입**: `src/entities/market-indicator/`의 `SeriesPoint` / `SeriesSnapshot` 공용
+- **Add an indicator**: one more entry in `MACRO_INDICATORS` in
+  `indicators-catalog.ts` (adjust `grid-cols-*` beyond 6 cards)
+- **Other FRED widgets**: reuse `src/main/market/` + `window.marketAPI.fred` as-is
+- **Time series types**: shared `SeriesPoint` / `SeriesSnapshot` in
+  `src/entities/market-indicator/`

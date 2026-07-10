@@ -9,7 +9,7 @@ export const macroIndicatorsWidget = defineWidget<MacroIndicatorsConfig>({
   meta: {
     id: "macro-indicators",
     name: "Macro Indicators",
-    description: "FRED 매크로 지표 — 금리, 환율, 변동성을 한눈에",
+    description: "FRED macro indicators: rates, dollar index, volatility at a glance",
     category: "data",
     icon: LineChart,
     size: {
