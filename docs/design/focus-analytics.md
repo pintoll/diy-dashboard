@@ -11,7 +11,7 @@ The page serves both without one undermining the other: celebration content sits
 
 ## Data model
 
-Reads `PomodoroSessionRecord` from `entities/pomodoro-session` (persisted via `useSessionLogStore`, localStorage). The fields the page depends on:
+Reads `PomodoroSessionRecord` from `entities/pomodoro-session` via `useSessionLogStore`. The store is a reactive in-memory cache hydrated once over IPC from a SQLite table (`pomodoro.db`, `src/main/pomodoro/`); every session/note write goes through to SQLite, so the page's reads stay synchronous and reactive. (It was localStorage-backed until the 2026-07 move off the ~5MB quota; a one-time shim imports any old localStorage log.) The fields the page depends on:
 
 - `attention: FocusMode` (`"focus" | "leisure"`) — final label, the user-confirmed truth. The old three-way `mixed` verdict was removed; legacy `mixed` records are bucketed as `leisure` (`bucketOf` in `aggregations.ts`).
 - `attentionSource: "auto" | "user"` — whether the verdict was auto-computed or hand-set.

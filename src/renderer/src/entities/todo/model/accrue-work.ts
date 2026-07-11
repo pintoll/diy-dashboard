@@ -13,10 +13,10 @@ export type WorkSessionLike = {
 
 /**
  * Accrues a finished work session onto its linked todo in SQLite.
- * Fire-and-forget: the session log in localStorage is the primary record and
- * must never be blocked by the accrual write. workedSec is the planned block
- * plus real overtime (idle is already excluded at record time) — the same
- * formula as `sessionActiveSec` in the analytics aggregations.
+ * Fire-and-forget: the pomodoro session log is the primary record and must
+ * never be blocked by the accrual write. workedSec is the planned block plus
+ * real overtime (idle is already excluded at record time) — the same formula
+ * as `sessionActiveSec` in the analytics aggregations.
  */
 export function accrueTodoWork(session: WorkSessionLike): void {
   if (session.todoId === null) return;
