@@ -20,6 +20,14 @@ unmarked either needs a product/design decision (key handling, pruning policy,
 error-surfacing UX) or changes observable behavior and should be done
 deliberately (CSP, health response, decay ordering, packaging).
 
+**Status (2026-07-11):** second pass on `feature/upgrade-pomodoro` cleared a
+batch of the small **behavior-changing robustness** items that were deferred
+above (daily-news error surfacing, `scoreBatch` parse-failure, `archiveAccount`
+zero-balance guard, site-guard failure surfacing) — marked ✅ inline. Same
+verification (eslint, `tsc --noEmit` both projects, `electron-vite build`); the
+site-guard UI badge still awaits the pending Windows runtime pass. Key handling,
+CSP, LICENSE/README, and the remaining decay/pruning items are still open.
+
 ---
 
 ## 🔴 Publish blockers
@@ -267,14 +275,23 @@ items below have "if the renderer is compromised" as a realistic precondition.
   *Fixed 2026-07-10:* `currentYm()` now derives from `Asia/Seoul` like the todos
   and daily-news date helpers. No-op on a KST machine.
 
-- 🟡 **`dailyNews:fetch` swallows non-key errors** (`src/main/daily-news/ipc.ts:16`).
+- ✅ ~~🟡~~ **`dailyNews:fetch` swallows non-key errors** (`src/main/daily-news/ipc.ts:16`).
   Returns an empty result marked success on network/429/RSS failures — user can't
   tell "no news" from "broken".
+  *Fixed 2026-07-11:* the handler now re-throws non-key failures (`Could not
+  refresh news: …`) instead of falling through to `getTodayNews()`. The widget
+  store already treats a thrown error as an error state and keeps cached items,
+  so a broken refresh is now distinguishable from an empty feed. The scheduled
+  tick keeps its own log-and-swallow (background job, no UI to inform).
 
-- 🟡 **`scoreBatch` fabricates score 5 on parse failure** (`src/main/daily-news/ingest.ts:202`).
+- ✅ ~~🟡~~ **`scoreBatch` fabricates score 5 on parse failure** (`src/main/daily-news/ingest.ts:202`).
   Emits every article as `include: true`, score 5, tag `parse_error` —
   indistinguishable from real scores, pollutes the feed and the weekly learning
   loop.
+  *Fixed 2026-07-11:* on unparseable Gemini JSON the batch is now dropped (warn
+  + return no rows) instead of fabricating scores. Note the downstream filter is
+  `tag != "dropped"`, so the old `parse_error`/`include:false` shaping would
+  still have leaked into the feed — dropping the batch is the clean fix.
 
 - 🟡 **Weekly decay committed before the Gemini call** (`src/main/daily-news/profile.ts:42`).
   Repeated failures (expired key, outage) bleed interest signals below the
@@ -283,13 +300,26 @@ items below have "if the renderer is compromised" as a realistic precondition.
   changes failure-path learning behavior — do deliberately, not in a
   no-behavior-change pass.
 
-- 🟡 **`archiveAccount` has no zero-balance guard** (`src/main/finance/accounts.ts:76`).
+- ✅ ~~🟡~~ **`archiveAccount` has no zero-balance guard** (`src/main/finance/accounts.ts:76`).
   Archiving a funded account drops net worth with no warning; past transactions
   still count in monthly summaries → inconsistency.
+  *Fixed 2026-07-11:* `archiveAccount(id, rate)` refuses an account whose
+  `computeBalances` figure is non-zero and throws a user-facing message ("Move
+  it to another account (or settle the debt) before archiving"), which
+  `AccountForm.archive` already surfaces via `ledgerErrorMessage`. `balanceKrw`
+  is 0 exactly when the native balance is 0, so the check is rate-independent in
+  practice; the IPC handler passes `getUsdKrwRate()`.
 
-- 🟡 **site-guard failures never surface to the UI**. Starting a session without
+- ✅ ~~🟡~~ **site-guard failures never surface to the UI**. Starting a session without
   hosts write permission looks active but blocks nothing; a crash/uninstall while
   active leaves `0.0.0.0` entries system-wide (only an app relaunch clears them).
+  *Fixed 2026-07-11 (surfacing half):* `FocusModeController` now reads the
+  `block()` diagnostics and stores `lastError` on the focus-mode store; a "Sites
+  not blocked" badge (`SiteBlockWarning`) appears next to the focus toggle
+  whenever a focus session's hosts write failed, and clears on a clean write.
+  The crash/uninstall-leftover half is unchanged — the quit/startup strip still
+  clears stale entries, but a hard crash mid-session relies on the next relaunch.
+  Needs the pending Windows runtime pass.
 
 - ✅ ~~🟡~~ **Korean UI strings in market widgets** (`MacroIndicatorsClient.tsx`,
   `EconomicCalendarClient.tsx`, widget `README.md`). Violates the English-only

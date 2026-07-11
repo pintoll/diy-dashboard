@@ -58,7 +58,7 @@ export function registerFinanceIpc(): void {
   );
 
   ipcMain.handle("finance:accounts:archive", (_event, id: number): void =>
-    archiveAccount(id)
+    archiveAccount(id, getUsdKrwRate())
   );
 
   ipcMain.handle("finance:categories:list", (): Category[] => listCategories());

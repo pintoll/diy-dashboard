@@ -200,19 +200,14 @@ function scoreBatch(batch: Batch, geminiText: string): ScoredResult[] {
       ? (parsed as GeminiScore[])
       : [parsed as GeminiScore];
   } catch {
-    // On JSON parse failure, emit every batch article as parse_error (included).
-    for (const a of batch.articles) {
-      results.push({
-        title: a.title || "",
-        link: a.link || "",
-        relevance: 5,
-        importance: 5,
-        finalScore: 5,
-        summary: "",
-        tag: "parse_error",
-        include: true,
-      });
-    }
+    // Gemini returned unparseable JSON for this batch. Drop it rather than
+    // fabricate scores: emitting score-5 rows (and, via the tag != "dropped"
+    // filter downstream, forcing them into the feed) would pollute both the
+    // feed and the weekly learning loop with articles that were never scored.
+    // The batch simply does not appear today.
+    console.warn(
+      `[daily-news] batch ${batch.batchIndex}: score parse failed, dropping ${batch.articles.length} article(s)`
+    );
     return results;
   }
 

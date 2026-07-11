@@ -14,6 +14,12 @@ export function registerDailyNewsIpc(): void {
         throw new Error("Set your Gemini API key in Settings");
       }
       console.error("[daily-news] fetch failed:", e);
+      // Surface the failure instead of falling through to an empty "success":
+      // returning getTodayNews() here would hand the widget `items: []`, which
+      // it cannot tell apart from a genuinely empty feed. Re-throwing lets the
+      // renderer show an error state and keep any cached items.
+      const detail = e instanceof Error ? e.message : String(e);
+      throw new Error(`Could not refresh news: ${detail}`);
     }
     return getTodayNews();
   });

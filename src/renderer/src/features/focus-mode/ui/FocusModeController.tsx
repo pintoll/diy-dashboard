@@ -8,6 +8,7 @@ import { useBlocklistStore } from "../model/use-blocklist-store";
 export function FocusModeController() {
   const sessionActive = useFocusModeStore((s) => s.sessionActive);
   const intendedMode = useFocusModeStore((s) => s.intendedMode);
+  const setSiteBlockError = useFocusModeStore((s) => s.setSiteBlockError);
   const sites = useBlocklistStore((s) => s.sites);
   const apps = useBlocklistStore((s) => s.apps);
 
@@ -31,13 +32,20 @@ export function FocusModeController() {
     const api = typeof window !== "undefined" ? window.electronAPI : undefined;
     if (!api) return;
     if (!shouldBlock) return;
-    void api.siteGuard?.block(sites);
+    // Surface a hosts-write failure: without permission (or a locked file) the
+    // block silently no-ops, leaving the session looking active while nothing
+    // is blocked. lastError is null on a clean write, so this also clears any
+    // stale warning once blocking succeeds.
+    void api.siteGuard
+      ?.block(sites)
+      ?.then((diag) => setSiteBlockError(diag?.supported ? diag.lastError : null));
     void api.appGuard?.enforce(apps);
     return () => {
+      setSiteBlockError(null);
       void api.siteGuard?.unblock();
       void api.appGuard?.release();
     };
-  }, [shouldBlock, sites, apps]);
+  }, [shouldBlock, sites, apps, setSiteBlockError]);
 
   return null;
 }

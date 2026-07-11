@@ -8,13 +8,17 @@ import type { FocusMode } from "@/src/shared/types";
 // consumers can import it without an upward FSD dependency.
 //
 // intendedMode is persisted so the last declared intent survives a restart.
-// sessionActive is ephemeral — it must always start false on a fresh load, so
-// it is excluded from persistence via partialize.
+// sessionActive and siteBlockError are ephemeral — they must always start clear
+// on a fresh load, so they are excluded from persistence via partialize.
+// siteBlockError holds the site guard's last hosts-write failure while a focus
+// session is active, so the UI can warn that blocking did not actually apply.
 type FocusModeState = {
   intendedMode: FocusMode;
   sessionActive: boolean;
+  siteBlockError: string | null;
   setIntendedMode: (mode: FocusMode) => void;
   setSessionActive: (active: boolean) => void;
+  setSiteBlockError: (message: string | null) => void;
 };
 
 export const useFocusModeStore = create<FocusModeState>()(
@@ -22,8 +26,10 @@ export const useFocusModeStore = create<FocusModeState>()(
     (set) => ({
       intendedMode: "focus",
       sessionActive: false,
+      siteBlockError: null,
       setIntendedMode: (mode) => set({ intendedMode: mode }),
       setSessionActive: (active) => set({ sessionActive: active }),
+      setSiteBlockError: (message) => set({ siteBlockError: message }),
     }),
     {
       name: "focus-mode-intent",

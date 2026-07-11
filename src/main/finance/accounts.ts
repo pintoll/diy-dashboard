@@ -73,7 +73,19 @@ export function updateAccount(id: number, patch: Partial<AccountInput>): void {
 
 // Accounts are archived rather than deleted: transactions reference them, and a
 // closed account still explains historical balances.
-export function archiveAccount(id: number): void {
+//
+// A funded account is refused: archiving drops it out of listAccounts and
+// computeBalances (both filter is_archived = 0), so a non-zero balance would
+// silently move net worth. The user must zero it first (transfer the balance
+// out, or settle the debt). balanceKrw is 0 exactly when the native balance is
+// 0, so this is rate-independent in practice.
+export function archiveAccount(id: number, rate: number): void {
+  const target = computeBalances(rate).find((b) => b.id === id);
+  if (target && target.balanceKrw !== 0) {
+    throw new Error(
+      "This account still holds a balance. Move it to another account (or settle the debt) before archiving."
+    );
+  }
   getFinanceDb().prepare("UPDATE accounts SET is_archived = 1 WHERE id = ?").run(id);
 }
 
