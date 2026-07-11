@@ -104,10 +104,12 @@ and the whole `setFeedURL` override — the feed is now resolved from the bundle
 anonymously and no credential ships in the binary (build output grep-verified
 clean of the token). Marked ✅ inline. Same verification (eslint 0 errors, `tsc
 --noEmit` both projects, `electron-vite build`). The other two thirds of blocker
-1 are **not** code and stay open: revoking the exposed PAT is a user action in
-GitHub settings, and the `git filter-repo` history scrub (destructive, force-push)
-is sequenced after that revoke. This is the last 🔴; after those two steps only
-CSP, the migration runner, and the Windows-runtime-gated focus-guard 🟡s remain.
+1: revoking the exposed PAT is still a user action in GitHub settings; the
+`git filter-repo` history scrub was **executed locally and verified** this batch
+(full token gone from every ref, tip tree unchanged), leaving only the
+**force-push** of `main`/`dev`/tags, which is sequenced after the revoke. This is
+the last 🔴; after the revoke + push only CSP, the migration runner, and the
+Windows-runtime-gated focus-guard 🟡s remain.
 
 **Runtime watch points for the fourth batch** (things to revisit only if they
 *feel* wrong while dogfooding — none are known bugs, just the parts that were
@@ -160,10 +162,18 @@ today. Publishing exposes it in HEAD + history.
   (`release.yml`), so it was unchanged. Chose the same public repo over a
   separate releases repo / download proxy: open-sourcing makes the code repo
   public regardless, so releases are public with zero extra infra.
-- Rewrite history (`git filter-repo`, in-place) before publishing — the full
-  live token is in every `auto-updater.ts` commit from `e238415` to the redesign
-  commit. Scrub the literal across all history, then force-push. **Destructive
-  (rewrites all SHAs); sequence after the revoke.**
+- ✅ *History scrub done locally (2026-07-11, seventh batch), push pending:*
+  `git filter-repo --replace-text` rewrote every ref, replacing the full token
+  literal with `***REMOVED***` across all history (the secret lived in 2 unique
+  `auto-updater.ts` blobs from `e238415` onward, referenced by many commits on
+  all 5 branches + release tags). Verified: 0 full-token hits in any commit or
+  loose/packed blob afterward, and the tip tree hash is unchanged (content
+  preserved, only SHAs rotated). `filter-repo` removed the `origin` remote by
+  design, so nothing can be pushed accidentally. **Remaining = force-push**
+  (`main`, `dev`, tags) once the PAT is revoked; the local backup bundle allows
+  a full undo before then. Note the truncated illustrative prefix
+  (`github_pat_11A2…`) in this doc is left as-is — a dead 24-char fragment, not
+  the secret.
 
 ### 2. FRED (and Gemini) API key baked into the build
 
