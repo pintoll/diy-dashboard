@@ -14,3 +14,9 @@ export function kstHour(): number {
   });
   return Number(hour) % 24;
 }
+
+/** The Asia/Seoul date `days` days before now, as yyyy-MM-dd. */
+export function kstDateDaysAgo(days: number): string {
+  const ms = Date.now() - days * 24 * 60 * 60 * 1000;
+  return new Date(ms).toLocaleDateString("en-CA", { timeZone: KST_TIME_ZONE });
+}

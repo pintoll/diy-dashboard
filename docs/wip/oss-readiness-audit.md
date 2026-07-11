@@ -59,6 +59,19 @@ hide-to-tray notification + chime timing. Still open: key handling (blockers
 Windows-runtime-gated focus-guard 🟡s (incl. the FRED bullet's active-window
 poll sub-item).
 
+**Status (2026-07-11, fifth batch):** the data-lifecycle **pruning** half landed
+on `feature/upgrade-pomodoro`. `articles` (the one table that grows
+meaningfully) now prunes never-liked rows older than 90 days while keeping liked
+ones indefinitely (`daily-news/prune.ts`, run once per launch); the other three
+flagged tables (`interest_signals`, `todo_sessions`, pomodoro `sessions`) are
+kept by explicit decision (tiny + self-bounding / valued history) — all recorded
+inline (⚪ item now ✅). Prune logic runtime-verified against the real
+better-sqlite3 binding with FK on (via `ELECTRON_RUN_AS_NODE`). Same static
+verification (eslint 0 errors, `tsc --noEmit`, `electron-vite build`). The
+**schema-migration runner** half of data-lifecycle stays deferred (no real
+column-add needs it yet). Still open: key handling (blockers 2–3), CSP, the
+migration runner, and the Windows-runtime-gated focus-guard 🟡s.
+
 **Runtime watch points for the fourth batch** (things to revisit only if they
 *feel* wrong while dogfooding — none are known bugs, just the parts that were
 static/isolation-verified rather than exercised in the running app):
@@ -440,11 +453,30 @@ items below have "if the renderer is compromised" as a realistic precondition.
   `EconomicCalendarClient.tsx` had no Korean at fix time — that finder claim was
   stale; a repo-wide Hangul grep now only matches this audit's history.
 
-- ⚪ **Unbounded tables/logs**: `articles`, `interest_signals`, `todo_sessions`,
+- ✅ ~~⚪~~ **Unbounded tables/logs**: `articles`, `interest_signals`, `todo_sessions`,
   the pomodoro session log — no pruning anywhere. Note the pomodoro session log
   is now a SQLite table (`pomodoro.db`) rather than a localStorage array, so it
   no longer has the ~5MB quota / silent-drop failure mode; it is still unpruned,
   but so is the rest, and SQLite has no small ceiling to hit.
+  *Resolved 2026-07-11 (retention policy set, per-table):*
+  - `articles` — the only table that grows meaningfully (the 30-min scheduler
+    inserts a fresh batch daily). New `daily-news/prune.ts` `pruneOldArticles()`
+    deletes never-liked articles older than **90 days** (KST `fetched_date`);
+    **liked articles are kept indefinitely**, feedback and all. Because
+    `feedback.article_id` is a RESTRICT FK (`foreign_keys = ON`), a prunable
+    article's non-like feedback (dislike/click) is deleted first in the same
+    transaction. Run once per launch from `startDailyNewsScheduler` (retention
+    need not be enforced to the day). Runtime-verified against the real
+    better-sqlite3 binding with FK on (keep-liked, keep-recent, FK order, no
+    orphans, idempotent).
+  - `interest_signals`, `todo_sessions`, pomodoro `sessions` — **intentionally
+    kept** (user decision). Each is tiny and either self-bounding or a valued
+    history: `interest_signals` is `UNIQUE(topic)` (row count bounded by distinct
+    topics) and already fades via the weekly decay; `todo_sessions` is
+    `ON DELETE CASCADE` from `todos` (a deliberate dated record) so it dies with
+    its todo; pomodoro `sessions` is the focus history the SQLite move existed to
+    retain in full for the stats widget / analytics page. No prune code for these
+    is the deliberate policy, not an omission.
 
 ---
 

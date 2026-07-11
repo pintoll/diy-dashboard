@@ -2,6 +2,7 @@ import { getDb } from "./db";
 import { runIngest } from "./ingest";
 import { runWeeklyProfileUpdate } from "./profile";
 import { hasTodayArticles } from "./serve";
+import { pruneOldArticles } from "./prune";
 import { kstHour } from "./kst";
 
 const TICK_INTERVAL_MS = 30 * 60 * 1000;
@@ -87,6 +88,17 @@ async function tick(): Promise<void> {
 
 /** Run a tick immediately, then poll every ~30 minutes while the app is alive. */
 export function startDailyNewsScheduler(): void {
+  // One-shot maintenance on launch: drop aged-out, never-liked articles so the
+  // table does not grow forever. A cheap indexed delete; retention need not be
+  // enforced to the day, so once per app launch is enough. Background task, so
+  // a failure is logged and swallowed rather than blocking the scheduler.
+  try {
+    const removed = pruneOldArticles();
+    if (removed > 0) console.log(`[daily-news] pruned ${removed} aged-out articles`);
+  } catch (error) {
+    console.error("[daily-news] article prune failed:", error);
+  }
+
   void tick();
   setInterval(() => void tick(), TICK_INTERVAL_MS);
 }
