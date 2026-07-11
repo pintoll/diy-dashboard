@@ -11,15 +11,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "lint": "eslint",
-    "electron:build": "electron-builder",
-    "n8n:doctor": "tools/n8n/scripts/doctor.sh",
-    "n8n:failures": "tools/n8n/scripts/failures.sh",
-    "n8n:logs": "tools/n8n/scripts/logs.sh",
-    "n8n:db": "tools/n8n/scripts/db.sh",
-    "n8n:appdb": "tools/n8n/scripts/appdb.sh",
-    "n8n:pull": "tools/n8n/scripts/pull.sh",
-    "n8n:push": "tools/n8n/scripts/push.sh",
-    "n8n:test": "tools/n8n/scripts/test.sh"
+    "electron:build": "electron-builder"
   },
   "dependencies": {
     "@mapbox/node-pre-gyp": "^1.0.11",
