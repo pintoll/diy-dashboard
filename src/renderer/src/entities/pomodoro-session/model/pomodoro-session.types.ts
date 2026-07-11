@@ -33,7 +33,7 @@ export type PomodoroConfig = {
 // Binary focus/leisure label on both axes (intent at start, outcome at end).
 // The single source of truth lives in shared/types; the legacy `mixed` verdict
 // has been removed so the diagnosis analysis is a clean 2x2 (see
-// docs/wip/focus-analytics-page.md). Re-exported here for existing consumers.
+// docs/design/focus-analytics.md). Re-exported here for existing consumers.
 export type { FocusMode };
 // Deprecated alias kept so existing consumers keep compiling; prefer FocusMode.
 export type AttentionVerdict = FocusMode;

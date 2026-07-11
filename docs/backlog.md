@@ -19,13 +19,7 @@ High-level direction and headline tasks per widget. Concrete work notes live und
 
 ## Daily News Pipeline
 
-**Direction**: hand-curated rules → feedback-driven personalization. Move from a fixed scoring formula to a profile that learns from accumulated user signals.
-
-**Headline tasks** → [`wip/daily-news.md`](wip/daily-news.md)
-
-- Pipeline B — collect 👍/👎 feedback (webhook + frontend buttons)
-- Pipeline C — weekly signal accumulation drives short-term profile updates
-- Order: B first (no data otherwise), enable C after 1–2 weeks of signal
+**Status**: feedback collection and weekly signal-driven profile updates have both shipped — see [`design/daily-news-pipeline.md`](design/daily-news-pipeline.md). No headline tasks queued; promote a new one here when a concrete direction (e.g. per-source tuning, better parse-failure handling) is picked up.
 
 ---
 

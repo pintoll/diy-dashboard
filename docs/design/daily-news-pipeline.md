@@ -1,141 +1,161 @@
 # Daily News Pipeline Architecture
 
-Personalized news pipeline built on n8n + PostgreSQL. **This file documents only what is implemented**; planned work is tracked in [`wip/daily-news.md`](../wip/daily-news.md), and external API contracts in [`spec/daily-news-api.md`](../spec/daily-news-api.md).
+Personalized news pipeline running entirely inside the Electron main process. Earlier versions of this feature ran on a remote n8n + PostgreSQL server (`pintomate.duckdns.org`); the whole pipeline was ported to a local, in-process implementation so the app has no server dependency. This file documents the local architecture as built.
 
 ## Overview
 
 ```
-n8n (VPS: pintomate.duckdns.org)
-┌──────────────┐   ┌───────────────┐   ┌──────────────┐
-│ Pipeline A   │──▶│ PostgreSQL    │◀──│ Serve Daily  │
-│ (Daily Cron) │   │ (Docker)      │   │ News (GET)   │
-└──────────────┘   └───────┬───────┘   └──────▲───────┘
-                           │                   │
-                   ┌───────┴───────┐           │
-                   │               │    Electron Widget
-            ┌──────┴──────┐  ┌────┴────────┐  (fetch)
-            │ Pipeline B  │  │ Pipeline C  │
-            │ (Webhook)   │  │ (Weekly)    │
-            └─────▲───────┘  └─────────────┘
-                  │
-           Electron Widget
-           (👍/👎 feedback)
+Electron main process
+┌───────────────────────────────────────────────────────────┐
+│  scheduler.ts — tick every 30 min while the app is running │
+│    ├─ ensureDailyNewsForToday() ──▶ ingest.ts  (Gemini)     │
+│    └─ ensureWeeklyProfile()     ──▶ profile.ts (Gemini)     │
+│                          │                                  │
+│                          ▼                                  │
+│              SQLite (daily-news.db, WAL mode)                │
+│     articles · feedback · user_profile · interest_signals    │
+└──────────────────────────┬────────────────────────────────────┘
+                           │ IPC (dailyNews:*)
+                           ▼
+              Electron Renderer — daily-news widget
 ```
 
-Pipeline B (feedback collection) and C (weekly profile update) are not implemented — tracked in `wip/daily-news.md`.
+`db.ts`, `ingest.ts`, `feedback.ts`, `profile.ts`, `serve.ts`, `scheduler.ts`, `gemini.ts`, `sources.ts`, `kst.ts`, and `ipc.ts` live under `src/main/daily-news/`.
 
-## Pipeline A — Daily Ingestion (cron, 05:00 KST)
+## Ingestion
 
-```
-Schedule Trigger
-  → Edit Fields [{category, source, url}...]
-  → Split Out
-  → RSS Read ({{ $json.url }})
-  → Edit Fields (Attach Meta: category/source from Split Out)
-  → Code: Clean & Dedup
-  → Code: Build Batch Prompt (15 articles per batch)
-  → HTTP Request: Gemini Flash (scoring)
-  → Code: Parse & Score (relevance × 0.7 + importance × 0.3)
-  → IF: include = true
-  → Code: Format Response
-  → Postgres: INSERT INTO articles
-```
-
-**Manual trigger**: `POST https://pintomate.duckdns.org/webhook/daily-news-run`
-
-## Scoring Formula
+`runIngest()` in `ingest.ts` is a faithful port of the original n8n scoring workflow, now running as plain async functions instead of workflow nodes:
 
 ```
-Final_Score = (relevance × 0.7) + (importance × 0.3)
+loadProfile()                     read core + short_term rows from user_profile
+  → fetchAllItems()                RSS_SOURCES, one feed at a time, failures skipped+logged
+  → cleanAndDedup()                dedup by link, strip HTML, truncate description to 300 chars
+  → buildBatches()                 chunk into groups of 15 articles
+  → geminiGenerate() per batch      Gemini scores each article
+  → scoreBatch()                    parse + apply the scoring formula
+  → serendipity                     revive up to 2 randomly dropped articles
+  → formatResponse()                sort by score, cap 8 per category
+  → upsert into articles            ON CONFLICT(url) DO UPDATE
 ```
 
-- `relevance` (0–10): LLM-judged relevance to the user's interests
-- `importance` (0–10): LLM-judged objective importance (industry/society)
-- Bypass: `importance >= 9` is auto-included regardless of score
-- Serendipity: 1–2 random rejected articles get revived
-- Threshold: `Final_Score >= 4.5`
-
-## LLM Prompt (Gemini Flash)
-
-The system instruction injects two profiles:
-- **Core Interests**: long-term, manually curated by the user
-- **Short-term Interests**: weekly-updated by Pipeline C (not yet implemented)
-
-Profiles are read from the `user_profile` table.
-
-## Database Schema (PostgreSQL, Docker)
+### Scoring formula
 
 ```
-Host: postgres (docker internal) / localhost:5432 (external)
-DB: dashboard, User: dashboard
+final_score = relevance × 0.7 + importance × 0.3
+```
 
+- `relevance` (0–10) and `importance` (0–10) are Gemini-judged per article.
+- Bypass: `importance >= 9` is included regardless of `final_score`.
+- Threshold: `final_score >= 4.5` is included.
+- Serendipity: up to 2 otherwise-dropped articles are revived at random, tagged `serendipity`.
+- Cap: at most 8 articles per category survive into `articles` (highest score first).
+
+On a Gemini response that fails to parse as JSON, every article in that batch is included anyway with `relevance = importance = 5`, tagged `parse_error` — a fabricated middling score rather than a dropped batch (tracked as an open item in [`wip/oss-readiness-audit.md`](../wip/oss-readiness-audit.md)).
+
+### Prompt
+
+The system instruction injects two profiles read from `user_profile`:
+
+- **`core`** — long-term interests, only ever edited by hand (there is no UI for it; edit the row directly if needed).
+- **`short_term`** — rewritten weekly by the profile-update job below.
+
+## Feedback
+
+`recordFeedback()` in `feedback.ts`, invoked over IPC as `dailyNews:feedback`. Actions: `like` / `dislike` / `unlike` / `undislike` / `click`. `like`/`dislike`/`click` insert a row (`ON CONFLICT DO NOTHING`); `unlike`/`undislike` delete the matching row. No webhook, no network round trip — it's a synchronous local write.
+
+## Weekly profile update
+
+`runWeeklyProfileUpdate()` in `profile.ts`, a faithful port of the former "Pipeline C" workflow:
+
+```
+stamp user_profile.short_term.updated_at        throttles this whole job to once/week
+  → decay all interest_signals scores × 0.9
+  → read the last 7 days of feedback (joined to articles, excluding tag = 'bypass')
+  → Gemini: extract topic keywords + like/dislike direction from that feedback
+  → upsert interest_signals (score += direction, hit_count += 1)
+  → filter to "stable" signals: score >= 2.0 AND hit_count >= 2
+  → Gemini: rewrite short_term profile content from the stable signals + current profile
+  → update user_profile.short_term
+```
+
+Early-exits (no feedback this week, no stable signals yet, no Gemini key configured) still count as a completed run once the timestamp is stamped, so the job doesn't refire on every scheduler tick while waiting for enough signal.
+
+## Scheduler
+
+`startDailyNewsScheduler()` runs a tick immediately on app start, then every 30 minutes for as long as the app is open:
+
+- `ensureDailyNewsForToday()` — runs the ingest pipeline only if today (KST) has no articles yet, and only from `kstHour() >= 5` onward. Also invoked directly and synchronously-awaited from the `dailyNews:fetch` IPC handler, so a manual refresh and the background tick can never run ingestion concurrently (guarded by an `ingestRunning` flag).
+- `ensureWeeklyProfile()` — runs the profile-update job only when `user_profile.short_term.updated_at` is 7+ days old (or never set), independent of the daily gate.
+
+## Database (SQLite, `<userData>/daily-news.db`, WAL)
+
+```
 articles
-├── id            SERIAL PRIMARY KEY
+├── id            INTEGER PRIMARY KEY AUTOINCREMENT
 ├── title         TEXT NOT NULL
 ├── summary       TEXT
-├── url           TEXT UNIQUE NOT NULL
+├── url           TEXT NOT NULL UNIQUE
 ├── source        TEXT
-├── category      TEXT            ← "tech", "finance", "growth", "world"
-├── published_at  TIMESTAMP
+├── category      TEXT            ← "tech" | "finance" | "growth" | "world"
+├── published_at  TEXT
 ├── relevance     INTEGER         ← 0–10
 ├── importance    INTEGER         ← 0–10
 ├── final_score   REAL            ← weighted sum (0–10)
-├── tag           TEXT            ← "relevant", "bypass", "serendipity"
-├── fetched_date  DATE DEFAULT CURRENT_DATE
-└── created_at    TIMESTAMP DEFAULT NOW()
+├── tag           TEXT            ← "relevant" | "bypass" | "serendipity" | "parse_error"
+├── fetched_date  TEXT NOT NULL DEFAULT CURRENT_DATE
+└── created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    (indexed on (fetched_date, final_score) — serves both the scheduler's
+     COUNT(*) WHERE fetched_date=? and the widget's reverse-score read)
 
 feedback
-├── id            SERIAL PRIMARY KEY
-├── article_id    INTEGER REFERENCES articles(id)
-├── action        TEXT NOT NULL   ← "like" / "dislike"
-└── created_at    TIMESTAMP DEFAULT NOW()
+├── id            INTEGER PRIMARY KEY AUTOINCREMENT
+├── article_id    INTEGER NOT NULL REFERENCES articles(id)
+├── action        TEXT NOT NULL   ← "like" | "dislike" | "click"
+├── created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+└── UNIQUE(article_id, action)
 
 user_profile
-├── id            SERIAL PRIMARY KEY
-├── profile_type  TEXT UNIQUE NOT NULL  ← "core" / "short_term"
-├── content       TEXT NOT NULL         ← injected into the LLM prompt
-└── updated_at    TIMESTAMP DEFAULT NOW()
+├── id            INTEGER PRIMARY KEY AUTOINCREMENT
+├── profile_type  TEXT NOT NULL UNIQUE  ← "core" | "short_term"
+├── content       TEXT NOT NULL         ← injected into the Gemini prompt
+└── updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 
-interest_signals                        ← Pipeline C signal store (schema only, unused)
-├── id            SERIAL PRIMARY KEY
-├── topic         TEXT UNIQUE NOT NULL  ← "rust-lang", "llm-agents", etc.
-├── category      TEXT                  ← "tech", "finance", "growth", "world"
-├── score         REAL DEFAULT 0        ← accumulated (like +1, dislike -1, weekly ×0.9 decay)
-├── hit_count     INTEGER DEFAULT 0     ← total feedback events
-├── last_seen     DATE DEFAULT CURRENT_DATE
-└── created_at    TIMESTAMP DEFAULT NOW()
+interest_signals
+├── id            INTEGER PRIMARY KEY AUTOINCREMENT
+├── topic         TEXT NOT NULL UNIQUE  ← "rust-lang", "llm-agents", etc.
+├── category      TEXT
+├── score         REAL NOT NULL DEFAULT 0   ← like +1 / dislike -1, weekly ×0.9 decay
+├── hit_count     INTEGER NOT NULL DEFAULT 0
+├── last_seen     TEXT NOT NULL DEFAULT CURRENT_DATE
+└── created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
 
-## RSS Sources
+`foreign_keys = ON` is set explicitly (SQLite defaults it off). A fresh install seeds the two `user_profile` rows with placeholder content; `articles`/`feedback`/`interest_signals` start empty.
 
-```json
-[
-  { "category": "tech",    "source": "Hacker News",   "url": "https://hnrss.org/best" },
-  { "category": "finance", "source": "Yahoo Finance", "url": "https://finance.yahoo.com/news/rssindex" },
-  { "category": "growth",  "source": "James Clear",   "url": "https://jamesclear.com/feed" },
-  { "category": "world",   "source": "BBC World",     "url": "https://feeds.bbci.co.uk/news/world/rss.xml" }
-]
-```
+## RSS sources
 
-Managed inside the n8n Edit Fields node. Add a source by appending to the array.
-
-## Profile Management — Core Profile (n8n manual workflow)
-
-The core profile is edited directly in the n8n UI. No external endpoint exposes it; management stays inside n8n.
+Managed as a plain array in `sources.ts` — add a source by appending an entry:
 
 ```
-Manual Trigger (run from the n8n UI)
-  → Edit Fields (content: "new profile text here")
-  → Postgres: UPDATE user_profile
-              SET content = {{ $json.content }}, updated_at = NOW()
-              WHERE profile_type = 'core'
+Tech:    Hacker News, TechCrunch
+Finance: Yahoo Finance, MarketWatch
+Growth:  Tiny Buddha, Lifehack
+World:   BBC World, The Guardian World
 ```
 
-Open the workflow in n8n, edit the `content` field, and run it. The short-term profile will be managed automatically by Pipeline C once that ships.
+## IPC surface
+
+| Channel | Direction | Purpose |
+|---|---|---|
+| `dailyNews:fetch` | renderer → main (invoke) | Ensures today's articles exist (runs ingest if missing), returns them |
+| `dailyNews:feedback` | renderer → main (invoke) | Records like/dislike/click |
+| `dailyNews:status` | main → renderer (push) | Ingest progress (`fetching` / `scoring` / `saving` / `done` / `error`) for the widget's "Updating…" indicator |
+| `settings:getGeminiKey` / `settings:setGeminiKey` | renderer ↔ main (invoke) | Runtime Gemini key, stored in `settings.json` |
+
+No HTTP server, no external webhook — this is all in-process `ipcMain.handle` / `webContents.send`.
 
 ## Cost
 
-- Gemini Flash: free tier (15 RPM, 1M TPD)
-- Fallback: GPT-4o-mini (~$0.10/month)
-- PostgreSQL: self-hosted (Docker, free)
-- Estimated total: **$0 – $0.10/month**
+- Gemini Flash: free tier (15 RPM, 1M TPD as of the API version in use)
+- SQLite: local file, no hosting cost
+- Estimated total: **$0/month**
