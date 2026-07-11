@@ -8,10 +8,13 @@ import {
   writeSync,
 } from "fs";
 import path from "path";
-import { app } from "electron";
+import { app, safeStorage } from "electron";
 
 export type AppSettings = {
   geminiApiKey?: string;
+  geminiApiKeyEnc?: string;
+  fredApiKey?: string;
+  fredApiKeyEnc?: string;
   usdKrwRate?: number;
   agentApiPort?: number;
   agentApiToken?: string;
@@ -83,12 +86,68 @@ export function setSettings(patch: Partial<AppSettings>): void {
   cache = next;
 }
 
+// API keys live in the `<name>Enc` fields as safeStorage-encrypted base64
+// whenever the OS supports it (DPAPI / Keychain / libsecret); the plaintext
+// `<name>` fields are the fallback for platforms where it does not. Reads
+// prefer the encrypted field; a value that no longer decrypts (OS keychain
+// reset) reads as unset so the user can re-enter it in Settings. There is no
+// build-time env fallback: keys are runtime-entered only, so they can never
+// end up baked into a distributed binary.
+type SecretKey = "geminiApiKey" | "fredApiKey";
+
+function getSecret(name: SecretKey): string | undefined {
+  const settings = getSettings();
+  const enc = settings[`${name}Enc`];
+  if (enc) {
+    try {
+      return safeStorage.decryptString(Buffer.from(enc, "base64")) || undefined;
+    } catch (err) {
+      console.error(`Failed to decrypt ${name}; re-enter it in Settings:`, err);
+      return undefined;
+    }
+  }
+  return settings[name] || undefined;
+}
+
+function setSecret(name: SecretKey, value: string): void {
+  const trimmed = value.trim();
+  const encrypt = trimmed !== "" && safeStorage.isEncryptionAvailable();
+  const patch: Partial<AppSettings> = {};
+  // An explicit `undefined` survives the spread in setSettings and is then
+  // dropped by JSON.stringify, so it deletes the twin field (and clears the
+  // key entirely when the input was emptied).
+  patch[name] = encrypt || trimmed === "" ? undefined : trimmed;
+  patch[`${name}Enc`] = encrypt
+    ? safeStorage.encryptString(trimmed).toString("base64")
+    : undefined;
+  setSettings(patch);
+}
+
+// One-time upgrade of plaintext keys written before safeStorage existed.
+// Called at startup: safeStorage is only usable once the app is ready.
+export function migrateSecretsToSafeStorage(): void {
+  if (!safeStorage.isEncryptionAvailable()) return;
+  const settings = getSettings();
+  for (const name of ["geminiApiKey", "fredApiKey"] as const) {
+    const plain = settings[name];
+    if (plain) setSecret(name, plain);
+  }
+}
+
 export function getGeminiApiKey(): string | undefined {
-  return getSettings().geminiApiKey || import.meta.env.MAIN_VITE_GEMINI_API_KEY;
+  return getSecret("geminiApiKey");
 }
 
 export function setGeminiApiKey(key: string): void {
-  setSettings({ geminiApiKey: key });
+  setSecret("geminiApiKey", key);
+}
+
+export function getFredApiKey(): string | undefined {
+  return getSecret("fredApiKey");
+}
+
+export function setFredApiKey(key: string): void {
+  setSecret("fredApiKey", key);
 }
 
 export function getUsdKrwRate(): number {

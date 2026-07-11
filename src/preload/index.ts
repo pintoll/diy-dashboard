@@ -78,6 +78,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getGeminiKey: () => ipcRenderer.invoke("settings:getGeminiKey"),
     setGeminiKey: (key: string) =>
       ipcRenderer.invoke("settings:setGeminiKey", key),
+    getFredKey: () => ipcRenderer.invoke("settings:getFredKey"),
+    setFredKey: (key: string) =>
+      ipcRenderer.invoke("settings:setFredKey", key),
   },
   pomodoro: {
     list: () => ipcRenderer.invoke("pomodoro:sessions:list"),

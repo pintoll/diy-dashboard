@@ -18,6 +18,8 @@ import { registerFocusGuardIpc } from "./focus-guard/ipc";
 import { handleForeground } from "./focus-guard/app-guard";
 import { unblock as unblockSites, stripFocusBlockSync } from "./focus-guard/site-guard";
 import { registerDailyNewsIpc } from "./daily-news/ipc";
+import { registerSettingsIpc } from "./settings/ipc";
+import { migrateSecretsToSafeStorage } from "./settings/store";
 import { startDailyNewsScheduler } from "./daily-news/scheduler";
 import { registerFinanceIpc } from "./finance/ipc";
 import { registerTodosIpc } from "./todos/ipc";
@@ -400,11 +402,16 @@ app.whenReady().then(async () => {
   // agent-api port, or start the scheduler on its way out.
   if (!gotSingleInstanceLock) return;
 
+  // Before anything that reads an API key (IPC handlers, the news scheduler):
+  // upgrades plaintext keys from pre-safeStorage settings.json files in place.
+  migrateSecretsToSafeStorage();
+
   createAppMenu();
   createTray();
   registerMarketIpc();
   registerFocusGuardIpc();
   registerDailyNewsIpc();
+  registerSettingsIpc();
   registerFinanceIpc();
   registerTodosIpc();
   registerPomodoroIpc();

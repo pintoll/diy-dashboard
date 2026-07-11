@@ -3,7 +3,6 @@ import { ensureDailyNewsForToday } from "./scheduler";
 import { getTodayNews } from "./serve";
 import { recordFeedback } from "./feedback";
 import type { DailyNewsResponse, FeedbackActionType } from "./types";
-import { getGeminiApiKey, setGeminiApiKey } from "../settings/store";
 
 export function registerDailyNewsIpc(): void {
   ipcMain.handle("dailyNews:fetch", async (): Promise<DailyNewsResponse> => {
@@ -28,11 +27,5 @@ export function registerDailyNewsIpc(): void {
     "dailyNews:feedback",
     (_event, payload: { articleId: number; action: FeedbackActionType }): void =>
       recordFeedback(payload)
-  );
-
-  ipcMain.handle("settings:getGeminiKey", (): string => getGeminiApiKey() ?? "");
-
-  ipcMain.handle("settings:setGeminiKey", (_event, key: string): void =>
-    setGeminiApiKey(key)
   );
 }

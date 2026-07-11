@@ -72,6 +72,31 @@ verification (eslint 0 errors, `tsc --noEmit`, `electron-vite build`). The
 column-add needs it yet). Still open: key handling (blockers 2–3), CSP, the
 migration runner, and the Windows-runtime-gated focus-guard 🟡s.
 
+**Status (2026-07-11, sixth batch):** publish blockers 2–3 (key handling)
+landed on `feature/upgrade-pomodoro`. The build-time key path is gone: the
+release workflow no longer injects `MAIN_VITE_FRED_API_KEY`, `fred-client`
+reads its key from the settings store, the Gemini env fallback is removed, and
+`src/main/env.d.ts` + `.env.example` are deleted (nothing reads `.env`
+anymore, so no key can ever be baked into a binary again). Keys are
+runtime-entered only: the Settings dialog gained a FRED field next to the
+Gemini one, settings IPC moved out of daily-news into
+`src/main/settings/ipc.ts` (with type/length validation per the IPC-boundary
+item), the market widgets' missing-key empty state now points at Settings +
+refresh (refresh recovers without a restart), and both keys are stored
+safeStorage-encrypted at rest (`<name>Enc` base64 fields; plaintext fallback
+where the OS has no keyring; a startup migration upgrades pre-existing
+plaintext keys in place). README's key section rewritten to match. Verified:
+eslint 0 errors, `tsc --noEmit` both projects, `electron-vite build` with 0
+`MAIN_VITE` references left in `out/`, plus a 13-check runtime pass of the
+settings store against the real Electron binary covering both the encrypted
+and no-keyring plaintext modes (migration, trim/round-trip, clearing,
+cross-process decrypt, corrupt-ciphertext reads as unset instead of
+crashing). Wants the usual Windows app pass: enter both keys in Settings,
+refresh the market widgets, and confirm the existing plaintext Gemini key
+migrates to DPAPI on first launch. Still open: blocker 1 (PAT revoke + history
+rewrite + updater redesign), CSP, the migration runner, and the
+Windows-runtime-gated focus-guard 🟡s.
+
 **Runtime watch points for the fourth batch** (things to revisit only if they
 *feel* wrong while dogfooding — none are known bugs, just the parts that were
 static/isolation-verified rather than exercised in the running app):
@@ -123,6 +148,12 @@ Every release binary ships the maintainer's key. Same mechanism for the Gemini
 fallback at `src/main/settings/store.ts:35`.
 
 - Drop the build-time env key path; use runtime-entered keys only.
+- ✅ *Fixed (2026-07-11, sixth batch):* release.yml no longer injects the FRED
+  secret; the Gemini env fallback and `src/main/env.d.ts` / `.env.example` are
+  gone. No `import.meta.env` key reads remain in the main process (build output
+  grep-verified clean). Keys now come exclusively from the runtime settings
+  store (blocker 3). Existing releases still contain the old key — revoking it
+  is an external follow-up, tracked with blocker 1's PAT revocation.
 
 ### 3. FRED key can't be entered from the dashboard
 
@@ -134,6 +165,15 @@ installed app.
 
 - Add FRED (and any future widget key) to settings.json + IPC, wrapped with
   Electron `safeStorage`.
+- ✅ *Fixed (2026-07-11, sixth batch):* Settings dialog has a FRED key field
+  (`settings:getFredKey`/`setFredKey`, validated at the IPC boundary; handlers
+  live in the new `src/main/settings/ipc.ts`). Both keys are stored via
+  `safeStorage` (`geminiApiKeyEnc`/`fredApiKeyEnc`, base64; plaintext fallback
+  when the OS reports no encryption backend; startup migration re-encrypts
+  legacy plaintext keys). The widgets' empty state directs to Settings and the
+  refresh button recovers in place — no restart. Store logic runtime-verified
+  against the real Electron binary in both modes; the dialog/widget UI flow
+  awaits the Windows app pass.
 
 ### 4. No LICENSE, empty README, incomplete `.env.example`
 
@@ -210,10 +250,15 @@ items below have "if the renderer is compromised" as a realistic precondition.
   a tainted npm postinstall) can rewrite hosts with no UAC. Revert on
   uninstall/teardown, or elevate per-write, and document the trade-off.
 
-- 🟡 **Gemini key handed to the renderer** (`src/main/daily-news/ipc.ts:27`
-  `settings:getGeminiKey`). The stored secret is returned verbatim over IPC and
-  prefilled into the settings input; a renderer compromise reads it. Stored
-  plaintext in settings.json + agent-api.json (no `safeStorage`).
+- 🟡 **Gemini key handed to the renderer** (`src/main/settings/ipc.ts`
+  `settings:getGeminiKey`; moved out of daily-news in the sixth batch). The
+  stored secret is returned verbatim over IPC and prefilled into the settings
+  input; a renderer compromise reads it (now also true of the FRED key).
+  *Partial (2026-07-11, sixth batch):* at-rest storage is now
+  `safeStorage`-encrypted in settings.json, so the plaintext-on-disk half is
+  closed (agent-api.json's token is still plaintext). The verbatim IPC handover
+  for prefill remains open — fixing it means returning only a set/unset flag
+  and losing the prefill UX; decide alongside CSP.
 
 - 🟡 **Renderer can force-kill arbitrary processes** (`src/main/focus-guard/app-guard.ts:94`).
   Renderer-supplied exe blocklist drives `taskkill /F /T /PID`. A compromised
@@ -483,7 +528,7 @@ items below have "if the renderer is compromised" as a realistic precondition.
 ## Suggested order when we pick this up
 
 1. Revoke the PAT + rewrite history + redesign updates (blocker 1).
-2. Remove build-time keys; make FRED/Gemini runtime-entered + `safeStorage`
+2. ✅ Remove build-time keys; make FRED/Gemini runtime-entered + `safeStorage`
    (blockers 2–3).
 3. ✅ LICENSE + README (blocker 4; `.env.example` done).
 4. CSP (✅ `openExternal` allowlist + `will-navigate` done).

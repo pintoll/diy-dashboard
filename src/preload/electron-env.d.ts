@@ -125,6 +125,8 @@ interface DailyNewsAPI {
 interface SettingsAPI {
   getGeminiKey: () => Promise<string>;
   setGeminiKey: (key: string) => Promise<void>;
+  getFredKey: () => Promise<string>;
+  setFredKey: (key: string) => Promise<void>;
 }
 
 // Finance ledger. Amounts are integers in the minor unit of their own row's

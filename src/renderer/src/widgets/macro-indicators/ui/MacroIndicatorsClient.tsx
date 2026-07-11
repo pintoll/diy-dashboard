@@ -86,9 +86,7 @@ export function MacroIndicatorsClient({
             FRED API key is not configured
           </div>
           <div className="text-[10px] text-muted-foreground/60 leading-relaxed">
-            Add <code className="rounded bg-muted/40 px-1">MAIN_VITE_FRED_API_KEY</code>{" "}
-            to <code className="rounded bg-muted/40 px-1">.env</code> in the project
-            root and restart the app (development builds).
+            Enter your FRED API key in Settings, then refresh this widget.
             <br />
             Get a free key:{" "}
             <span className="text-muted-foreground/80">

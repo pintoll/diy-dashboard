@@ -29,9 +29,8 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files (nothing is read from .env anymore; keys are runtime-entered)
 .env*
-!.env.example
 
 # typescript
 *.tsbuildinfo

@@ -42,7 +42,6 @@ Prerequisites: Node.js 20+ and pnpm (enable via `corepack enable`).
 
 ```bash
 pnpm install         # electron-builder rebuilds native deps (better-sqlite3) on postinstall
-cp .env.example .env # then fill in the keys you want (see below)
 pnpm dev             # Electron dev window with HMR
 ```
 
@@ -51,18 +50,17 @@ If the native build for `better-sqlite3`/`electron` does not run on install, run
 
 ## Configuration (API keys)
 
-Keys are read at build time from `.env` (see `.env.example`). Copy it and fill in
-what you need:
+All API keys are entered at runtime in the app's **Settings** dialog and stored
+under the app's user-data directory, encrypted with Electron `safeStorage`
+where the OS supports it. Nothing is read from `.env` and no key is ever baked
+into a build.
 
-- `MAIN_VITE_FRED_API_KEY` — required for the Macro Indicators and Economic
-  Calendar widgets. Free key: https://fredaccount.stlouisfed.org/apikey
-- `MAIN_VITE_GEMINI_API_KEY` — used by the Daily News pipeline. This is a
-  build-time fallback; the Gemini key can also be entered at runtime in
-  **Settings**, which takes precedence.
+- **FRED API key** — required for the Macro Indicators and Economic Calendar
+  widgets. Free key: https://fredaccount.stlouisfed.org/apikey
+- **Gemini API key** — powers the Daily News pipeline.
 
-Without a FRED key the market widgets stay empty. Runtime entry of the FRED key
-from Settings is not implemented yet, so a packaged build needs the key present
-at build time.
+Without a FRED key the market widgets show a setup hint; enter the key in
+Settings and hit the widget's refresh button.
 
 ## Build
 

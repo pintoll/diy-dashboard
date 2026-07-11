@@ -16,7 +16,8 @@ switch the window; each card shows **value + 1D change + window change + sparkli
 
 ## Setup
 
-Set `MAIN_VITE_FRED_API_KEY=<key>` in `.env`. Free key:
+Enter a FRED API key in the app's Settings dialog (stored via Electron
+`safeStorage`), then refresh the widget. Free key:
 https://fredaccount.stlouisfed.org/apikey
 
 ## Data flow

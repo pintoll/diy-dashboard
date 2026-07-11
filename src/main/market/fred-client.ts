@@ -1,3 +1,5 @@
+import { getFredApiKey } from "../settings/store";
+
 export type FredSeriesPoint = { date: string; value: number };
 
 export type FredSeriesSnapshot = {
@@ -31,7 +33,7 @@ export type FredReleaseDateEntry = {
 };
 
 function getApiKey(): string {
-  const key = import.meta.env.MAIN_VITE_FRED_API_KEY;
+  const key = getFredApiKey();
   if (!key) {
     throw new Error(FRED_MISSING_API_KEY_ERROR);
   }
