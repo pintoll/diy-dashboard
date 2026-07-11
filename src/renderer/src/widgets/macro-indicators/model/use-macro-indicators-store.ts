@@ -104,6 +104,21 @@ export function useMacroIndicatorsStore(instanceId: string) {
           }
           return state;
         },
+        // Persist only what is worth restoring: the ~0.5MB snapshots, when they
+        // were fetched, and the selected timeframe. Dropping the transient
+        // status/error/missingApiKey fields means a `set({status:'loading'})`
+        // no longer changes the persisted payload, and the store always
+        // rehydrates in an idle state rather than a stuck loading/error one.
+        partialize: (state) => ({
+          snapshots: state.snapshots,
+          lastFetchedAt: state.lastFetchedAt,
+          timeframe: state.timeframe,
+        }),
+        // Coalesce writes so a timeframe click or loading flip does not run a
+        // synchronous 0.5MB JSON.stringify + localStorage.setItem on the main
+        // thread every time. The payload is a refetchable cache (6h staleness),
+        // so losing the last write to an abrupt reload just triggers a refetch.
+        debounceWriteMs: 500,
       }
     );
   }, [instanceId]);

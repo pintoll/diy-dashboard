@@ -62,16 +62,68 @@ function useDisplayTicker(opts: DisplayTickerOpts) {
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
-      let intervalId: ReturnType<typeof setInterval> | null = null;
+      // The 100ms loop only exists to redraw the on-screen countdown, so it is
+      // pure battery drain while the window is hidden to the tray (nothing is
+      // visible). Run it only when the document is visible.
+      let displayIntervalId: ReturnType<typeof setInterval> | null = null;
+      // The phase must still advance on time while hidden — that is what fires
+      // the chime, the taskbar flash, and the state transition when the timer
+      // ends. One timeout at the remaining duration does that with a single
+      // wakeup instead of ~600 wasted 100ms ticks per minute.
+      let phaseEndTimeoutId: ReturnType<typeof setTimeout> | null = null;
       let cancelScheduled: (() => void) | null = null;
 
+      // `scheduleNotification` is `!isOvertime`: a bounded phase that has a
+      // fixed end to advance to. Overtime counts up with no such end.
+      const isBoundedPhase = scheduleNotification;
+
+      const startDisplayInterval = () => {
+        if (displayIntervalId !== null) return;
+        displayIntervalId = setInterval(() => {
+          tick();
+          onStoreChange();
+        }, 100);
+      };
+
+      const stopDisplayInterval = () => {
+        if (displayIntervalId !== null) {
+          clearInterval(displayIntervalId);
+          displayIntervalId = null;
+        }
+      };
+
+      const armHiddenPhaseEnd = () => {
+        if (phaseEndTimeoutId !== null) return;
+        const ms = Math.max(0, getRemainingForNotification() * 1000);
+        phaseEndTimeoutId = setTimeout(() => {
+          phaseEndTimeoutId = null;
+          tick();
+          onStoreChange();
+        }, ms);
+      };
+
+      const disarmHiddenPhaseEnd = () => {
+        if (phaseEndTimeoutId !== null) {
+          clearTimeout(phaseEndTimeoutId);
+          phaseEndTimeoutId = null;
+        }
+      };
+
       const handleVisibilityChange = () => {
-        if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        if (typeof document === "undefined") return;
+        if (document.visibilityState === "visible") {
+          // The hidden timer (if any) already advanced the phase on time, so
+          // syncTime() here normally returns null and does not re-notify.
+          disarmHiddenPhaseEnd();
           const completedPhase = syncTime();
           if (completedPhase && notificationsEnabled) {
             showPhaseNotification(completedPhase);
           }
           onStoreChange();
+          if (active) startDisplayInterval();
+        } else {
+          stopDisplayInterval();
+          if (active && isBoundedPhase) armHiddenPhaseEnd();
         }
       };
 
@@ -80,26 +132,28 @@ function useDisplayTicker(opts: DisplayTickerOpts) {
       }
 
       if (active) {
-        if (scheduleNotification && notificationsEnabled) {
+        if (isBoundedPhase && notificationsEnabled) {
           const remaining = getRemainingForNotification();
           if (remaining > 0) {
             cancelScheduled = schedulePhaseEndNotification(remaining, phase);
           }
         }
 
-        intervalId = setInterval(() => {
-          tick();
-          onStoreChange();
-        }, 100);
+        const visible =
+          typeof document === "undefined" || document.visibilityState === "visible";
+        if (visible) {
+          startDisplayInterval();
+        } else if (isBoundedPhase) {
+          armHiddenPhaseEnd();
+        }
       }
 
       return () => {
         if (typeof document !== "undefined") {
           document.removeEventListener("visibilitychange", handleVisibilityChange);
         }
-        if (intervalId !== null) {
-          clearInterval(intervalId);
-        }
+        stopDisplayInterval();
+        disarmHiddenPhaseEnd();
         if (cancelScheduled) {
           cancelScheduled();
         }

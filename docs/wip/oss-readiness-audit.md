@@ -43,6 +43,47 @@ verification (eslint 0 errors, `tsc --noEmit` both projects, `electron-vite
 build`). Still open: key handling (blockers 2–3), CSP, and the
 Windows-runtime-gated focus-guard 🟡s.
 
+**Status (2026-07-11, fourth batch):** the user-selected "efficiency / battery"
+bundle landed on `feature/upgrade-pomodoro` — all three 🟡 performance items
+that had no Windows-runtime dependency: the hidden-window 100ms pomodoro ticker
+(display loop gated on visibility, a single phase-end timer preserves the
+hidden chime/flash/notification), the FRED client's missing cache / concurrency
+cap / 429 backoff (5-slot semaphore + 5-min coalescing cache + backoff), and the
+macro store's 0.5MB-per-`set()` persist write (debounce + partialize on
+`createWidgetStore`) — all marked ✅ inline. Same verification (eslint 0 errors,
+`tsc --noEmit` both projects, `electron-vite build`); the FRED
+semaphore/coalescing/cache/backoff logic was additionally runtime-verified in
+isolation. The pomodoro ticker change wants an app runtime pass on the
+hide-to-tray notification + chime timing. Still open: key handling (blockers
+2–3), CSP, data-lifecycle (pruning / migration runner), and the
+Windows-runtime-gated focus-guard 🟡s (incl. the FRED bullet's active-window
+poll sub-item).
+
+**Runtime watch points for the fourth batch** (things to revisit only if they
+*feel* wrong while dogfooding — none are known bugs, just the parts that were
+static/isolation-verified rather than exercised in the running app):
+
+- *Pomodoro hide-to-tray (Item 1).* Start a focus session, hide to tray, let a
+  phase end while hidden. Expect the OS notification **and** the chime/taskbar
+  flash on time, and on re-show **exactly one** notification (the single
+  phase-end timer is meant to advance state before you re-open so `syncTime()`
+  does not re-fire). If you ever see a duplicate toast, or a missing/late chime
+  while hidden, that timer is the suspect. The countdown and tray tooltip
+  intentionally freeze while hidden and re-sync on show — cosmetic, not a bug.
+- *Overtime while hidden (Item 1).* The counting-up display freezes while
+  hidden, but overtime accumulation and its alarm are driven by the separate 5s
+  idle poll, not the display loop — verify the overtime elapsed and threshold
+  alarms are still correct after re-showing.
+- *macro persist debounce (Item 3).* Writes are debounced 500ms. If the app is
+  quit/reloaded within that window right after a fresh fetch, the last snapshot
+  write can be lost and the widget refetches on next launch — benign for a
+  refetchable cache, but that is the explanation if you notice an "unexpected
+  reload spinner" on startup.
+- *FRED main cache TTL (Item 2).* Series/release results are cached 5 min in the
+  main process. If a manual refresh ever seems to return data that is "too old"
+  within a few minutes, the TTL is why — bump `FRED_CACHE_TTL_MS` down (or to 0)
+  if it feels stale in practice.
+
 ---
 
 ## 🔴 Publish blockers
@@ -235,13 +276,20 @@ items below have "if the renderer is compromised" as a realistic precondition.
   range predicate (index-friendly), months without rows are zero-filled in JS so
   the output shape is unchanged.
 
-- 🟡 **macro store serializes ~0.5MB per `set()`** (`use-macro-indicators-store.ts`).
+- ✅ ~~🟡~~ **macro store serializes ~0.5MB per `set()`** (`use-macro-indicators-store.ts`).
   6 series × 1300 points persisted with no `partialize`; every transient
   `set({status:'loading'})` and timeframe click runs `JSON.stringify` + sync
   `localStorage.setItem` (tens of ms main-thread stall).
-  *Deferred:* `partialize` alone doesn't help — the snapshots *are* the 0.5MB.
-  Choosing what to persist (drop snapshots? debounce?) changes reload behavior,
-  so it needs a decision.
+  *Fixed 2026-07-11 (debounce + partialize):* `createWidgetStore` gained an
+  optional `partialize` and a `debounceWriteMs` (trailing-debounced
+  localStorage `storage`). The macro store now persists only
+  `snapshots`/`lastFetchedAt`/`timeframe` (transient status/error/missingApiKey
+  dropped, so a `loading` flip no longer changes the persisted payload) and
+  debounces writes at 500ms, moving the 0.5MB write off the click path. Reload
+  behavior is unchanged — snapshots still restore instantly; the payload is a
+  refetchable 6h-stale cache, so at worst an abrupt reload inside the debounce
+  window triggers a refetch. Chosen over dropping snapshots (which would force a
+  loading state + FRED call on every launch).
 
 - ✅ ~~🟡~~ **Unbounded session log → silent data loss**
   (`src/renderer/src/entities/pomodoro-session/model/use-session-log-store.ts:93`).
@@ -263,15 +311,38 @@ items below have "if the renderer is compromised" as a realistic precondition.
   the app runtime pass. Chosen over the intermediate localStorage cap because
   SQLite is where the app's other three data stores already live.
 
-- 🟡 **`backgroundThrottling: false` + hide-to-tray** (`src/main/index.ts:85`).
+- ✅ ~~🟡~~ **`backgroundThrottling: false` + hide-to-tray** (`src/main/index.ts:85`).
   Hidden renderer keeps firing the 100ms pomodoro ticker (~864k callbacks/day)
   with no visible output — battery drain Chromium's throttling would have cut
   ~100×.
+  *Fixed 2026-07-11 (gate the display ticker, keep throttling off):*
+  `backgroundThrottling: false` stays (it is what keeps the phase-end
+  notification `setTimeout` punctual while hidden to the tray). The 100ms loop
+  in `useDisplayTicker` (`PomodoroClient.tsx`) is the actual waste — it only
+  redraws the countdown — so it now runs only while `document.visibilityState`
+  is visible. Fully stopping it while hidden would have regressed the at-phase-
+  end chime, taskbar flash, and state transition (all driven by `tick()`), so a
+  single `setTimeout` armed at the remaining duration advances the phase on time
+  while hidden with one wakeup instead of ~600/min. On re-show the phase has
+  already advanced, so `syncTime()` returns null and does not double-notify.
+  Static-verified (tsc/eslint/build); wants an app runtime pass on the
+  hide-to-tray notification + chime timing.
 
-- 🟡 **FRED: no main-process cache / concurrency cap** (`fred-client.ts:82`).
+- ✅ ~~🟡~~ **FRED: no main-process cache / concurrency cap** (`fred-client.ts:82`).
   Per-instance refetch; 6 + 10 concurrent requests against a 120/min limit, no 429
   backoff. Also the 10s active-window poll (`index.ts:302`) does display-geometry
   + kill-check on the main process and a localStorage rewrite per push.
+  *Fixed 2026-07-11 (FRED client half):* every FRED HTTP call now goes through a
+  5-slot in-flight semaphore (bursts serialize under the 120/min cap), a
+  short-TTL (5 min) main-process cache keyed by `seriesId:limit` /
+  `releaseId:from:to` with in-flight coalescing (multiple widget instances or a
+  reload share one network result), and a `fredFetch` wrapper that retries only
+  on 429 with `Retry-After`/exponential backoff (3 attempts). The renderer's own
+  6h staleness cache is untouched, so the short TTL never surfaces stale data.
+  The semaphore + coalescing + cache-TTL + backoff logic was runtime-verified in
+  isolation. *Still open (Windows-gated):* the 10s active-window poll's
+  geometry/kill/localStorage cost is a focus-guard concern behind the
+  `process.platform === "win32"` guard — deferred to the pending Windows pass.
 
 ---
 
