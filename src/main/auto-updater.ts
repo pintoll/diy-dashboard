@@ -14,13 +14,10 @@ async function getAutoUpdater(): Promise<import("electron-updater").AppUpdater> 
 export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> {
   const updater = await getAutoUpdater();
 
-  updater.setFeedURL({
-    provider: "github",
-    owner: "pintoll",
-    repo: "diy-dashboard",
-    private: true,
-    token: "***REMOVED***",
-  });
+  // The feed is resolved from the bundled app-update.yml that electron-builder
+  // generates from the `publish` block (GitHub, pintoll/diy-dashboard). The repo
+  // is public, so releases are fetched anonymously — no token, no `setFeedURL`
+  // override, and nothing credential-shaped baked into the shipped binary.
   updater.autoDownload = true;
   updater.autoInstallOnAppQuit = true;
 

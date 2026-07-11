@@ -97,6 +97,18 @@ migrates to DPAPI on first launch. Still open: blocker 1 (PAT revoke + history
 rewrite + updater redesign), CSP, the migration runner, and the
 Windows-runtime-gated focus-guard 🟡s.
 
+**Status (2026-07-11, seventh batch):** publish blocker 1's **updater redesign**
+landed on `feature/upgrade-pomodoro`. `auto-updater.ts` dropped the hardcoded PAT
+and the whole `setFeedURL` override — the feed is now resolved from the bundled
+`app-update.yml` (electron-builder `publish` block), so a public repo updates
+anonymously and no credential ships in the binary (build output grep-verified
+clean of the token). Marked ✅ inline. Same verification (eslint 0 errors, `tsc
+--noEmit` both projects, `electron-vite build`). The other two thirds of blocker
+1 are **not** code and stay open: revoking the exposed PAT is a user action in
+GitHub settings, and the `git filter-repo` history scrub (destructive, force-push)
+is sequenced after that revoke. This is the last 🔴; after those two steps only
+CSP, the migration runner, and the Windows-runtime-gated focus-guard 🟡s remain.
+
 **Runtime watch points for the fourth batch** (things to revisit only if they
 *feel* wrong while dogfooding — none are known bugs, just the parts that were
 static/isolation-verified rather than exercised in the running app):
@@ -134,10 +146,24 @@ since `e238415`, and extractable from every shipped `.exe` (unpack `app.asar`)
 today. Publishing exposes it in HEAD + history.
 
 - Revoke the token now (it is already exposed in released binaries, independent
-  of open-sourcing).
-- Rewrite history (`git filter-repo`) or start a fresh repo before publishing.
-- Redesign updates so no token is needed: a **public releases repo** separate
-  from the code repo, or a download proxy.
+  of open-sourcing). **User action** — revoke the fine-grained PAT in GitHub
+  token settings. Revoking it also breaks auto-update against the still-private
+  repo, which is exactly why the redesign below (public-repo, anonymous) is the
+  paired fix.
+- ✅ *Redesign done (2026-07-11, seventh batch):* `auto-updater.ts` no longer
+  embeds a token or a `setFeedURL` override at all. The feed now resolves from
+  the bundled `app-update.yml` that electron-builder generates from the
+  `publish` block (`electron-builder.yml`, GitHub `pintoll/diy-dashboard`); once
+  the repo is public, releases are fetched anonymously, so **no credential ships
+  in the `.exe`**. Build output grep-verified free of the token literal. The
+  publishing side already used the ephemeral Actions `GITHUB_TOKEN`
+  (`release.yml`), so it was unchanged. Chose the same public repo over a
+  separate releases repo / download proxy: open-sourcing makes the code repo
+  public regardless, so releases are public with zero extra infra.
+- Rewrite history (`git filter-repo`, in-place) before publishing — the full
+  live token is in every `auto-updater.ts` commit from `e238415` to the redesign
+  commit. Scrub the literal across all history, then force-push. **Destructive
+  (rewrites all SHAs); sequence after the revoke.**
 
 ### 2. FRED (and Gemini) API key baked into the build
 
@@ -527,7 +553,8 @@ items below have "if the renderer is compromised" as a realistic precondition.
 
 ## Suggested order when we pick this up
 
-1. Revoke the PAT + rewrite history + redesign updates (blocker 1).
+1. Blocker 1: ✅ redesign updates (anonymous public-repo feed, no baked token).
+   Remaining — revoke the PAT (user action) + rewrite history (`git filter-repo`).
 2. ✅ Remove build-time keys; make FRED/Gemini runtime-entered + `safeStorage`
    (blockers 2–3).
 3. ✅ LICENSE + README (blocker 4; `.env.example` done).
