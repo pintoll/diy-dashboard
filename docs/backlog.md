@@ -15,6 +15,12 @@ High-level direction and headline tasks per widget. Concrete work notes live und
 - Session stats + keyboard shortcuts
 - Task label, tray timer display
 
+**Cleanup — remove the localStorage→SQLite migration shim** (added in `86affec`, when the session log moved to `pomodoro.db`). The shim in `use-session-log-store.ts` (`migrateLegacyIfNeeded` / `readLegacySessions` / `normalizeLegacySessions` + the `pomodoro-session-log-migrated` flag, ~40 lines) is a one-shot per install and single-user only.
+
+- Trigger: after the migrating release has actually run on every machine you use (dev and packaged migrate their own localStorage independently) and focus-analytics confirms the history is intact in `pomodoro.db`.
+- Do it in a *later* release, never the migrating one — a machine must pass through the migrating version first.
+- Scope: delete the three legacy functions + the flag/keys. Optionally add a one-shot `localStorage.removeItem("pomodoro-session-log")` + remove the flag to clear the orphaned backup blob, then drop that too a release later. Removing the shim leaves the store working; fresh installs just start empty.
+
 ---
 
 ## Daily News Pipeline
