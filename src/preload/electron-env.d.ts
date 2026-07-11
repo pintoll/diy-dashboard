@@ -426,6 +426,35 @@ interface TodosAPI {
   onChanged: (callback: (payload: TodosChangedPayload) => void) => () => void;
 }
 
+// Pomodoro work-session log. Mirrors the renderer's `PomodoroSessionRecord`
+// (entities/pomodoro-session) as plain JSON over IPC; the store is the reactive
+// in-memory cache and this SQLite-backed API is the durable record.
+interface PomodoroSessionDTO {
+  id: string;
+  phase: "work";
+  startedAt: number;
+  endedAt: number;
+  durationSec: number;
+  presetId: string;
+  overtimeSec: number;
+  idleSec: number;
+  intendedMode: "focus" | "leisure" | null;
+  attention: "focus" | "leisure";
+  attentionSource: "auto" | "user";
+  sessionEndType: "completed" | "early-stop";
+  processBuckets: Record<string, number>;
+  cappedAt60m: boolean;
+  todoId: string | null;
+  note: string | null;
+}
+
+interface PomodoroAPI {
+  list: () => Promise<PomodoroSessionDTO[]>;
+  record: (session: PomodoroSessionDTO) => Promise<void>;
+  updateNote: (id: string, note: string | null) => Promise<void>;
+  import: (sessions: PomodoroSessionDTO[]) => Promise<{ imported: number }>;
+}
+
 interface ElectronAPI {
   showNotification: (payload: { title: string; body: string }) => Promise<void>;
   isNotificationSupported: () => Promise<boolean>;
@@ -443,6 +472,7 @@ interface ElectronAPI {
   appGuard: AppGuardAPI;
   dailyNews: DailyNewsAPI;
   settings: SettingsAPI;
+  pomodoro: PomodoroAPI;
   todos: TodosAPI;
   finance: FinanceAPI;
 }

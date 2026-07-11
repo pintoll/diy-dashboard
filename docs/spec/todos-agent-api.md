@@ -70,7 +70,7 @@ Two rules worth internalizing:
 
 ```
 GET /api/health
-→ 200 { "ok": true, "version": "0.8.0", "port": 8799 }
+→ 200 { "ok": true, "port": 8799 }
 ```
 
 Use it to check the app is up before anything else.

@@ -79,6 +79,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
     setGeminiKey: (key: string) =>
       ipcRenderer.invoke("settings:setGeminiKey", key),
   },
+  pomodoro: {
+    list: () => ipcRenderer.invoke("pomodoro:sessions:list"),
+    record: (session: PomodoroSessionDTO) =>
+      ipcRenderer.invoke("pomodoro:sessions:record", session),
+    updateNote: (id: string, note: string | null) =>
+      ipcRenderer.invoke("pomodoro:sessions:update-note", { id, note }),
+    import: (sessions: PomodoroSessionDTO[]) =>
+      ipcRenderer.invoke("pomodoro:sessions:import", sessions),
+  },
   todos: {
     list: (filter?: TodoListFilter) => ipcRenderer.invoke("todos:list", filter),
     overdue: (before?: string) => ipcRenderer.invoke("todos:overdue", before),

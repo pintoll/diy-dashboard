@@ -72,7 +72,11 @@ function buildServer(routes: Route[], token: string): Server {
       const address = server?.address();
       const port = typeof address === "object" && address !== null ? address.port : null;
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, version: app.getVersion(), port }));
+      // This route is the one unauthenticated endpoint. Report only liveness and
+      // the port an agent needs to find the running app -- not the app version,
+      // which is fingerprintable recon for a blind (DNS-rebinding) caller that
+      // never presents the bearer token.
+      res.end(JSON.stringify({ ok: true, port }));
       return;
     }
 

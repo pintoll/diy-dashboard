@@ -25,21 +25,30 @@ export async function runWeeklyProfileUpdate(): Promise<{
 
   const db = getDb();
 
+  // "Decay All Signals" -- fade every interest ~10% per weekly run so topics
+  // that stop being reinforced eventually fall below the stability threshold.
+  // Deliberately NOT run up front: applying decay on a run whose Gemini call
+  // then fails (expired key, outage) bleeds the signals down with no learning
+  // to replace them, and repeated failures erase the profile entirely. So decay
+  // fires only where no learning is being skipped -- the no-feedback exit below
+  // (nothing to learn this week) and after a successful topic extraction
+  // (learning is about to be applied).
+  const decayAllSignals = (): void => {
+    db.prepare("UPDATE interest_signals SET score = score * 0.9").run();
+  };
+
   // Stamp this weekly run before any mutation or Gemini call so the scheduler's
   // 7-day staleness gate (isWeeklyProfileStale) throttles EVERY outcome from
   // here on -- the no-feedback / no-stable early exits, a JSON.parse failure, or
   // a full synthesis -- to a weekly cadence. The original n8n workflow relied on
-  // a weekly cron for this throttle; without stamping here the destructive decay
-  // and the Gemini calls below would re-fire on every ~30-min scheduler tick
-  // whenever the synthesis path does not complete. (The no-key path above is
-  // intentionally left unstamped so the loop activates on the next tick once a
-  // key is added, instead of waiting out another 7-day window.)
+  // a weekly cron for this throttle; without stamping here the Gemini calls
+  // below would re-fire on every ~30-min scheduler tick whenever the synthesis
+  // path does not complete. (The no-key path above is intentionally left
+  // unstamped so the loop activates on the next tick once a key is added,
+  // instead of waiting out another 7-day window.)
   db.prepare(
     "UPDATE user_profile SET updated_at = datetime('now') WHERE profile_type = 'short_term'"
   ).run();
-
-  // "Decay All Signals"
-  db.prepare("UPDATE interest_signals SET score = score * 0.9").run();
 
   // "Fetch Weekly Feedback"
   const feedback = db
@@ -52,7 +61,12 @@ export async function runWeeklyProfileUpdate(): Promise<{
        ORDER BY f.created_at DESC`
     )
     .all() as FeedbackRow[];
-  if (feedback.length === 0) return { skipped: "no-feedback" };
+  // No feedback this week: there is no Gemini call to fail, so decaying here is
+  // safe and preserves the original weekly fade for quiet weeks.
+  if (feedback.length === 0) {
+    decayAllSignals();
+    return { skipped: "no-feedback" };
+  }
 
   // "Build Extraction Prompt"
   const liked = feedback
@@ -95,6 +109,12 @@ Rules:
     category: s.category || null,
     score: s.direction === "like" ? 1.0 : -1.0,
   }));
+
+  // Extraction succeeded (the parse above did not throw), so this week's
+  // learning is about to land: decay the existing signals, then fold in the new
+  // ones below. A failed extraction never reaches this point, which is exactly
+  // what keeps a broken run from eroding the profile.
+  decayAllSignals();
 
   // "Upsert Signals"
   const today = kstToday();

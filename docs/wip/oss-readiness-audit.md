@@ -28,6 +28,21 @@ verification (eslint, `tsc --noEmit` both projects, `electron-vite build`); the
 site-guard UI badge still awaits the pending Windows runtime pass. Key handling,
 CSP, LICENSE/README, and the remaining decay/pruning items are still open.
 
+**Status (2026-07-11, third batch):** a user-selected batch of decidable,
+no-Windows-runtime items landed on `feature/upgrade-pomodoro` — LICENSE (MIT) +
+README (blocker 4), dropping the pre-auth `version` from `/api/health`, decay
+reordered so it fires only when learning is applied (`profile.ts`), and the
+pomodoro session log **moved off localStorage into SQLite** (`src/main/pomodoro/`,
+new `pomodoro.db`), which removes the quota ceiling that caused the silent data
+loss rather than just capping it — all marked ✅ inline. The new DB layer was
+runtime-verified headlessly against the real better-sqlite3 binding (DDL,
+idempotent `INSERT OR IGNORE`, ordering, JSON/boolean/null round-trip); the
+renderer's IPC hydration + one-time localStorage import are static-verified
+(tsc across the boundary + build) and still want the app runtime pass. Same
+verification (eslint 0 errors, `tsc --noEmit` both projects, `electron-vite
+build`). Still open: key handling (blockers 2–3), CSP, and the
+Windows-runtime-gated focus-guard 🟡s.
+
 ---
 
 ## 🔴 Publish blockers
@@ -73,9 +88,11 @@ source). `.env.example` documents only FRED, not `MAIN_VITE_GEMINI_API_KEY`. No
 setup / key-acquisition / platform-support (focus-guard is Windows-only) / build
 docs.
 
-- ✅ *Partially fixed (2026-07-10):* `.env.example` now documents
-  `MAIN_VITE_GEMINI_API_KEY` and notes that runtime Settings takes precedence.
-  LICENSE (license choice) and README content remain open.
+- ✅ *Fixed (2026-07-11):* MIT `LICENSE` added (holder: pintoll; `license`/`author`
+  also set in `package.json`), and `README.md` now covers features, setup, the
+  FRED/Gemini key config with its current build-time-vs-runtime caveat, build
+  commands, releases, and the Windows-only focus-guard platform note.
+  `.env.example` (Gemini key) was already done 2026-07-10. Blocker 4 closed.
 
 ---
 
@@ -152,14 +169,15 @@ items below have "if the renderer is compromised" as a realistic precondition.
   `focus:site:grant-permission`). No user-gesture requirement; repeated calls =
   prompt fatigue to coax an elevation approval.
 
-- 🟡 **agent-api: no Host-header check + unauth `/api/health`** (`src/main/agent-api/server.ts:62`).
+- ✅ ~~🟡~~ **agent-api: no Host-header check + unauth `/api/health`** (`src/main/agent-api/server.ts:62`).
   Health leaks version + port with no token, enabling DNS-rebinding recon
   (writes still gated by the bearer token). Reject Host not in
   `{127.0.0.1, localhost}`; don't leak version pre-auth.
-  ✅ *Host check fixed 2026-07-10:* requests whose Host (port stripped) is not
-  `127.0.0.1`/`localhost`/`[::1]` get 403 before any route. The version field in
-  unauth `/api/health` is still returned — removing it changes the health
-  contract external agents may read, so it's left as a decision.
+  ✅ *Host check fixed 2026-07-10; version drop 2026-07-11:* requests whose Host
+  (port stripped) is not `127.0.0.1`/`localhost`/`[::1]` get 403 before any
+  route, and unauth `/api/health` now returns `{ ok, port }` only — the `version`
+  field is gone (recon-hardening; `docs/spec/todos-agent-api.md` updated to
+  match). Liveness + port is all an agent needs pre-auth.
 
 - ✅ ~~🟡~~ **Route param decode can hang the handler** (`src/main/agent-api/router.ts:38`).
   `decodeURIComponent` throws on malformed `%` escapes, outside the try/catch at
@@ -225,11 +243,25 @@ items below have "if the renderer is compromised" as a realistic precondition.
   Choosing what to persist (drop snapshots? debounce?) changes reload behavior,
   so it needs a decision.
 
-- 🟡 **Unbounded session log → silent data loss**
+- ✅ ~~🟡~~ **Unbounded session log → silent data loss**
   (`src/renderer/src/entities/pomodoro-session/model/use-session-log-store.ts:93`).
   One persisted array, full rewrite on every session end / note edit. At ~5MB
   localStorage quota the persist write throws and is dropped → new sessions stop
   saving silently. Prune/cap, or move to SQLite.
+  *Fixed 2026-07-11 (moved to SQLite):* the log now lives in a new
+  `pomodoro.db` (`src/main/pomodoro/` — `db.ts`/`sessions.ts`/`ipc.ts`, wired in
+  `main/index.ts` and the preload bridge). The zustand store dropped `persist`
+  and became a reactive in-memory cache: it hydrates from SQLite once over IPC
+  and writes every `recordSession`/`updateSessionNote` through fire-and-forget,
+  so the consumers (stats widget, analytics page) keep their synchronous,
+  reactive `(s) => s.sessions` reads unchanged. This removes the ~5MB quota
+  ceiling outright (no cap, full history retained) instead of just trimming under
+  it. A one-time migration imports the old localStorage blob (`INSERT OR IGNORE`,
+  idempotent; the legacy blob is kept as backup and gated by a
+  `pomodoro-session-log-migrated` flag). The DB layer is runtime-verified against
+  the real binding; the renderer IPC/hydration path is static-verified and awaits
+  the app runtime pass. Chosen over the intermediate localStorage cap because
+  SQLite is where the app's other three data stores already live.
 
 - 🟡 **`backgroundThrottling: false` + hide-to-tray** (`src/main/index.ts:85`).
   Hidden renderer keeps firing the 100ms pomodoro ticker (~864k callbacks/day)
@@ -256,12 +288,15 @@ items below have "if the renderer is compromised" as a realistic precondition.
   backed up as `settings.json.corrupt` and logged instead of silently becoming
   `{}`. A user-visible warning UI is still open.
 
-- 🟡 **No schema migration**. All three `db.ts` just `db.exec(SCHEMA)` with
-  `CREATE TABLE IF NOT EXISTS`. Adding a column later is a no-op on existing DBs →
-  the first INSERT naming it throws at runtime. Add `PRAGMA user_version` +
+- 🟡 **No schema migration**. The original three `db.ts` just `db.exec(SCHEMA)`
+  with `CREATE TABLE IF NOT EXISTS`. Adding a column later is a no-op on existing
+  DBs → the first INSERT naming it throws at runtime. Add `PRAGMA user_version` +
   migrations.
-  *Deferred:* infra addition with no behavior today; best landed together with
-  the first real migration so the runner is exercised, not dead code.
+  *Partial 2026-07-11:* the new `pomodoro.db` (session-log move) is the first to
+  stamp `PRAGMA user_version` (baseline = 1), so its next column add has a version
+  to branch on. Still no shared migration **runner**, and the older three DBs are
+  unchanged — deferred until a real migration needs one, so the runner is
+  exercised rather than dead code.
 
 - ✅ ~~🟡~~ **daily-news DB missing `PRAGMA foreign_keys = ON`** (`daily-news/db.ts`; the
   other two DBs set it). FK is decorative → orphan feedback rows silently dropped
@@ -293,12 +328,15 @@ items below have "if the renderer is compromised" as a realistic precondition.
   `tag != "dropped"`, so the old `parse_error`/`include:false` shaping would
   still have leaked into the feed — dropping the batch is the clean fix.
 
-- 🟡 **Weekly decay committed before the Gemini call** (`src/main/daily-news/profile.ts:42`).
+- ✅ ~~🟡~~ **Weekly decay committed before the Gemini call** (`src/main/daily-news/profile.ts:42`).
   Repeated failures (expired key, outage) bleed interest signals below the
   stability threshold with no learning applied, erasing the profile.
-  *Deferred:* fix direction is clear (decay only after a successful call) but it
-  changes failure-path learning behavior — do deliberately, not in a
-  no-behavior-change pass.
+  *Fixed 2026-07-11:* decay is now a local helper that fires only where no
+  learning is skipped — the no-feedback early exit (no Gemini call, so the weekly
+  fade is preserved) and immediately after a successful topic extraction, right
+  before the upsert. A failed extraction (thrown `geminiGenerate`/`JSON.parse`)
+  no longer decays, so a broken run can't erode the profile. The up-front
+  `updated_at` stamp stays, so the 7-day throttle still covers every outcome.
 
 - ✅ ~~🟡~~ **`archiveAccount` has no zero-balance guard** (`src/main/finance/accounts.ts:76`).
   Archiving a funded account drops net worth with no warning; past transactions
@@ -332,7 +370,10 @@ items below have "if the renderer is compromised" as a realistic precondition.
   stale; a repo-wide Hangul grep now only matches this audit's history.
 
 - ⚪ **Unbounded tables/logs**: `articles`, `interest_signals`, `todo_sessions`,
-  the pomodoro session log — no pruning anywhere.
+  the pomodoro session log — no pruning anywhere. Note the pomodoro session log
+  is now a SQLite table (`pomodoro.db`) rather than a localStorage array, so it
+  no longer has the ~5MB quota / silent-drop failure mode; it is still unpruned,
+  but so is the rest, and SQLite has no small ceiling to hit.
 
 ---
 
@@ -341,7 +382,7 @@ items below have "if the renderer is compromised" as a realistic precondition.
 1. Revoke the PAT + rewrite history + redesign updates (blocker 1).
 2. Remove build-time keys; make FRED/Gemini runtime-entered + `safeStorage`
    (blockers 2–3).
-3. LICENSE + README (blocker 4; ✅ `.env.example` done).
+3. ✅ LICENSE + README (blocker 4; `.env.example` done).
 4. CSP (✅ `openExternal` allowlist + `will-navigate` done).
 5. ✅ hosts domain validation + `elevate.ts` quoting.
 6. Schema migrations (✅ atomic settings write done).
