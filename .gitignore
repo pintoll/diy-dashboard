@@ -31,6 +31,7 @@ yarn-error.log*
 
 # env files (nothing is read from .env anymore; keys are runtime-entered)
 .env*
+.fred_key
 
 # typescript
 *.tsbuildinfo
