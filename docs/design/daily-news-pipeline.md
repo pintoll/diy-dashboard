@@ -50,7 +50,7 @@ final_score = relevance × 0.7 + importance × 0.3
 - Serendipity: up to 2 otherwise-dropped articles are revived at random, tagged `serendipity`.
 - Cap: at most 8 articles per category survive into `articles` (highest score first).
 
-On a Gemini response that fails to parse as JSON, every article in that batch is included anyway with `relevance = importance = 5`, tagged `parse_error` — a fabricated middling score rather than a dropped batch (tracked as an open item in [`wip/oss-readiness-audit.md`](../wip/oss-readiness-audit.md)).
+On a Gemini response that fails to parse as JSON, the whole batch is dropped rather than fabricating scores — it simply doesn't appear that day.
 
 ### Prompt
 
@@ -101,7 +101,7 @@ articles
 ├── relevance     INTEGER         ← 0–10
 ├── importance    INTEGER         ← 0–10
 ├── final_score   REAL            ← weighted sum (0–10)
-├── tag           TEXT            ← "relevant" | "bypass" | "serendipity" | "parse_error"
+├── tag           TEXT            ← "relevant" | "bypass" | "serendipity"
 ├── fetched_date  TEXT NOT NULL DEFAULT CURRENT_DATE
 └── created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     (indexed on (fetched_date, final_score) — serves both the scheduler's
