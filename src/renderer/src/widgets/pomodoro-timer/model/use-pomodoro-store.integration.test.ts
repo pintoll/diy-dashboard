@@ -1,0 +1,168 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// usePomodoroStore wraps store creation in useMemo; call the factory directly so
+// we can drive the store outside React.
+vi.mock("react", async (orig) => {
+  const actual = await orig<typeof import("react")>();
+  return { ...actual, useMemo: (fn: () => unknown) => fn() };
+});
+
+import { usePomodoroStore } from "./use-pomodoro-store";
+import { useTodoStore } from "@/src/entities/todo";
+import type { PomodoroConfig } from "./pomodoro.types";
+
+type RecordWorkCall = {
+  attributionId: string;
+  todoId: string;
+  sessionId: string;
+  startedAt: number;
+  endedAt: number;
+  workedSec: number;
+};
+
+const CONFIG: PomodoroConfig = {
+  workDuration: 25,
+  shortBreakDuration: 5,
+  longBreakDuration: 15,
+  pomodorosUntilLongBreak: 4,
+  leisureProcesses: [],
+  detectionEnabled: true,
+  chimeEnabled: true,
+  flashEnabled: true,
+};
+const FULL_BLOCK_SEC = 25 * 60; // 1500
+const T0 = 1_770_000_000_000; // fixed epoch ms
+let recordWork: ReturnType<typeof vi.fn>;
+
+// A unique instance id per test — createWidgetStore caches by id, so reusing one
+// would bleed state across tests.
+let counter = 0;
+function freshStore() {
+  // Not a real hook call: react's useMemo is mocked to an identity above, so this
+  // just invokes the store factory.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const store = usePomodoroStore(`itest-${counter++}`, CONFIG);
+  store.getState().reset();
+  return store;
+}
+
+function recordWorkCalls(): RecordWorkCall[] {
+  return recordWork.mock.calls.map((c) => c[0] as RecordWorkCall);
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(T0);
+  recordWork = vi.fn().mockResolvedValue(undefined);
+  // Minimal electronAPI: the accrual write + the session-log write-through.
+  (window as unknown as { electronAPI: unknown }).electronAPI = {
+    todos: { recordWork },
+    pomodoro: { record: vi.fn().mockResolvedValue(undefined) },
+  };
+  useTodoStore.setState({ activeTodoId: null, activeTodo: null });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("pomodoro store -> desk interval accrual (glue)", () => {
+  it("start then skip banks the full block to the active todo", () => {
+    useTodoStore.setState({ activeTodoId: "T1" });
+    const store = freshStore();
+
+    store.getState().start();
+    store.getState().skip();
+
+    const calls = recordWorkCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ todoId: "T1", workedSec: FULL_BLOCK_SEC });
+    expect(calls[0].attributionId).toMatch(/:T1:0$/);
+    expect(calls[0].sessionId.length).toBeGreaterThan(0);
+  });
+
+  it("no active todo -> nothing is banked", () => {
+    const store = freshStore(); // activeTodoId null
+    store.getState().start();
+    store.getState().skip();
+    expect(recordWorkCalls()).toHaveLength(0);
+  });
+
+  it("pause banks the elapsed wall time so far", () => {
+    useTodoStore.setState({ activeTodoId: "T1" });
+    const store = freshStore();
+
+    store.getState().start();
+    vi.setSystemTime(T0 + 300_000); // 5 min in
+    store.getState().pause();
+
+    const calls = recordWorkCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ todoId: "T1", workedSec: 300 });
+  });
+
+  it("switching the active todo mid-block banks the leaver, then the joiner rides to skip", () => {
+    useTodoStore.setState({ activeTodoId: "T1" });
+    const store = freshStore();
+
+    store.getState().start();
+    vi.setSystemTime(T0 + 300_000); // 5 min in
+    // Desk change: DeskAttributionController would call syncDesk on this.
+    useTodoStore.setState({ activeTodoId: "T2" });
+    store.getState().syncDesk();
+
+    // T1 banked its 5-min partial at the switch.
+    let calls = recordWorkCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ todoId: "T1", workedSec: 300 });
+    expect(calls[0].attributionId).toMatch(/:T1:0$/);
+
+    // T2 rode from the switch to skip (closes at phase end = full block start +
+    // 25 min), so 25 - 5 = 20 min.
+    store.getState().skip();
+    calls = recordWorkCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({ todoId: "T2", workedSec: 20 * 60 });
+    expect(calls[1].attributionId).toMatch(/:T2:0$/);
+  });
+
+  it("early stop then confirmReview banks only the elapsed block seconds", () => {
+    useTodoStore.setState({ activeTodoId: "T1" });
+    const store = freshStore();
+
+    store.getState().start();
+    vi.setSystemTime(T0 + 420_000); // 7 min in
+    store.getState().stop();
+    // Accrual is deferred to the review (editable total); nothing banked yet.
+    expect(recordWorkCalls()).toHaveLength(0);
+
+    store.getState().confirmReview({
+      attention: "focus",
+      attentionSource: "auto",
+      overtimeSec: 0,
+    });
+    const calls = recordWorkCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ todoId: "T1", workedSec: 420 });
+  });
+
+  it("pause then resume yields two distinct interval rows summing to the block", () => {
+    useTodoStore.setState({ activeTodoId: "T1" });
+    const store = freshStore();
+
+    store.getState().start();
+    vi.setSystemTime(T0 + 300_000); // 5 min
+    store.getState().pause(); // banks T1:0 = 300s
+    vi.setSystemTime(T0 + 480_000); // resume after a 3-min pause
+    store.getState().start(); // resume: reopens T1 (seq 1), phase end shifts +180s
+    store.getState().skip(); // banks T1:1 for the remaining 20 min
+
+    const calls = recordWorkCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[0].attributionId).toMatch(/:T1:0$/);
+    expect(calls[1].attributionId).toMatch(/:T1:1$/);
+    expect(calls[0].sessionId).toBe(calls[1].sessionId); // same block/session
+    expect(calls[0].workedSec + calls[1].workedSec).toBe(FULL_BLOCK_SEC);
+  });
+});

@@ -56,6 +56,9 @@ export type TodoListFilter = {
 };
 
 export type RecordWorkInput = {
+  // Stable per in-flight interval, renderer-generated (`<sessionId>:<todoId>:<seq>`).
+  // The idempotency key: a retried write with the same id is a no-op.
+  attributionId: string;
   todoId: string;
   sessionId: string;
   startedAt: number;

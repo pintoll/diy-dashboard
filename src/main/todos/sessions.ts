@@ -7,12 +7,17 @@ import {
 } from "./types";
 
 /**
- * Accrues one pomodoro work session onto a todo. Idempotent on sessionId:
- * the link row is the dedup key, and worked_sec only accrues when the row is
- * actually inserted, so a retried IPC/HTTP call can never double-count.
+ * Accrues one in-flight interval of a pomodoro onto a todo. Idempotent on
+ * attribution_id: the ledger row is the dedup key, and worked_sec only accrues
+ * when the row is actually inserted, so a retried IPC/HTTP call can never
+ * double-count. One session can bank many rows (one per desk member per
+ * interval); see docs/design/multi-pomo-todo.md.
  */
 export function recordWork(input: RecordWorkInput): void {
-  const { todoId, sessionId, startedAt, endedAt, workedSec } = input;
+  const { attributionId, todoId, sessionId, startedAt, endedAt, workedSec } = input;
+  if (typeof attributionId !== "string" || attributionId.length === 0) {
+    throw new ValidationError("attributionId must be a non-empty string");
+  }
   if (typeof sessionId !== "string" || sessionId.length === 0) {
     throw new ValidationError("sessionId must be a non-empty string");
   }
@@ -32,10 +37,10 @@ export function recordWork(input: RecordWorkInput): void {
 
     const info = db
       .prepare(
-        `INSERT OR IGNORE INTO todo_sessions (session_id, todo_id, started_at, ended_at, worked_sec)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT OR IGNORE INTO todo_sessions (attribution_id, session_id, todo_id, started_at, ended_at, worked_sec)
+         VALUES (?, ?, ?, ?, ?, ?)`
       )
-      .run(sessionId, todoId, startedAt, endedAt, workedSec);
+      .run(attributionId, sessionId, todoId, startedAt, endedAt, workedSec);
     inserted = info.changes === 1;
     if (inserted) {
       db.prepare(

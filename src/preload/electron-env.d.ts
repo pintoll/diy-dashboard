@@ -393,6 +393,9 @@ interface TodoListFilter {
 }
 
 interface TodoRecordWorkInput {
+  // Stable per in-flight interval (`<sessionId>:<todoId>:<seq>`); the ledger's
+  // idempotency key, so a retried accrual can never double-count.
+  attributionId: string;
   todoId: string;
   sessionId: string;
   startedAt: number;

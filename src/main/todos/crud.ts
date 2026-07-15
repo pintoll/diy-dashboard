@@ -139,12 +139,10 @@ export function updateTodo(id: string, patch: TodoPatch): Todo {
        WHERE id = ?`
     ).run(title, note, date, sortOrder, done ? 1 : 0, completedOn, id);
 
-    // A finished todo cannot stay "Working...": clear the activation in the
-    // same transaction so no observer sees a done-but-active state.
+    // A finished todo steps off the desk: drop its membership in the same
+    // transaction so no observer sees a done-but-on-desk state.
     if (done && !wasDone) {
-      db.prepare(
-        "UPDATE active_todo SET todo_id = NULL, activated_at = NULL WHERE todo_id = ?"
-      ).run(id);
+      db.prepare("DELETE FROM desk WHERE todo_id = ?").run(id);
     }
   })();
 
@@ -154,7 +152,7 @@ export function updateTodo(id: string, patch: TodoPatch): Todo {
 
 export function deleteTodo(id: string): void {
   getRow(id);
-  // todo_sessions rows cascade; an active_todo reference resolves to NULL.
+  // todo_sessions and desk rows both cascade (ON DELETE CASCADE).
   getTodosDb().prepare("DELETE FROM todos WHERE id = ?").run(id);
   emitTodosChanged({ reason: "delete", id });
 }

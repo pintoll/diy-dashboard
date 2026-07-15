@@ -3,8 +3,10 @@
 Lets a single pomodoro session credit **several todos at once**, and credits each
 one **incrementally** as work happens instead of only when the timer fully stops.
 
-Status: **design.** Branch `feature/multi-pomo-todo`. Supersedes the single
-active-todo model wherever the two conflict.
+Status: **phase 1 implemented** (data + accrual core). Branch
+`feature/multi-pomo-todo`. Supersedes the single active-todo model wherever the
+two conflict. Phases 2-4 (desk UI, bridge/dyd/specs, session-record `todoIds`)
+remain.
 
 ## Why
 
@@ -231,10 +233,15 @@ with accrued `worked_sec`, so phase 1 must migrate, not reset:
 
 ## Rollout / phasing
 
-1. **Data + accrual core.** `desk` table + `todo_sessions` surrogate key +
-   interval-based `recordWork`; pomo store banks per interval over the desk.
-   Unit-test the interval/overlap math (the one piece with real edge cases:
-   join mid-block, complete mid-block, pause, overtime, leave+rejoin).
+1. **Data + accrual core.** ✅ **Done.** `desk` table + `todo_sessions` surrogate
+   `attribution_id` (rebuild migration, `worked_sec` preserved) + interval-based
+   `recordWork`; pomo store banks per interval over the desk via the pure engine
+   in `widgets/pomodoro-timer/model/desk-attribution.ts`, driven by
+   `DeskAttributionController`. `active_todo` → `desk` with single-active compat
+   wrappers kept (`todos/active.ts`) so IPC + agent API are untouched this phase.
+   The overlap math is unit-tested (`desk-attribution.test.ts`) and the store
+   glue is integration-tested (`use-pomodoro-store.integration.test.ts`):
+   join mid-block, complete mid-block, pause, overtime, leave+rejoin.
 2. **Desk UI.** `TodoRow` multi-select + `TodoTodayClient` desk section.
 3. **Bridge + dyd + remote + specs.** Plural `desk`, compat alias, spec updates.
 4. **Session-record `todoIds` migration** (+ drill-down display, optional).
