@@ -457,6 +457,58 @@ interface PomodoroAPI {
   import: (sessions: PomodoroSessionDTO[]) => Promise<{ imported: number }>;
 }
 
+// Renderer-authoritative pomodoro bridge wire types. The raw snapshot carries
+// the store's inputs; main recomputes the live fields (remainingSec, overtime
+// elapsed) at request time. Kept in sync with src/main/agent-api/pomodoro-bridge.ts.
+interface PomodoroRawSnapshot {
+  phase: "work" | "shortBreak" | "longBreak";
+  isRunning: boolean;
+  startedAt: number | null;
+  pausedTimeRemaining: number | null;
+  phaseDurationSec: number;
+  completedPomodoros: number;
+  presetId: string;
+  overtime: {
+    startedAt: number;
+    accumulatedSec: number;
+    lastActiveAt: number;
+    isIdle: boolean;
+  } | null;
+  pendingReview: boolean;
+}
+
+type PomodoroBridgePush =
+  | { bound: false }
+  | { bound: true; snapshot: PomodoroRawSnapshot };
+
+type PomodoroCommandAction =
+  | "start"
+  | "pause"
+  | "stop"
+  | "skip"
+  | "reset"
+  | "set-preset"
+  | "stop-overtime";
+
+interface PomodoroBridgeCommand {
+  id: string;
+  action: PomodoroCommandAction;
+  presetId?: string;
+}
+
+interface PomodoroCommandResult {
+  id: string;
+  applied: boolean;
+  reason?: string;
+  snapshot: PomodoroRawSnapshot;
+}
+
+interface PomodoroBridgeAPI {
+  sendSnapshot: (payload: PomodoroBridgePush) => void;
+  onCommand: (callback: (command: PomodoroBridgeCommand) => void) => () => void;
+  sendCommandResult: (payload: PomodoroCommandResult) => void;
+}
+
 interface ElectronAPI {
   showNotification: (payload: { title: string; body: string }) => Promise<void>;
   isNotificationSupported: () => Promise<boolean>;
@@ -468,6 +520,7 @@ interface ElectronAPI {
   notifyPomodoroSessionStarted: () => Promise<void>;
   notifyPomodoroSessionEnded: () => Promise<void>;
   onActiveWindow: (callback: (data: ActiveWindowPayload) => void) => () => void;
+  pomodoroBridge: PomodoroBridgeAPI;
   getDetectionDiagnostics: () => Promise<DetectionDiagnostics>;
   setTrayTooltip: (text: string | null) => Promise<void>;
   siteGuard: SiteGuardAPI;

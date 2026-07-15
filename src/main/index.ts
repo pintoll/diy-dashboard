@@ -25,6 +25,7 @@ import { registerFinanceIpc } from "./finance/ipc";
 import { registerTodosIpc } from "./todos/ipc";
 import { registerPomodoroIpc } from "./pomodoro/ipc";
 import { startAgentApi, stopAgentApi } from "./agent-api/server";
+import { registerPomodoroBridgeIpc } from "./agent-api/pomodoro-bridge";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -415,6 +416,7 @@ app.whenReady().then(async () => {
   registerFinanceIpc();
   registerTodosIpc();
   registerPomodoroIpc();
+  registerPomodoroBridgeIpc();
   startAgentApi();
   startDailyNewsScheduler();
   // A focus session is never active on a fresh launch (sessionActive is

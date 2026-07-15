@@ -59,6 +59,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.removeListener("pomodoro:active-window", listener);
     };
   },
+  // Renderer-authoritative pomodoro timer bridge for the local agent API: push
+  // raw store snapshots to main, and execute commands main forwards back.
+  pomodoroBridge: {
+    sendSnapshot: (payload: PomodoroBridgePush) =>
+      ipcRenderer.send("pomodoro:bridge:snapshot", payload),
+    onCommand: (callback: (command: PomodoroBridgeCommand) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, command: PomodoroBridgeCommand) =>
+        callback(command);
+      ipcRenderer.on("pomodoro:bridge:command", listener);
+      return () => {
+        ipcRenderer.removeListener("pomodoro:bridge:command", listener);
+      };
+    },
+    sendCommandResult: (payload: PomodoroCommandResult) =>
+      ipcRenderer.send("pomodoro:bridge:command-result", payload),
+  },
   dailyNews: {
     fetch: () => ipcRenderer.invoke("dailyNews:fetch"),
     sendFeedback: (payload: {

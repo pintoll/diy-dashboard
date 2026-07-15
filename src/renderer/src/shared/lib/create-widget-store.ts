@@ -5,7 +5,7 @@ import {
   type PersistOptions,
 } from "zustand/middleware";
 
-type WidgetStore<T> = UseBoundStore<StoreApi<T>>;
+export type WidgetStore<T> = UseBoundStore<StoreApi<T>>;
 type StoreCache = Map<string, WidgetStore<unknown>>;
 
 const storeCache: StoreCache = new Map();
@@ -89,6 +89,17 @@ export function createWidgetStore<T extends object>(
 
   storeCache.set(cacheKey, store as WidgetStore<unknown>);
   return store;
+}
+
+// Fetch an already-created store by cache key without creating one. Returns
+// undefined when the owning widget has not mounted yet (so its store does not
+// exist). Used by headless subscribers that bind to a widget instance's store
+// from outside React (e.g. the pomodoro agent-API bridge).
+export function getWidgetStore<T>(
+  name: string,
+  instanceId: string
+): WidgetStore<T> | undefined {
+  return storeCache.get(`${name}-${instanceId}`) as WidgetStore<T> | undefined;
 }
 
 export function clearWidgetStore(name: string, instanceId: string) {
