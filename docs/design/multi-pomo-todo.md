@@ -3,9 +3,9 @@
 Lets a single pomodoro session credit **several todos at once**, and credits each
 one **incrementally** as work happens instead of only when the timer fully stops.
 
-Status: **phases 1-2 implemented** (data + accrual core, desk UI). Branch
-`feature/multi-pomo-todo`. Supersedes the single active-todo model wherever the
-two conflict. Phases 3-4 (bridge/dyd/specs, session-record `todoIds`) remain.
+Status: **phases 1-3 implemented** (data + accrual core, desk UI, bridge/dyd/specs).
+Branch `feature/multi-pomo-todo`. Supersedes the single active-todo model wherever
+the two conflict. Phase 4 (session-record `todoIds`) remains.
 
 ## Why
 
@@ -155,10 +155,13 @@ An interval **closes and banks** (one `recordWork` call) on any of:
 - **`GET /api/pomodoro`** returns `desk` array. Keep `activeTodo` as a
   deprecated alias = `desk[0] ?? null` for one release so existing `dyd` keeps
   working.
-- **`POST /api/active-todo`** (`dyd todo use`, `dyd-cli.md:97`) → add/remove/clear
-  desk semantics. `dyd todo use <n>` adds; a new `dyd todo drop <n>` removes;
-  `dyd todo use -` clears. The `*` marker in `dyd`'s overview
-  (`dyd-cli.md:53`) marks every desk member.
+- **Desk mutation** got its own REST endpoints rather than overloading
+  `/api/active-todo` with an op field: `POST /api/desk {id}` adds (additive),
+  `DELETE /api/desk/:id` removes, `DELETE /api/desk` clears, `GET /api/desk`
+  reads. `GET`/`POST /api/active-todo` stay one release as a single-active compat
+  shim (`get`=desk[0], `post`=collapse). `dyd todo use <n>` adds; new
+  `dyd todo drop <n>` removes; `dyd todo use -` clears. The `*` marker in `dyd`'s
+  overview marks every desk member.
 - **Remote web view** (Tailscale read view) shows the desk as a list, not a
   single "Working" line.
 
@@ -250,7 +253,15 @@ with accrued `worked_sec`, so phase 1 must migrate, not reset:
    still the primary member until phase 4) and `DeskAttributionController` keys
    on desk membership. `active_todo` IPC + agent API left as compat for phase 3.
    Two multi-member integration tests added.
-3. **Bridge + dyd + remote + specs.** Plural `desk`, compat alias, spec updates.
+3. **Bridge + dyd + specs.** ✅ **Done.** `GET /api/pomodoro` now carries
+   `desk: {id,title}[]` with `activeTodo = desk[0] ?? null` kept one release
+   (`pomodoro-bridge.ts`). New `/api/desk` REST routes (GET/POST/DELETE, +
+   `DELETE /api/desk/:id`) drive add/remove/clear; `/api/active-todo` stays as a
+   deprecated single-active shim. `dyd todo use` adds to the desk, `dyd todo drop`
+   removes, `use -` clears, and the `*` overview marker + `dyd pomo` desk block
+   list every member. Specs updated: `todos-agent-api.md`, `pomodoro-agent-api.md`,
+   `dyd-cli.md`. Remote web view is a separate unstarted project — no code exists
+   to update, so it's out of scope here (it will consume `desk` when built).
 4. **Session-record `todoIds` migration** (+ drill-down display, optional).
 </content>
 </invoke>

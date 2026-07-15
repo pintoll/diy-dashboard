@@ -176,8 +176,3 @@ export function endBlock(state: AttributionState, params: { at: number; overtime
   );
   return { state: initialAttribution(), banks };
 }
-
-// Abandon the block without banking (reset / preset change).
-export function discard(): Result {
-  return { state: initialAttribution(), banks: [] };
-}

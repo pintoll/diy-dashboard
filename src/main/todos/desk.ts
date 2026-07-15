@@ -37,10 +37,11 @@ function loadOpenTodo(id: string): TodoRow {
 
 export function addToDesk(id: string): Todo {
   const row = loadOpenTodo(id);
-  getTodosDb()
+  const info = getTodosDb()
     .prepare("INSERT OR IGNORE INTO desk (todo_id, joined_at) VALUES (?, ?)")
     .run(id, new Date().toISOString());
-  emitTodosChanged({ reason: "active", id });
+  // Already on the desk: the INSERT was ignored, so nothing changed — don't emit.
+  if (info.changes === 1) emitTodosChanged({ reason: "active", id });
   return rowToTodo(row);
 }
 

@@ -353,9 +353,11 @@ function migrateState(persistedState: unknown, version: number): PomodoroStore {
   }
 
   if (version < 15) {
-    // Interval-attribution bookkeeping added for the desk model. Start clean;
-    // a block in progress across the upgrade loses only its still-open
-    // interval, and the field self-heals on the next start.
+    // Interval-attribution bookkeeping added for the desk model. Start clean.
+    // A work block in progress across the upgrade loses its still-open interval;
+    // the field self-heals on the next *fresh* start (startBlock). A session
+    // that was paused across the upgrade and then resumed accrues nothing to the
+    // desk (resumeBlock no-ops on the null sessionId) — a one-time accepted loss.
     state = { ...state, attribution: initialAttribution() };
   }
 
