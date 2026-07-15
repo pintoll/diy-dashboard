@@ -114,6 +114,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     update: (id: string, patch: TodoPatch) =>
       ipcRenderer.invoke("todos:update", { id, patch }),
     remove: (id: string) => ipcRenderer.invoke("todos:delete", id),
+    titlesByIds: (ids: string[]) =>
+      ipcRenderer.invoke("todos:titles-by-ids", ids),
     reorder: (date: string, ids: string[]) =>
       ipcRenderer.invoke("todos:reorder", { date, ids }),
     active: {

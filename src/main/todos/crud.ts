@@ -51,6 +51,23 @@ export function getTodo(id: string): Todo {
   return rowToTodo(getRow(id));
 }
 
+/**
+ * Resolves a set of todo ids to their titles for display — the analytics day
+ * drill-down's per-session "worked on" line, which links a pomodoro session to
+ * the todos that were on the desk during it (docs/design/multi-pomo-todo.md).
+ * Deleted todos are simply absent from the result (the caller shows a fallback),
+ * so this never throws on an unknown id the way `getTodo` does. Order is
+ * unspecified; callers key by id.
+ */
+export function getTodoTitlesByIds(ids: string[]): { id: string; title: string }[] {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return [];
+  const placeholders = unique.map(() => "?").join(",");
+  return getTodosDb()
+    .prepare(`SELECT id, title FROM todos WHERE id IN (${placeholders})`)
+    .all(...unique) as { id: string; title: string }[];
+}
+
 export function listTodos(filter: TodoListFilter): Todo[] {
   const db = getTodosDb();
   let rows: TodoRow[];

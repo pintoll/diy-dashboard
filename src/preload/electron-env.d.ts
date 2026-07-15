@@ -422,6 +422,9 @@ interface TodosAPI {
   create: (input: TodoCreateInput) => Promise<TodoItem>;
   update: (id: string, patch: TodoPatch) => Promise<TodoItem>;
   remove: (id: string) => Promise<void>;
+  // Batch id -> title resolve for display (analytics drill-down). Deleted ids
+  // are absent from the result; the caller shows a fallback.
+  titlesByIds: (ids: string[]) => Promise<{ id: string; title: string }[]>;
   reorder: (date: string, ids: string[]) => Promise<void>;
   active: {
     get: () => Promise<TodoItem | null>;

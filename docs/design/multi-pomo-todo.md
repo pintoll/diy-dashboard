@@ -3,10 +3,10 @@
 Lets a single pomodoro session credit **several todos at once**, and credits each
 one **incrementally** as work happens instead of only when the timer fully stops.
 
-Status: **phases 1-4 implemented** (data + accrual core, desk UI, bridge/dyd/specs,
-session-record `todoIds`). Branch `feature/multi-pomo-todo`. Supersedes the single
-active-todo model wherever the two conflict. The optional drill-down UI that
-surfaces `todoIds` is the only deferred piece.
+Status: **fully implemented** (data + accrual core, desk UI, bridge/dyd/specs,
+session-record `todoIds`, and the analytics drill-down that surfaces them).
+Branch `feature/multi-pomo-todo`. Supersedes the single active-todo model
+wherever the two conflict.
 
 ## Why
 
@@ -274,6 +274,13 @@ with accrued `worked_sec`, so phase 1 must migrate, not reset:
    localStorage import gains a v5→v6 `todoId`→`[todoId]` step; store persist
    v15→v16 does the same for an in-flight `pendingReview`. Analytics still never
    reads it (forward-compat only). New integration test asserts the union spans a
-   mid-block leaver. **Deferred:** the drill-down UI that surfaces `todoIds`.
+   mid-block leaver.
+5. **Drill-down display.** ✅ **Done.** The analytics day drill-down
+   (`pages/focus-analytics/ui/DayDrillDown.tsx`) gained a per-session "Worked on"
+   line listing each session's todos as chips. Titles resolve via a new batch
+   `todos.titlesByIds(ids)` IPC (`todos:titles-by-ids` → `getTodoTitlesByIds`, a
+   single `WHERE id IN (...)`); ids fetch once when the dialog opens, keyed on the
+   id set so a note save never refetches. A todo deleted since shows an italic
+   "(deleted)" fallback (absent from the result); rows show "…" while loading.
 </content>
 </invoke>

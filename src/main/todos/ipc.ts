@@ -4,6 +4,7 @@ import { addToDesk, clearDesk, getDesk, removeFromDesk } from "./desk";
 import {
   createTodo,
   deleteTodo,
+  getTodoTitlesByIds,
   listOverdue,
   listTodos,
   reorderTodos,
@@ -43,6 +44,13 @@ export function registerTodosIpc(): void {
   );
 
   ipcMain.handle("todos:delete", (_event, id: string): void => deleteTodo(id));
+
+  // Batch id -> title resolve for the analytics drill-down; deleted ids drop out.
+  ipcMain.handle(
+    "todos:titles-by-ids",
+    (_event, ids: string[]): { id: string; title: string }[] =>
+      getTodoTitlesByIds(ids)
+  );
 
   ipcMain.handle(
     "todos:reorder",
