@@ -26,7 +26,7 @@ import type {
 
 type PomodoroStore = PomodoroState & PomodoroActions & { config: PomodoroConfig };
 
-const STORE_VERSION = 15;
+const STORE_VERSION = 16;
 export const OVERTIME_CAP_SEC = 3600;
 const OVERTIME_IDLE_THRESHOLD_SEC = 60;
 const OVERTIME_ALARM_THRESHOLDS_SEC = [300, 600, 1200, 1800, 3600] as const;
@@ -82,11 +82,14 @@ function deskMembers(): string[] {
   return useTodoStore.getState().desk.map((t) => t.id);
 }
 
-// The single todoId still stamped on the pomodoro session-log record (the
-// "celebration" link). Plural `todoIds` is phase 4; until then the primary
-// (oldest) desk member stands in, matching the pre-desk active-todo snapshot.
-function primaryDeskTodoId(): string | null {
-  return useTodoStore.getState().desk[0]?.id ?? null;
+// The desk union stamped on the pomodoro session-log record (the "celebration"
+// link): every todo that opened an interval at any point in this block. The
+// attribution engine's `seqByTodo` accumulates across start / syncDesk / resume
+// and is only cleared at endBlock, so its keys are exactly that union — and,
+// unlike a live-desk read, it still includes todos that completed or were
+// removed mid-block. Read it at every record site *before* endBlock resets it.
+function deskUnionTodoIds(attribution: PomodoroState["attribution"]): string[] {
+  return Object.keys(attribution.seqByTodo);
 }
 
 // True while desk members should accrue: a running work phase, or overtime.
@@ -126,7 +129,8 @@ function bankWork(banks: AttributionBank[]): void {
 // Writes the pomodoro session-log record (the renderer-side "celebration" log).
 // Todo worked_sec accrual is NO LONGER done here — it flows through the interval
 // engine (endBlock) so partial and multi-todo work is credited correctly. The
-// single `todoId` snapshot is kept for the log link (plural todoIds is phase 4).
+// desk-union `todoIds` is the log's "which todos" link. Called before endBlock,
+// so the attribution union is still intact.
 function recordCompletedWorkSession(state: PomodoroState & { config: PomodoroConfig }) {
   if (state.phase !== "work") return;
   const durationSec = state.config.workDuration * 60;
@@ -140,7 +144,7 @@ function recordCompletedWorkSession(state: PomodoroState & { config: PomodoroCon
     presetId: state.activePresetId,
     processBuckets: state.processBuckets,
     intendedMode: useFocusModeStore.getState().intendedMode,
-    todoId: primaryDeskTodoId(),
+    todoIds: deskUnionTodoIds(state.attribution),
   });
 }
 
@@ -170,9 +174,10 @@ function buildPendingReview(
     // Snapshot intent at session end: the tab unlocks once the session is over,
     // so the review (confirmed later) must not pick up a post-session flip.
     intendedMode: useFocusModeStore.getState().intendedMode,
-    // Same snapshot rule: the review must credit the todo that led the desk
-    // during the session, not one added afterwards.
-    todoId: primaryDeskTodoId(),
+    // Same snapshot rule: the review must credit the todos worked during the
+    // session, not any added afterwards. The block's intervals are still open
+    // here (banked at confirmReview), so the union is intact.
+    todoIds: deskUnionTodoIds(state.attribution),
   };
 }
 
@@ -361,6 +366,23 @@ function migrateState(persistedState: unknown, version: number): PomodoroStore {
     state = { ...state, attribution: initialAttribution() };
   }
 
+  if (version < 16) {
+    // pendingReview's single `todoId` became the desk union `todoIds`.
+    const pendingReview = state.pendingReview as
+      | ({ todoId?: string | null; todoIds?: string[] } & Record<string, unknown>)
+      | null;
+    if (pendingReview) {
+      const legacy = pendingReview.todoId ?? null;
+      state = {
+        ...state,
+        pendingReview: {
+          ...pendingReview,
+          todoIds: pendingReview.todoIds ?? (legacy != null ? [legacy] : []),
+        },
+      };
+    }
+  }
+
   return state as unknown as PomodoroStore;
 }
 
@@ -544,7 +566,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             sessionEndType: "early-stop",
             processBuckets: state.processBuckets,
             intendedMode: useFocusModeStore.getState().intendedMode,
-            todoId: primaryDeskTodoId(),
+            todoIds: deskUnionTodoIds(state.attribution),
           };
 
           // Leave the interval(s) open: the review lets the user edit the total,
@@ -739,7 +761,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             sessionEndType: pendingReview.sessionEndType,
             processBuckets: pendingReview.processBuckets,
             intendedMode: pendingReview.intendedMode,
-            todoId: pendingReview.todoId,
+            todoIds: pendingReview.todoIds,
             attention: input.attention,
             attentionSource: input.attentionSource,
           });

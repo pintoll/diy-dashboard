@@ -39,6 +39,7 @@ const CONFIG: PomodoroConfig = {
 const FULL_BLOCK_SEC = 25 * 60; // 1500
 const T0 = 1_770_000_000_000; // fixed epoch ms
 let recordWork: ReturnType<typeof vi.fn>;
+let recordSessionLog: ReturnType<typeof vi.fn>;
 
 // A unique instance id per test — createWidgetStore caches by id, so reusing one
 // would bleed state across tests.
@@ -56,14 +57,19 @@ function recordWorkCalls(): RecordWorkCall[] {
   return recordWork.mock.calls.map((c) => c[0] as RecordWorkCall);
 }
 
+function sessionLogRecords(): { todoIds: string[] }[] {
+  return recordSessionLog.mock.calls.map((c) => c[0] as { todoIds: string[] });
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(T0);
   recordWork = vi.fn().mockResolvedValue(undefined);
+  recordSessionLog = vi.fn().mockResolvedValue(undefined);
   // Minimal electronAPI: the accrual write + the session-log write-through.
   (window as unknown as { electronAPI: unknown }).electronAPI = {
     todos: { recordWork },
-    pomodoro: { record: vi.fn().mockResolvedValue(undefined) },
+    pomodoro: { record: recordSessionLog },
   };
   useTodoStore.setState({ desk: [] });
 });
@@ -144,6 +150,24 @@ describe("pomodoro store -> desk interval accrual (glue)", () => {
     const byTodo = Object.fromEntries(calls.map((c) => [c.todoId, c.workedSec]));
     // Each member independently gets the whole overlap — overlaps are not split.
     expect(byTodo).toEqual({ T1: FULL_BLOCK_SEC, T2: FULL_BLOCK_SEC });
+  });
+
+  it("the session-log record's todoIds is the desk union, including a mid-block leaver", () => {
+    useTodoStore.setState({ desk: deskOf("T1", "T2") });
+    const store = freshStore();
+
+    store.getState().start();
+    vi.setSystemTime(T0 + 300_000); // 5 min in
+    useTodoStore.setState({ desk: deskOf("T1") }); // T2 leaves (e.g. completed)
+    store.getState().syncDesk();
+    store.getState().skip(); // records the session log
+
+    // The live desk at record time is only [T1], but the record must carry both:
+    // the union spans every todo that was on the desk at any point. This is the
+    // phase-4 fix — a live-desk snapshot would have dropped T2.
+    const records = sessionLogRecords();
+    expect(records).toHaveLength(1);
+    expect([...records[0].todoIds].sort()).toEqual(["T1", "T2"]);
   });
 
   it("a todo joining mid-block accrues from its join; existing members keep the full block", () => {

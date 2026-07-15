@@ -21,7 +21,7 @@ type DefaultedField =
   | "cappedAt60m"
   | "intendedMode"
   | "note"
-  | "todoId";
+  | "todoIds";
 
 type RecordSessionInput =
   Omit<PomodoroSessionRecord, "id" | DefaultedField>
@@ -39,8 +39,8 @@ const RECORD_DEFAULTS: Pick<PomodoroSessionRecord, DefaultedField> = {
   // fake intent would pollute the intent/outcome collapse analysis.
   intendedMode: null,
   note: null,
-  // null = no todo was active. Same never-backfill rule as intendedMode.
-  todoId: null,
+  // [] = no todo was on the desk. Same never-backfill rule as intendedMode.
+  todoIds: [],
 };
 
 type SessionLogState = {
@@ -122,9 +122,14 @@ function normalizeLegacySessions(
     }));
   }
 
-  // v4 -> v5: sessions gained the active-todo link.
-  if (version < 5) {
-    sessions = sessions.map((s) => ({ ...s, todoId: s.todoId ?? null }));
+  // v4 -> v6: sessions gained a todo link — first the single active-todo
+  // `todoId` (v5), then the desk union `todoIds` (v6). Normalize any legacy
+  // single id straight to the array form; absent -> [].
+  if (version < 6) {
+    sessions = sessions.map((s) => {
+      const legacy = (s as { todoId?: string | null }).todoId ?? null;
+      return { ...s, todoIds: s.todoIds ?? (legacy != null ? [legacy] : []) };
+    });
   }
 
   return sessions as PomodoroSessionRecord[];

@@ -3,9 +3,10 @@
 Lets a single pomodoro session credit **several todos at once**, and credits each
 one **incrementally** as work happens instead of only when the timer fully stops.
 
-Status: **phases 1-3 implemented** (data + accrual core, desk UI, bridge/dyd/specs).
-Branch `feature/multi-pomo-todo`. Supersedes the single active-todo model wherever
-the two conflict. Phase 4 (session-record `todoIds`) remains.
+Status: **phases 1-4 implemented** (data + accrual core, desk UI, bridge/dyd/specs,
+session-record `todoIds`). Branch `feature/multi-pomo-todo`. Supersedes the single
+active-todo model wherever the two conflict. The optional drill-down UI that
+surfaces `todoIds` is the only deferred piece.
 
 ## Why
 
@@ -262,6 +263,17 @@ with accrued `worked_sec`, so phase 1 must migrate, not reset:
    list every member. Specs updated: `todos-agent-api.md`, `pomodoro-agent-api.md`,
    `dyd-cli.md`. Remote web view is a separate unstarted project — no code exists
    to update, so it's out of scope here (it will consume `desk` when built).
-4. **Session-record `todoIds` migration** (+ drill-down display, optional).
+4. **Session-record `todoIds` migration.** ✅ **Done.**
+   `PomodoroSessionRecord.todoId: string|null` → `todoIds: string[]` end to end
+   (renderer type, session-log store, main type, `sessions.ts`, preload DTO). The
+   value is the desk union — `Object.keys(attribution.seqByTodo)`, read at every
+   record site before `endBlock` clears it — so it captures todos that left the
+   desk mid-block (completed / removed), which the old live-desk `todoId` snapshot
+   dropped. SQLite: new `todo_ids` JSON column, `user_version` 1→2 migration seeds
+   it from the retained `todo_id` (`UPDATE ... json_array(todo_id)`); legacy
+   localStorage import gains a v5→v6 `todoId`→`[todoId]` step; store persist
+   v15→v16 does the same for an in-flight `pendingReview`. Analytics still never
+   reads it (forward-compat only). New integration test asserts the union spans a
+   mid-block leaver. **Deferred:** the drill-down UI that surfaces `todoIds`.
 </content>
 </invoke>

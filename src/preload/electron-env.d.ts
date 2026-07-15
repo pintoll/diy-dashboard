@@ -457,7 +457,7 @@ interface PomodoroSessionDTO {
   sessionEndType: "completed" | "early-stop";
   processBuckets: Record<string, number>;
   cappedAt60m: boolean;
-  todoId: string | null;
+  todoIds: string[];
   note: string | null;
 }
 
