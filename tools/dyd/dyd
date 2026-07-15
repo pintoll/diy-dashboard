@@ -1,0 +1,412 @@
+#!/usr/bin/env bash
+# dyd — terminal CLI for diy-dashboard (pomodoro + today's todos).
+# Spec: docs/spec/dyd-cli.md. Talks only to the loopback agent API; remote
+# access is SSH's job. No build step: bash + python3 + curl (or curl.exe).
+set -o pipefail
+
+PROG="dyd"
+
+die_usage() {
+  cat >&2 <<'USAGE'
+usage:
+  dyd                         overview (pomodoro + today + overdue count)
+  dyd pomo                    pomodoro status
+  dyd pomo <start|pause|stop|skip|reset>
+  dyd pomo set <25:5|50:10|100:20|120:30>
+  dyd todo                    today's list
+  dyd todo overdue            overdue list
+  dyd todo add "<title>" [-d <date|tomorrow>] [-n <note>]
+  dyd todo done <n|id>
+  dyd todo use <n|id|->       set/clear the active todo (- clears)
+  global: --json              print the raw API response body
+USAGE
+  exit 1
+}
+
+not_running() {
+  echo "diy-dashboard is not running" >&2
+  exit 2
+}
+
+# --- connection resolution -------------------------------------------------
+resolve_conn() {
+  if [ -n "${DYD_API_FILE:-}" ]; then
+    API_FILE="$DYD_API_FILE"
+    case "$API_FILE" in
+      /mnt/*) CURL="curl.exe" ;;
+      *) CURL="curl" ;;
+    esac
+  else
+    local win
+    win=$(ls /mnt/c/Users/*/AppData/Roaming/diy-dashboard/agent-api.json 2>/dev/null | head -1)
+    if [ -n "$win" ]; then
+      API_FILE="$win"; CURL="curl.exe"
+    elif [ -f "$HOME/.config/diy-dashboard/agent-api.json" ]; then
+      API_FILE="$HOME/.config/diy-dashboard/agent-api.json"; CURL="curl"
+    fi
+  fi
+  if [ -z "${API_FILE:-}" ] || [ ! -f "$API_FILE" ]; then
+    not_running
+  fi
+  { read -r PORT; read -r TOKEN; } < <(python3 - "$API_FILE" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print(d["port"]); print(d["token"])
+except Exception:
+    pass
+PY
+)
+  [ -n "${PORT:-}" ] && [ -n "${TOKEN:-}" ] || not_running
+}
+
+# --- request helper --------------------------------------------------------
+# api METHOD PATH [JSON_BODY] -> sets BODY and HTTP_STATUS; exits 2 on refusal.
+api() {
+  local method="$1" path="$2" body="${3:-}"
+  local args=(-s -S -o - -w '\n%{http_code}' -X "$method"
+    -H "Authorization: Bearer $TOKEN")
+  if [ -n "$body" ]; then
+    args+=(-H "Content-Type: application/json" -d "$body")
+  fi
+  local resp
+  resp=$("$CURL" "${args[@]}" "http://127.0.0.1:$PORT$path" 2>/dev/null)
+  if [ $? -ne 0 ]; then
+    not_running
+  fi
+  HTTP_STATUS="${resp##*$'\n'}"
+  BODY="${resp%$'\n'*}"
+}
+
+api_ok_or_die() {
+  case "$HTTP_STATUS" in
+    2*) return 0 ;;
+    *)
+      local msg
+      msg=$(printf '%s' "$BODY" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("error",""))
+except Exception: print("")' 2>/dev/null)
+      echo "${PROG}: error: ${msg:-HTTP $HTTP_STATUS}" >&2
+      exit 1 ;;
+  esac
+}
+
+jget() { # jget JSON 'python-expr on d'
+  printf '%s' "$1" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(eval(sys.argv[1]))' "$2"
+}
+
+# --- formatter (all human output) -----------------------------------------
+FORMATTER=$(cat <<'PY'
+import json, sys
+from datetime import datetime, timedelta
+
+def load(s):
+    s = (s or "").strip()
+    return json.loads(s) if s else None
+
+def mmss(sec):
+    sec = int(sec)
+    sign = "-" if sec < 0 else ""
+    sec = abs(sec)
+    return f"{sign}{sec//60:02d}:{sec%60:02d}"
+
+def worked(sec):
+    sec = int(sec)
+    return f"{sec//60}m" if sec >= 60 else ""
+
+PHASE = {"work": "work", "shortBreak": "break", "longBreak": "long break"}
+def phase_label(p): return PHASE.get(p, p)
+
+def status_word(s):
+    if s["overtime"]: return "overtime"
+    if s["isRunning"]: return "running"
+    if s["remainingSec"] < s["phaseDurationSec"]: return "paused"
+    return "idle"
+
+def pomo_line(p):
+    if p is None:
+        return "pomodoro: unavailable (no widget?)"
+    ph = phase_label(p["phase"]); preset = p["presetId"]; done = p["completedPomodoros"]
+    ot = p["overtime"]
+    if ot:
+        return f"{ph} +{mmss(ot['elapsedSec'])} overtime  ({preset}, #{done})"
+    return f"{ph} {mmss(p['remainingSec'])} / {mmss(p['phaseDurationSec'])}  {status_word(p)}   ({preset}, #{done})"
+
+def compact(s):
+    ph = phase_label(s["phase"])
+    if s["overtime"]:
+        return f"⏱ {ph} +{mmss(s['overtime']['elapsedSec'])} overtime"
+    st = status_word(s)
+    sym = {"running": "▶", "paused": "⏸", "idle": "■"}.get(st, "■")
+    return f"{sym} {ph} {mmss(s['remainingSec'])} {st}"
+
+def kst_today():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Asia/Seoul")).date()
+    except Exception:
+        return datetime.now().date()
+
+def today_block(todos, active_id, date):
+    print(f"── today {date} ─────────────")
+    if not todos:
+        print("  (none)")
+        return
+    for i, t in enumerate(todos, 1):
+        mark = "*" if active_id and t["id"] == active_id else " "
+        box = "[x]" if t["done"] else "[ ]"
+        w = worked(t["workedSec"])
+        line = f"{mark} {i} {box} {t['title']}"
+        print(f"{line:<32} {w}".rstrip() if w else line)
+
+mode = sys.argv[1]
+
+if mode == "overview":
+    p = load(sys.argv[2]); todos = load(sys.argv[3]); overdue = load(sys.argv[4]); active = load(sys.argv[5])
+    active_id = (active or {}).get("todo", {}).get("id") if active and active.get("todo") else None
+    print(pomo_line(p))
+    tlist = (todos or {}).get("todos", [])
+    today_block(tlist, active_id, str(kst_today()))
+    n = len((overdue or {}).get("todos", []))
+    if n:
+        print(f"── overdue: {n} (dyd todo overdue)")
+
+elif mode == "todo":
+    todos = load(sys.argv[2]); active = load(sys.argv[3])
+    active_id = (active or {}).get("todo", {}).get("id") if active and active.get("todo") else None
+    today_block((todos or {}).get("todos", []), active_id, str(kst_today()))
+
+elif mode == "overdue":
+    overdue = load(sys.argv[2])
+    ts = (overdue or {}).get("todos", [])
+    if not ts:
+        print("no overdue todos")
+    else:
+        for t in ts:
+            box = "[x]" if t["done"] else "[ ]"
+            print(f"  {box} {t['title']}   ({t['date']})   {t['id']}")
+
+elif mode == "pomo":
+    p = load(sys.argv[2])
+    if p is None:
+        print("pomodoro: unavailable (no widget?)")
+    else:
+        cycle = f"preset {p['presetId']}, {p['completedPomodoros']} done this cycle"
+        print(f"phase      {phase_label(p['phase'])} ({cycle})")
+        print(f"timer      {mmss(p['remainingSec'])} remaining / {mmss(p['phaseDurationSec'])}   {status_word(p)}")
+        at = p.get("activeTodo")
+        print(f"active     {at['title'] if at else '(none)'}")
+        ot = p["overtime"]
+        if ot:
+            print(f"overtime   +{mmss(ot['elapsedSec'])} ({'idle' if ot['isIdle'] else 'active'})")
+        if p["pendingReview"]:
+            print("review     pending — confirm in the app")
+
+elif mode in ("cmdresult", "setresult"):
+    d = load(sys.argv[2]); s = d["state"]
+    if not d["applied"]:
+        print(f"not applied: {d.get('reason','')}")
+    print(compact(s))
+    if mode == "setresult" and d["applied"]:
+        print(f"(reset to a fresh {s['presetId']} work phase)")
+    if s["pendingReview"]:
+        print("review pending — confirm in the app")
+
+elif mode == "added":
+    todos = load(sys.argv[2]); created_id = sys.argv[3]
+    ts = (todos or {}).get("todos", [])
+    for i, t in enumerate(ts, 1):
+        if t["id"] == created_id:
+            print(f"added  {i} [ ] {t['title']}   ({t['date']})")
+            break
+
+elif mode == "todo_line":
+    t = load(sys.argv[2])["todo"]
+    box = "[x]" if t["done"] else "[ ]"
+    print(f"{sys.argv[3]} {box} {t['title']}")
+
+elif mode == "active_set":
+    d = load(sys.argv[2]); t = d.get("todo")
+    print(f"active: {t['title']}" if t else "active: (none)")
+PY
+)
+
+fmt() { python3 -c "$FORMATTER" "$@"; }
+
+resolve_id() { # resolve_id <n|id> -> sets RESOLVED_ID; returns 1 on bad position.
+  # NOTE: sets a global rather than echoing, so callers invoke it directly (not
+  # in $(...)). exit inside a command substitution would only end the subshell.
+  local arg="$1"
+  case "$arg" in
+    ''|*[!0-9]*) RESOLVED_ID="$arg"; return 0 ;;  # non-numeric = id
+  esac
+  api GET /api/todos; api_ok_or_die
+  local id
+  id=$(printf '%s' "$BODY" | python3 -c '
+import json, sys
+d = json.load(sys.stdin); n = int(sys.argv[1]); ts = d["todos"]
+print(ts[n-1]["id"] if 1 <= n <= len(ts) else "")' "$arg")
+  if [ -z "$id" ]; then
+    echo "${PROG}: no todo at position $arg in today's list" >&2
+    return 1
+  fi
+  RESOLVED_ID="$id"
+  return 0
+}
+
+# --- argument parsing ------------------------------------------------------
+ARGS=(); JSON_OUT=0
+for a in "$@"; do
+  if [ "$a" = "--json" ]; then JSON_OUT=1; else ARGS+=("$a"); fi
+done
+set -- "${ARGS[@]}"
+
+resolve_conn
+
+# --- commands --------------------------------------------------------------
+cmd_overview() {
+  api GET /api/pomodoro; local pb="" ; [ "${HTTP_STATUS:0:1}" = "2" ] && pb="$BODY"
+  local pomo_body="$pb"
+  api GET /api/todos; api_ok_or_die; local todos_body="$BODY"
+  api GET /api/todos/overdue; api_ok_or_die; local overdue_body="$BODY"
+  api GET /api/active-todo; api_ok_or_die; local active_body="$BODY"
+  if [ "$JSON_OUT" = 1 ]; then
+    python3 -c '
+import json, sys
+def load(s):
+    s=(s or "").strip(); return json.loads(s) if s else None
+print(json.dumps({
+  "pomodoro": load(sys.argv[1]),
+  "todos": load(sys.argv[2]),
+  "overdue": load(sys.argv[3]),
+  "activeTodo": load(sys.argv[4]),
+}))' "$pomo_body" "$todos_body" "$overdue_body" "$active_body"
+    return
+  fi
+  fmt overview "$pomo_body" "$todos_body" "$overdue_body" "$active_body"
+}
+
+cmd_pomo() {
+  if [ $# -eq 0 ]; then
+    api GET /api/pomodoro
+    if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; [ "${HTTP_STATUS:0:1}" = "2" ] || exit 1; return; fi
+    if [ "${HTTP_STATUS:0:1}" = "2" ]; then fmt pomo "$BODY"; else fmt pomo ""; fi
+    return
+  fi
+  local sub="$1"; shift
+  case "$sub" in
+    start|pause|skip|reset)
+      api POST /api/pomodoro/command "$(printf '{"action":"%s"}' "$sub")"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt cmdresult "$BODY" ;;
+    stop)
+      # Overtime-aware: one user verb; send stop-overtime when overtime is active.
+      api GET /api/pomodoro; api_ok_or_die
+      local action="stop"
+      [ "$(jget "$BODY" 'bool(d.get("overtime"))')" = "True" ] && action="stop-overtime"
+      api POST /api/pomodoro/command "$(printf '{"action":"%s"}' "$action")"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt cmdresult "$BODY" ;;
+    set)
+      [ $# -eq 1 ] || die_usage
+      local preset="$1"
+      case "$preset" in
+        25:5|50:10|100:20|120:30) ;;
+        *) echo "${PROG}: preset must be one of 25:5 50:10 100:20 120:30" >&2; exit 1 ;;
+      esac
+      api POST /api/pomodoro/command "$(printf '{"action":"set-preset","presetId":"%s"}' "$preset")"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt setresult "$BODY" ;;
+    *) die_usage ;;
+  esac
+}
+
+cmd_todo() {
+  if [ $# -eq 0 ]; then
+    api GET /api/todos
+    if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+    api_ok_or_die; local todos_body="$BODY"
+    api GET /api/active-todo; api_ok_or_die
+    fmt todo "$todos_body" "$BODY"
+    return
+  fi
+  local sub="$1"; shift
+  case "$sub" in
+    overdue)
+      api GET /api/todos/overdue
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt overdue "$BODY" ;;
+    add)
+      [ $# -ge 1 ] || die_usage
+      local title="$1"; shift
+      local date="" note=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          -d) date="${2:-}"; shift 2 ;;
+          -n) note="${2:-}"; shift 2 ;;
+          *) die_usage ;;
+        esac
+      done
+      local body
+      body=$(TITLE="$title" DATE="$date" NOTE="$note" python3 -c '
+import json, os
+from datetime import datetime, timedelta
+def kst_now():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Asia/Seoul"))
+    except Exception:
+        return datetime.now()
+spec = os.environ["DATE"].strip().lower()
+out = {"title": os.environ["TITLE"]}
+if spec == "tomorrow":
+    out["date"] = str((kst_now() + timedelta(days=1)).date())
+elif spec == "today":
+    out["date"] = str(kst_now().date())
+elif spec:
+    out["date"] = os.environ["DATE"]
+if os.environ["NOTE"]:
+    out["note"] = os.environ["NOTE"]
+print(json.dumps(out))')
+      api POST /api/todos "$body"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die
+      local created_id created_date
+      created_id=$(jget "$BODY" 'd["todo"]["id"]')
+      created_date=$(jget "$BODY" 'd["todo"]["date"]')
+      api "GET" "/api/todos?date=$created_date"; api_ok_or_die
+      fmt added "$BODY" "$created_id" ;;
+    done)
+      [ $# -eq 1 ] || die_usage
+      resolve_id "$1" || exit 1
+      api PATCH "/api/todos/$RESOLVED_ID" '{"done":true}'
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt todo_line "$BODY" "done:" ;;
+    use)
+      [ $# -eq 1 ] || die_usage
+      local body
+      if [ "$1" = "-" ]; then
+        body='{"id":null}'
+      else
+        resolve_id "$1" || exit 1
+        body=$(printf '{"id":"%s"}' "$RESOLVED_ID")
+      fi
+      api POST /api/active-todo "$body"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt active_set "$BODY" ;;
+    *) die_usage ;;
+  esac
+}
+
+if [ $# -eq 0 ]; then
+  cmd_overview
+  exit 0
+fi
+
+top="$1"; shift
+case "$top" in
+  pomo) cmd_pomo "$@" ;;
+  todo) cmd_todo "$@" ;;
+  -h|--help|help) die_usage ;;
+  *) die_usage ;;
+esac

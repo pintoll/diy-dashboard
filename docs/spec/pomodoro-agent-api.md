@@ -2,7 +2,7 @@
 
 Extends the local agent API with read/control of the live pomodoro timer. Discovery, auth, transport, and error envelope are identical to [`todos-agent-api.md`](todos-agent-api.md) — read that first.
 
-Status: **spec, not yet implemented.** Consumed by the `dyd` CLI ([`dyd-cli.md`](dyd-cli.md)) and, later, the remote-view web UI.
+Status: **implemented** — routes in `src/main/agent-api/pomodoro-routes.ts`, renderer bridge in `src/renderer/src/widgets/pomodoro-timer/ui/PomodoroBridgeController.tsx`. Consumed by the `dyd` CLI ([`dyd-cli.md`](dyd-cli.md)) and, later, the remote-view web UI.
 
 ## Architecture: the renderer bridge
 

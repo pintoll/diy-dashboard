@@ -2,7 +2,7 @@
 
 Drive the daily-use features (pomodoro, today's todos) from a terminal. Primary scenario: laptop/phone → Tailscale SSH → desktop WSL tmux, where the app runs on the same desktop's Windows side. The CLI only ever talks to the loopback agent API — remote access is SSH's job, so nothing is exposed to the network.
 
-Status: **spec, not yet implemented.** Consumes [`todos-agent-api.md`](todos-agent-api.md) and [`pomodoro-agent-api.md`](pomodoro-agent-api.md).
+Status: **implemented.** Script at `tools/dyd/dyd`. Consumes [`todos-agent-api.md`](todos-agent-api.md) and [`pomodoro-agent-api.md`](pomodoro-agent-api.md).
 
 Named `dyd` because `dash` is `/bin/dash` on Debian/Ubuntu.
 
