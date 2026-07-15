@@ -1,5 +1,6 @@
 import { ipcMain } from "electron";
 import { getActiveTodo, setActiveTodo } from "./active";
+import { addToDesk, clearDesk, getDesk, removeFromDesk } from "./desk";
 import {
   createTodo,
   deleteTodo,
@@ -49,11 +50,25 @@ export function registerTodosIpc(): void {
       reorderTodos(payload.date, payload.ids)
   );
 
+  // Single-active compat (agent API + un-migrated callers). The renderer speaks
+  // the desk channels below; both write the same `desk` table.
   ipcMain.handle("todos:active:get", (): Todo | null => getActiveTodo());
 
   ipcMain.handle("todos:active:set", (_event, id: string | null): Todo | null =>
     setActiveTodo(id)
   );
+
+  // The desk: the set of todos receiving the running work clock. Membership,
+  // not ownership, routes pomodoro time (docs/design/multi-pomo-todo.md).
+  ipcMain.handle("todos:desk:get", (): Todo[] => getDesk());
+
+  ipcMain.handle("todos:desk:add", (_event, id: string): Todo => addToDesk(id));
+
+  ipcMain.handle("todos:desk:remove", (_event, id: string): void =>
+    removeFromDesk(id)
+  );
+
+  ipcMain.handle("todos:desk:clear", (): void => clearDesk());
 
   ipcMain.handle("todos:record-work", (_event, input: RecordWorkInput): void =>
     recordWork(input)

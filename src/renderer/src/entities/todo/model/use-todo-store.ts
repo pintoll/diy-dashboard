@@ -17,8 +17,9 @@ type DaySlice = {
 
 type TodoStore = DaySlice & {
   selectedDate: string;
-  activeTodoId: string | null;
-  activeTodo: Todo | null;
+  // The desk: todos currently receiving the running work clock, oldest member
+  // first (docs/design/multi-pomo-todo.md). Empty when nothing is on the desk.
+  desk: Todo[];
   status: Status;
   error: string | null;
 
@@ -53,8 +54,7 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
   overdue: [],
 
   selectedDate: kstToday(),
-  activeTodoId: null,
-  activeTodo: null,
+  desk: [],
   status: "idle",
   error: null,
 
@@ -72,17 +72,11 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
 
     if (get().status === "idle") set({ status: "loading" });
     try {
-      const [day, active] = await Promise.all([
+      const [day, desk] = await Promise.all([
         fetchDay(api, get().selectedDate),
-        api.active.get(),
+        api.desk.get(),
       ]);
-      set({
-        ...day,
-        activeTodo: active,
-        activeTodoId: active?.id ?? null,
-        status: "ready",
-        error: null,
-      });
+      set({ ...day, desk, status: "ready", error: null });
     } catch (error) {
       set({ status: "error", error: todoErrorMessage(error) });
     }
@@ -109,26 +103,21 @@ export function shiftSelectedDate(days: number): Promise<void> {
   return setDate(addDays(selectedDate, days));
 }
 
-// Module-scope bootstrap, so the active-todo pointer is loaded and kept fresh
-// from the first import onward — the pomodoro store snapshots activeTodoId
-// synchronously at session end and must see it even when no todo UI has ever
-// mounted (status still "idle").
+// Module-scope bootstrap, so the desk is loaded and kept fresh from the first
+// import onward — the pomodoro store reads the desk synchronously at its
+// interval boundaries and must see it even when no todo UI has ever mounted
+// (status still "idle").
 const REFRESH_DEBOUNCE_MS = 50;
 
 const bridge = window.electronAPI?.todos;
 if (bridge) {
-  const syncActive = () =>
-    bridge.active
+  const syncDesk = () =>
+    bridge.desk
       .get()
-      .then((todo) =>
-        useTodoStore.setState({
-          activeTodo: todo,
-          activeTodoId: todo?.id ?? null,
-        })
-      )
+      .then((desk) => useTodoStore.setState({ desk }))
       .catch(() => {});
 
-  void syncActive();
+  void syncDesk();
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   bridge.onChanged(() => {
@@ -136,8 +125,8 @@ if (bridge) {
     timer = setTimeout(() => {
       const { status, refresh } = useTodoStore.getState();
       // Before the first list load there is nothing to refresh; keep only the
-      // active pointer in sync.
-      if (status === "idle") void syncActive();
+      // desk in sync.
+      if (status === "idle") void syncDesk();
       else void refresh();
     }, REFRESH_DEBOUNCE_MS);
   });

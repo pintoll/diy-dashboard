@@ -427,6 +427,14 @@ interface TodosAPI {
     get: () => Promise<TodoItem | null>;
     set: (id: string | null) => Promise<TodoItem | null>;
   };
+  // The desk: todos currently receiving the running work clock. Multiple
+  // members accrue in parallel (docs/design/multi-pomo-todo.md).
+  desk: {
+    get: () => Promise<TodoItem[]>;
+    add: (id: string) => Promise<TodoItem>;
+    remove: (id: string) => Promise<void>;
+    clear: () => Promise<void>;
+  };
   recordWork: (input: TodoRecordWorkInput) => Promise<void>;
   onChanged: (callback: (payload: TodosChangedPayload) => void) => () => void;
 }

@@ -76,12 +76,17 @@ function computeTimeRemaining(
   return Math.max(0, phaseDuration - elapsed);
 }
 
-// The desk currently receiving the work clock. Phase 1 sources it from the
-// single active todo (a desk of 0 or 1); the interval engine is already
-// N-member and the desk grows in phase 2.
+// The desk currently receiving the work clock: the ids of every todo on the
+// desk, in join order. The interval engine banks each independently.
 function deskMembers(): string[] {
-  const id = useTodoStore.getState().activeTodoId;
-  return id ? [id] : [];
+  return useTodoStore.getState().desk.map((t) => t.id);
+}
+
+// The single todoId still stamped on the pomodoro session-log record (the
+// "celebration" link). Plural `todoIds` is phase 4; until then the primary
+// (oldest) desk member stands in, matching the pre-desk active-todo snapshot.
+function primaryDeskTodoId(): string | null {
+  return useTodoStore.getState().desk[0]?.id ?? null;
 }
 
 // True while desk members should accrue: a running work phase, or overtime.
@@ -135,7 +140,7 @@ function recordCompletedWorkSession(state: PomodoroState & { config: PomodoroCon
     presetId: state.activePresetId,
     processBuckets: state.processBuckets,
     intendedMode: useFocusModeStore.getState().intendedMode,
-    todoId: useTodoStore.getState().activeTodoId,
+    todoId: primaryDeskTodoId(),
   });
 }
 
@@ -165,9 +170,9 @@ function buildPendingReview(
     // Snapshot intent at session end: the tab unlocks once the session is over,
     // so the review (confirmed later) must not pick up a post-session flip.
     intendedMode: useFocusModeStore.getState().intendedMode,
-    // Same snapshot rule: the review must credit the todo that was active
-    // during the session, not one activated afterwards.
-    todoId: useTodoStore.getState().activeTodoId,
+    // Same snapshot rule: the review must credit the todo that led the desk
+    // during the session, not one added afterwards.
+    todoId: primaryDeskTodoId(),
   };
 }
 
@@ -537,7 +542,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             sessionEndType: "early-stop",
             processBuckets: state.processBuckets,
             intendedMode: useFocusModeStore.getState().intendedMode,
-            todoId: useTodoStore.getState().activeTodoId,
+            todoId: primaryDeskTodoId(),
           };
 
           // Leave the interval(s) open: the review lets the user edit the total,

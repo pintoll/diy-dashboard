@@ -14,7 +14,7 @@ export function TodoTodayClient() {
   const todos = useTodoStore((s) => s.todos);
   const overdue = useTodoStore((s) => s.overdue);
   const selectedDate = useTodoStore((s) => s.selectedDate);
-  const activeTodo = useTodoStore((s) => s.activeTodo);
+  const desk = useTodoStore((s) => s.desk);
   const setDate = useTodoStore((s) => s.setDate);
   const sessionActive = useFocusModeStore((s) => s.sessionActive);
 
@@ -44,9 +44,9 @@ export function TodoTodayClient() {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-2">
-      {activeTodo && (
-        <div className="flex shrink-0 items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-2.5 py-1.5">
-          <span className="relative flex size-2 shrink-0">
+      {desk.length > 0 && (
+        <div className="flex shrink-0 items-start gap-2 rounded-md border border-primary/30 bg-primary/10 px-2.5 py-1.5">
+          <span className="relative mt-1 flex size-2 shrink-0">
             {sessionActive && (
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
             )}
@@ -60,8 +60,13 @@ export function TodoTodayClient() {
           <div className="min-w-0 flex-1">
             <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
               {sessionActive ? "Working" : "Up next"}
+              {desk.length > 1 && ` · ${desk.length}`}
             </p>
-            <p className="truncate text-sm font-medium">{activeTodo.title}</p>
+            {desk.map((todo) => (
+              <p key={todo.id} className="truncate text-sm font-medium">
+                {todo.title}
+              </p>
+            ))}
           </div>
         </div>
       )}

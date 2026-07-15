@@ -31,10 +31,16 @@ export function DeskAttributionController() {
   useEffect(() => {
     if (instanceId === null) return;
 
-    let lastActiveId = useTodoStore.getState().activeTodoId;
+    // Membership key over join-ordered desk ids. Any add/remove/complete flips
+    // it; title or worked_sec edits do not, so unrelated todo writes don't churn
+    // the interval engine.
+    const deskKey = () =>
+      useTodoStore.getState().desk.map((t) => t.id).join(",");
+    let lastKey = deskKey();
     return useTodoStore.subscribe((state) => {
-      if (state.activeTodoId === lastActiveId) return;
-      lastActiveId = state.activeTodoId;
+      const nextKey = state.desk.map((t) => t.id).join(",");
+      if (nextKey === lastKey) return;
+      lastKey = nextKey;
       const store = getWidgetStore<PomodoroStore>("pomodoro", instanceId);
       store?.getState().syncDesk();
     });

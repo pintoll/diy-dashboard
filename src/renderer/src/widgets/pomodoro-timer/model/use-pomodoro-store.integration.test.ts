@@ -9,8 +9,13 @@ vi.mock("react", async (orig) => {
 });
 
 import { usePomodoroStore } from "./use-pomodoro-store";
-import { useTodoStore } from "@/src/entities/todo";
+import { useTodoStore, type Todo } from "@/src/entities/todo";
 import type { PomodoroConfig } from "./pomodoro.types";
+
+// The store reads only `.id` off each desk member, so minimal stand-ins suffice.
+function deskOf(...ids: string[]): Todo[] {
+  return ids.map((id) => ({ id }) as unknown as Todo);
+}
 
 type RecordWorkCall = {
   attributionId: string;
@@ -60,7 +65,7 @@ beforeEach(() => {
     todos: { recordWork },
     pomodoro: { record: vi.fn().mockResolvedValue(undefined) },
   };
-  useTodoStore.setState({ activeTodoId: null, activeTodo: null });
+  useTodoStore.setState({ desk: [] });
 });
 
 afterEach(() => {
@@ -68,8 +73,8 @@ afterEach(() => {
 });
 
 describe("pomodoro store -> desk interval accrual (glue)", () => {
-  it("start then skip banks the full block to the active todo", () => {
-    useTodoStore.setState({ activeTodoId: "T1" });
+  it("start then skip banks the full block to the sole desk member", () => {
+    useTodoStore.setState({ desk: deskOf("T1") });
     const store = freshStore();
 
     store.getState().start();
@@ -82,15 +87,15 @@ describe("pomodoro store -> desk interval accrual (glue)", () => {
     expect(calls[0].sessionId.length).toBeGreaterThan(0);
   });
 
-  it("no active todo -> nothing is banked", () => {
-    const store = freshStore(); // activeTodoId null
+  it("empty desk -> nothing is banked", () => {
+    const store = freshStore(); // desk is empty
     store.getState().start();
     store.getState().skip();
     expect(recordWorkCalls()).toHaveLength(0);
   });
 
   it("pause banks the elapsed wall time so far", () => {
-    useTodoStore.setState({ activeTodoId: "T1" });
+    useTodoStore.setState({ desk: deskOf("T1") });
     const store = freshStore();
 
     store.getState().start();
@@ -102,14 +107,14 @@ describe("pomodoro store -> desk interval accrual (glue)", () => {
     expect(calls[0]).toMatchObject({ todoId: "T1", workedSec: 300 });
   });
 
-  it("switching the active todo mid-block banks the leaver, then the joiner rides to skip", () => {
-    useTodoStore.setState({ activeTodoId: "T1" });
+  it("swapping the desk member mid-block banks the leaver, then the joiner rides to skip", () => {
+    useTodoStore.setState({ desk: deskOf("T1") });
     const store = freshStore();
 
     store.getState().start();
     vi.setSystemTime(T0 + 300_000); // 5 min in
     // Desk change: DeskAttributionController would call syncDesk on this.
-    useTodoStore.setState({ activeTodoId: "T2" });
+    useTodoStore.setState({ desk: deskOf("T2") });
     store.getState().syncDesk();
 
     // T1 banked its 5-min partial at the switch.
@@ -127,8 +132,38 @@ describe("pomodoro store -> desk interval accrual (glue)", () => {
     expect(calls[1].attributionId).toMatch(/:T2:0$/);
   });
 
+  it("two todos on the desk each bank the full block (no division)", () => {
+    useTodoStore.setState({ desk: deskOf("T1", "T2") });
+    const store = freshStore();
+
+    store.getState().start();
+    store.getState().skip();
+
+    const calls = recordWorkCalls();
+    expect(calls).toHaveLength(2);
+    const byTodo = Object.fromEntries(calls.map((c) => [c.todoId, c.workedSec]));
+    // Each member independently gets the whole overlap — overlaps are not split.
+    expect(byTodo).toEqual({ T1: FULL_BLOCK_SEC, T2: FULL_BLOCK_SEC });
+  });
+
+  it("a todo joining mid-block accrues from its join; existing members keep the full block", () => {
+    useTodoStore.setState({ desk: deskOf("T1") });
+    const store = freshStore();
+
+    store.getState().start();
+    vi.setSystemTime(T0 + 300_000); // 5 min in
+    useTodoStore.setState({ desk: deskOf("T1", "T2") }); // T2 joins the desk
+    store.getState().syncDesk();
+    store.getState().skip();
+
+    const calls = recordWorkCalls();
+    const byTodo = Object.fromEntries(calls.map((c) => [c.todoId, c.workedSec]));
+    // T1 rode the whole block; T2 only from its 5-min join to phase end.
+    expect(byTodo).toEqual({ T1: FULL_BLOCK_SEC, T2: 20 * 60 });
+  });
+
   it("early stop then confirmReview banks only the elapsed block seconds", () => {
-    useTodoStore.setState({ activeTodoId: "T1" });
+    useTodoStore.setState({ desk: deskOf("T1") });
     const store = freshStore();
 
     store.getState().start();
@@ -148,7 +183,7 @@ describe("pomodoro store -> desk interval accrual (glue)", () => {
   });
 
   it("pause then resume yields two distinct interval rows summing to the block", () => {
-    useTodoStore.setState({ activeTodoId: "T1" });
+    useTodoStore.setState({ desk: deskOf("T1") });
     const store = freshStore();
 
     store.getState().start();

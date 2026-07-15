@@ -3,10 +3,9 @@
 Lets a single pomodoro session credit **several todos at once**, and credits each
 one **incrementally** as work happens instead of only when the timer fully stops.
 
-Status: **phase 1 implemented** (data + accrual core). Branch
+Status: **phases 1-2 implemented** (data + accrual core, desk UI). Branch
 `feature/multi-pomo-todo`. Supersedes the single active-todo model wherever the
-two conflict. Phases 2-4 (desk UI, bridge/dyd/specs, session-record `todoIds`)
-remain.
+two conflict. Phases 3-4 (bridge/dyd/specs, session-record `todoIds`) remain.
 
 ## Why
 
@@ -242,7 +241,15 @@ with accrued `worked_sec`, so phase 1 must migrate, not reset:
    The overlap math is unit-tested (`desk-attribution.test.ts`) and the store
    glue is integration-tested (`use-pomodoro-store.integration.test.ts`):
    join mid-block, complete mid-block, pause, overtime, leave+rejoin.
-2. **Desk UI.** `TodoRow` multi-select + `TodoTodayClient` desk section.
+2. **Desk UI.** ✅ **Done.** Renderer `todos:desk:*` IPC + preload bridge expose
+   the desk primitives; `useTodoStore` holds `desk: Todo[]` (replacing the single
+   `activeTodo`/`activeTodoId`). `TodoRow`'s Play/Square toggle is now
+   add/remove-from-desk with a per-row on-desk highlight; `TodoTodayClient`'s
+   single card is a desk section listing all members with the ping on the group.
+   The pomo store's `deskMembers()` reads the full set (session-log `todoId`
+   still the primary member until phase 4) and `DeskAttributionController` keys
+   on desk membership. `active_todo` IPC + agent API left as compat for phase 3.
+   Two multi-member integration tests added.
 3. **Bridge + dyd + remote + specs.** Plural `desk`, compat alias, spec updates.
 4. **Session-record `todoIds` migration** (+ drill-down display, optional).
 </content>
