@@ -1,4 +1,5 @@
 import { getActiveTodo, setActiveTodo } from "../todos/active";
+import { addToDesk, clearDesk, getDesk, removeFromDesk } from "../todos/desk";
 import {
   createTodo,
   deleteTodo,
@@ -71,6 +72,49 @@ export const todosRoutes: Route[] = [
       sendJson(res, 204, undefined);
     },
   },
+  // The desk: the set of todos receiving the running work clock. Every member
+  // accrues time (docs/design/multi-pomo-todo.md). Add is additive — it does not
+  // replace the desk. Errors bubble to the central handler: unknown id → 404,
+  // completed todo → 400.
+  {
+    method: "GET",
+    pattern: "/api/desk",
+    handler: (_req, res) => {
+      sendJson(res, 200, { todos: getDesk() });
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/desk",
+    handler: async (req, res) => {
+      const body = asObject(await readJsonBody(req), "body");
+      const id = body.id;
+      if (typeof id !== "string") {
+        throw new ValidationError("id must be a todo id string");
+      }
+      addToDesk(id);
+      sendJson(res, 200, { todos: getDesk() });
+    },
+  },
+  {
+    method: "DELETE",
+    pattern: "/api/desk",
+    handler: (_req, res) => {
+      clearDesk();
+      sendJson(res, 200, { todos: getDesk() });
+    },
+  },
+  {
+    method: "DELETE",
+    pattern: "/api/desk/:id",
+    handler: (_req, res, params) => {
+      removeFromDesk(params.id);
+      sendJson(res, 200, { todos: getDesk() });
+    },
+  },
+  // --- Deprecated single-active compat (one release) -------------------------
+  // `getActiveTodo`/`setActiveTodo` now map onto the desk (desk[0] / collapse).
+  // Kept so un-updated `dyd` installs keep working; new clients use /api/desk.
   {
     method: "GET",
     pattern: "/api/active-todo",

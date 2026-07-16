@@ -26,5 +26,3 @@ export {
 } from "./model/todo-date";
 
 export { useTodoStore, shiftSelectedDate } from "./model/use-todo-store";
-export { accrueTodoWork } from "./model/accrue-work";
-export type { WorkSessionLike } from "./model/accrue-work";

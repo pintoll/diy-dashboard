@@ -17,7 +17,8 @@ usage:
   dyd todo overdue            overdue list
   dyd todo add "<title>" [-d <date|tomorrow>] [-n <note>]
   dyd todo done <n|id>
-  dyd todo use <n|id|->       set/clear the active todo (- clears)
+  dyd todo use <n|id|->       add a todo to the desk (- clears the desk)
+  dyd todo drop <n|id>        remove a todo from the desk
   global: --json              print the raw API response body
 USAGE
   exit 1
@@ -147,13 +148,17 @@ def kst_today():
     except Exception:
         return datetime.now().date()
 
-def today_block(todos, active_id, date):
+def desk_ids(desk):
+    # desk body is {"todos": [...]}; every member is marked on the desk.
+    return {t["id"] for t in (desk or {}).get("todos", [])}
+
+def today_block(todos, active_ids, date):
     print(f"── today {date} ─────────────")
     if not todos:
         print("  (none)")
         return
     for i, t in enumerate(todos, 1):
-        mark = "*" if active_id and t["id"] == active_id else " "
+        mark = "*" if t["id"] in active_ids else " "
         box = "[x]" if t["done"] else "[ ]"
         w = worked(t["workedSec"])
         line = f"{mark} {i} {box} {t['title']}"
@@ -162,19 +167,18 @@ def today_block(todos, active_id, date):
 mode = sys.argv[1]
 
 if mode == "overview":
-    p = load(sys.argv[2]); todos = load(sys.argv[3]); overdue = load(sys.argv[4]); active = load(sys.argv[5])
-    active_id = (active or {}).get("todo", {}).get("id") if active and active.get("todo") else None
+    p = load(sys.argv[2]); todos = load(sys.argv[3]); overdue = load(sys.argv[4]); desk = load(sys.argv[5])
+    ids = desk_ids(desk)
     print(pomo_line(p))
     tlist = (todos or {}).get("todos", [])
-    today_block(tlist, active_id, str(kst_today()))
+    today_block(tlist, ids, str(kst_today()))
     n = len((overdue or {}).get("todos", []))
     if n:
         print(f"── overdue: {n} (dyd todo overdue)")
 
 elif mode == "todo":
-    todos = load(sys.argv[2]); active = load(sys.argv[3])
-    active_id = (active or {}).get("todo", {}).get("id") if active and active.get("todo") else None
-    today_block((todos or {}).get("todos", []), active_id, str(kst_today()))
+    todos = load(sys.argv[2]); desk = load(sys.argv[3])
+    today_block((todos or {}).get("todos", []), desk_ids(desk), str(kst_today()))
 
 elif mode == "overdue":
     overdue = load(sys.argv[2])
@@ -194,8 +198,13 @@ elif mode == "pomo":
         cycle = f"preset {p['presetId']}, {p['completedPomodoros']} done this cycle"
         print(f"phase      {phase_label(p['phase'])} ({cycle})")
         print(f"timer      {mmss(p['remainingSec'])} remaining / {mmss(p['phaseDurationSec'])}   {status_word(p)}")
-        at = p.get("activeTodo")
-        print(f"active     {at['title'] if at else '(none)'}")
+        desk = p.get("desk") or []
+        if not desk:
+            print("desk       (none)")
+        else:
+            print(f"desk       {desk[0]['title']}")
+            for t in desk[1:]:
+                print(f"           {t['title']}")
         ot = p["overtime"]
         if ot:
             print(f"overtime   +{mmss(ot['elapsedSec'])} ({'idle' if ot['isIdle'] else 'active'})")
@@ -225,9 +234,9 @@ elif mode == "todo_line":
     box = "[x]" if t["done"] else "[ ]"
     print(f"{sys.argv[3]} {box} {t['title']}")
 
-elif mode == "active_set":
-    d = load(sys.argv[2]); t = d.get("todo")
-    print(f"active: {t['title']}" if t else "active: (none)")
+elif mode == "desk_set":
+    d = load(sys.argv[2]); ts = (d or {}).get("todos", [])
+    print("desk: " + ", ".join(t["title"] for t in ts) if ts else "desk: (empty)")
 PY
 )
 
@@ -269,7 +278,7 @@ cmd_overview() {
   local pomo_body="$pb"
   api GET /api/todos; api_ok_or_die; local todos_body="$BODY"
   api GET /api/todos/overdue; api_ok_or_die; local overdue_body="$BODY"
-  api GET /api/active-todo; api_ok_or_die; local active_body="$BODY"
+  api GET /api/desk; api_ok_or_die; local desk_body="$BODY"
   if [ "$JSON_OUT" = 1 ]; then
     python3 -c '
 import json, sys
@@ -279,11 +288,11 @@ print(json.dumps({
   "pomodoro": load(sys.argv[1]),
   "todos": load(sys.argv[2]),
   "overdue": load(sys.argv[3]),
-  "activeTodo": load(sys.argv[4]),
-}))' "$pomo_body" "$todos_body" "$overdue_body" "$active_body"
+  "desk": load(sys.argv[4]),
+}))' "$pomo_body" "$todos_body" "$overdue_body" "$desk_body"
     return
   fi
-  fmt overview "$pomo_body" "$todos_body" "$overdue_body" "$active_body"
+  fmt overview "$pomo_body" "$todos_body" "$overdue_body" "$desk_body"
 }
 
 cmd_pomo() {
@@ -326,7 +335,7 @@ cmd_todo() {
     api GET /api/todos
     if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
     api_ok_or_die; local todos_body="$BODY"
-    api GET /api/active-todo; api_ok_or_die
+    api GET /api/desk; api_ok_or_die
     fmt todo "$todos_body" "$BODY"
     return
   fi
@@ -383,17 +392,23 @@ print(json.dumps(out))')
       if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
       api_ok_or_die; fmt todo_line "$BODY" "done:" ;;
     use)
+      # Add to the desk (additive); `use -` clears the whole desk.
       [ $# -eq 1 ] || die_usage
-      local body
       if [ "$1" = "-" ]; then
-        body='{"id":null}'
+        api DELETE /api/desk
       else
         resolve_id "$1" || exit 1
-        body=$(printf '{"id":"%s"}' "$RESOLVED_ID")
+        api POST /api/desk "$(printf '{"id":"%s"}' "$RESOLVED_ID")"
       fi
-      api POST /api/active-todo "$body"
       if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
-      api_ok_or_die; fmt active_set "$BODY" ;;
+      api_ok_or_die; fmt desk_set "$BODY" ;;
+    drop)
+      # Remove a single member from the desk.
+      [ $# -eq 1 ] || die_usage
+      resolve_id "$1" || exit 1
+      api DELETE "/api/desk/$RESOLVED_ID"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt desk_set "$BODY" ;;
     *) die_usage ;;
   esac
 }

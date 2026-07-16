@@ -1,6 +1,6 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { nanoid } from "nanoid";
-import { getActiveTodo } from "../todos/active";
+import { getDesk } from "../todos/desk";
 
 // The pomodoro timer's authority lives in the renderer Zustand store, not in
 // main. This module is the main half of a request/reply bridge to it:
@@ -13,8 +13,8 @@ import { getActiveTodo } from "../todos/active";
 //   with a correlation id and await its guarded result
 //   (pomodoro:bridge:command-result), or time out into a 504.
 //
-// activeTodo is NOT taken from the renderer: main owns the active-todo row
-// (todos/active.ts), so we enrich the snapshot with it here.
+// The desk is NOT taken from the renderer: main owns the desk rows
+// (todos/desk.ts), so we enrich the snapshot with it here.
 
 // Raw store inputs — kept in sync with the renderer PomodoroBridgeController's
 // buildSnapshot. We recompute the derived fields rather than trust a value that
@@ -59,6 +59,9 @@ export type PomodoroApiState = {
   presetId: string;
   overtime: { elapsedSec: number; isIdle: boolean } | null;
   pendingReview: boolean;
+  // The set of todos currently on the desk (all accrue the running work clock).
+  desk: { id: string; title: string }[];
+  // Deprecated alias = desk[0] ?? null, kept one release for un-updated dyd.
   activeTodo: { id: string; title: string } | null;
 };
 
@@ -94,7 +97,7 @@ function recomputeOvertime(
 }
 
 function toApiState(s: PomodoroRawSnapshot): PomodoroApiState {
-  const active = getActiveTodo();
+  const desk = getDesk().map((t) => ({ id: t.id, title: t.title }));
   return {
     phase: s.phase,
     isRunning: s.isRunning,
@@ -104,7 +107,8 @@ function toApiState(s: PomodoroRawSnapshot): PomodoroApiState {
     presetId: s.presetId,
     overtime: recomputeOvertime(s),
     pendingReview: s.pendingReview,
-    activeTodo: active ? { id: active.id, title: active.title } : null,
+    desk,
+    activeTodo: desk[0] ?? null,
   };
 }
 

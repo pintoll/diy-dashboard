@@ -24,20 +24,23 @@ function run(action: Promise<unknown>): void {
 }
 
 export function TodoRow({ todo, showDate = false }: Props) {
-  const activeTodoId = useTodoStore((s) => s.activeTodoId);
+  // On the desk = receiving the running work clock. Several rows can be on the
+  // desk at once (docs/design/multi-pomo-todo.md).
+  const onDesk = useTodoStore((s) => s.desk.some((t) => t.id === todo.id));
   const [editing, setEditing] = useState(false);
-  const isActive = activeTodoId === todo.id;
 
   const toggleDone = () =>
     run(requireTodosApi().update(todo.id, { done: !todo.done }));
-  const toggleActive = () =>
-    run(requireTodosApi().active.set(isActive ? null : todo.id));
+  const toggleDesk = () => {
+    const api = requireTodosApi();
+    run(onDesk ? api.desk.remove(todo.id) : api.desk.add(todo.id));
+  };
 
   return (
     <div
       className={cn(
         "group flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors",
-        isActive ? "bg-primary/10" : "hover:bg-accent/50"
+        onDesk ? "bg-primary/10" : "hover:bg-accent/50"
       )}
     >
       <button
@@ -85,17 +88,17 @@ export function TodoRow({ todo, showDate = false }: Props) {
 
       {!todo.done && (
         <Button
-          variant={isActive ? "secondary" : "ghost"}
+          variant={onDesk ? "secondary" : "ghost"}
           size="icon-xs"
-          onClick={toggleActive}
+          onClick={toggleDesk}
           className={cn(
             "shrink-0",
-            !isActive && "opacity-0 transition-opacity group-hover:opacity-100"
+            !onDesk && "opacity-0 transition-opacity group-hover:opacity-100"
           )}
-          aria-label={isActive ? "Deactivate" : "Set as active"}
-          title={isActive ? "Deactivate" : "Set as active"}
+          aria-label={onDesk ? "Remove from desk" : "Add to desk"}
+          title={onDesk ? "Remove from desk" : "Add to desk"}
         >
-          {isActive ? <Square /> : <Play />}
+          {onDesk ? <Square /> : <Play />}
         </Button>
       )}
 

@@ -393,6 +393,9 @@ interface TodoListFilter {
 }
 
 interface TodoRecordWorkInput {
+  // Stable per in-flight interval (`<sessionId>:<todoId>:<seq>`); the ledger's
+  // idempotency key, so a retried accrual can never double-count.
+  attributionId: string;
   todoId: string;
   sessionId: string;
   startedAt: number;
@@ -419,10 +422,21 @@ interface TodosAPI {
   create: (input: TodoCreateInput) => Promise<TodoItem>;
   update: (id: string, patch: TodoPatch) => Promise<TodoItem>;
   remove: (id: string) => Promise<void>;
+  // Batch id -> title resolve for display (analytics drill-down). Deleted ids
+  // are absent from the result; the caller shows a fallback.
+  titlesByIds: (ids: string[]) => Promise<{ id: string; title: string }[]>;
   reorder: (date: string, ids: string[]) => Promise<void>;
   active: {
     get: () => Promise<TodoItem | null>;
     set: (id: string | null) => Promise<TodoItem | null>;
+  };
+  // The desk: todos currently receiving the running work clock. Multiple
+  // members accrue in parallel (docs/design/multi-pomo-todo.md).
+  desk: {
+    get: () => Promise<TodoItem[]>;
+    add: (id: string) => Promise<TodoItem>;
+    remove: (id: string) => Promise<void>;
+    clear: () => Promise<void>;
   };
   recordWork: (input: TodoRecordWorkInput) => Promise<void>;
   onChanged: (callback: (payload: TodosChangedPayload) => void) => () => void;
@@ -446,7 +460,7 @@ interface PomodoroSessionDTO {
   sessionEndType: "completed" | "early-stop";
   processBuckets: Record<string, number>;
   cappedAt60m: boolean;
-  todoId: string | null;
+  todoIds: string[];
   note: string | null;
 }
 

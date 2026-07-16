@@ -114,11 +114,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
     update: (id: string, patch: TodoPatch) =>
       ipcRenderer.invoke("todos:update", { id, patch }),
     remove: (id: string) => ipcRenderer.invoke("todos:delete", id),
+    titlesByIds: (ids: string[]) =>
+      ipcRenderer.invoke("todos:titles-by-ids", ids),
     reorder: (date: string, ids: string[]) =>
       ipcRenderer.invoke("todos:reorder", { date, ids }),
     active: {
       get: () => ipcRenderer.invoke("todos:active:get"),
       set: (id: string | null) => ipcRenderer.invoke("todos:active:set", id),
+    },
+    desk: {
+      get: () => ipcRenderer.invoke("todos:desk:get"),
+      add: (id: string) => ipcRenderer.invoke("todos:desk:add", id),
+      remove: (id: string) => ipcRenderer.invoke("todos:desk:remove", id),
+      clear: () => ipcRenderer.invoke("todos:desk:clear"),
     },
     recordWork: (input: TodoRecordWorkInput) =>
       ipcRenderer.invoke("todos:record-work", input),

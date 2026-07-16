@@ -113,7 +113,7 @@ PATCH /api/todos/abc123
 → 200 { "todo": {...} }
 ```
 
-All fields optional. Setting `done: true` stamps `completedOn` and clears the todo's activation if it was active. Setting `done: false` clears `completedOn`.
+All fields optional. Setting `done: true` stamps `completedOn` and steps the todo off the desk if it was a member (banking its open interval). Setting `done: false` clears `completedOn`.
 
 ### `DELETE /api/todos/:id`
 
@@ -122,36 +122,76 @@ DELETE /api/todos/abc123
 → 204
 ```
 
-Cascades its pomodoro session links. If it was the active todo, nothing is active afterwards.
+Cascades its pomodoro session links and drops it from the desk if it was a member.
 
-### `GET /api/active-todo`
+### The desk
 
-```
-GET /api/active-todo
-→ 200 { "todo": {...} | null }
-```
+The **desk** is the *set* of todos currently receiving the running work clock
+(see `docs/design/multi-pomo-todo.md`). Membership, not ownership, routes time:
+while a work pomodoro runs, **every** desk member accrues wall-clock time
+independently — time is not divided. It supersedes the single active-todo model.
 
-The single globally-active todo — what the pomodoro widget shows as "Working…".
-
-### `POST /api/active-todo`
+#### `GET /api/desk`
 
 ```
-POST /api/active-todo
-{ "id": "abc123" }   // or { "id": null } to deactivate
-→ 200 { "todo": {...} | null }
+GET /api/desk
+→ 200 { "todos": [ ...Todo ] }   // desk members, oldest join first
 ```
 
-Activating a completed todo is a `400`. At most one todo is active at a time; activating a second one replaces the first.
+#### `POST /api/desk`
+
+```
+POST /api/desk
+{ "id": "abc123" }
+→ 200 { "todos": [ ...Todo ] }   // the full desk after adding
+```
+
+**Additive** — adds one member; it does not replace the desk. Adding a member
+already present is a no-op. Adding a completed todo is a `400`; an unknown id is
+a `404`.
+
+#### `DELETE /api/desk/:id`
+
+```
+DELETE /api/desk/abc123
+→ 200 { "todos": [ ...Todo ] }   // the full desk after removing
+```
+
+Removes one member (removing an absent id is a no-op). A member's open in-flight
+interval is banked before it leaves.
+
+#### `DELETE /api/desk`
+
+```
+DELETE /api/desk
+→ 200 { "todos": [] }            // desk cleared
+```
+
+### `GET /api/active-todo` · `POST /api/active-todo` — deprecated
+
+Kept one release as a single-active compat shim over the desk. `GET` returns the
+first desk member (`{ "todo": {...} | null }`); `POST { "id" }` **collapses** the
+desk to just that todo, `POST { "id": null }` clears it. New clients use the desk
+routes above; these will be removed once no un-updated `dyd` install remains.
 
 ## Pomodoro linkage
 
-When a pomodoro work session ends, the todo that is active **at that moment** accrues `durationSec + overtimeSec` onto its `workedSec`.
+While a pomodoro **work** phase runs, every todo on the desk accrues the elapsed
+wall-clock time onto its `workedSec`. Accrual is per **in-flight interval**, not
+only at session end — a member banks its partial time when it leaves the desk, is
+completed, or the phase ends, and keeps accruing on the next pomo if still open.
 
-- One todo accumulates many sessions; one session credits exactly one todo.
-- Accrual is idempotent on the session id, so a retried write never double-counts.
-- Nothing active at session end → nothing accrues.
+- One todo accumulates many intervals across many sessions; one session can
+  credit **several** todos (one ledger row per interval, keyed on a surrogate
+  `attribution_id`), so a retried write never double-counts.
+- `worked_sec` therefore means "focused-clock wall time this task was in flight,"
+  and `sum(worked_sec)` across todos **can exceed** the day's real focus time by
+  design (overlaps allowed). A no-double-count day total comes from the session
+  log, never from summing this rollup.
+- Empty desk while a session runs → nothing accrues.
 
-An agent that activates a todo before the user starts a session is, in effect, deciding where that session's time gets recorded.
+An agent that puts a todo on the desk before the user works is, in effect,
+deciding that todo's time gets recorded.
 
 ## Errors
 

@@ -63,10 +63,12 @@ export type PomodoroSessionRecord = {
   sessionEndType: SessionEndType;
   processBuckets: Record<string, number>;
   cappedAt60m: boolean;
-  // Snapshot of the globally active todo at session end (same snapshot rule
-  // as `intendedMode`). null = no todo was active / legacy record. The todo's
-  // accrued worked_sec lives in SQLite; this is the renderer-side link.
-  todoId: string | null;
+  // Union of every todo that was on the desk at any point during the session
+  // (docs/design/multi-pomo-todo.md). Includes todos that left the desk mid-block
+  // (completed or removed), which a live-desk snapshot would miss. [] = no todo
+  // was on the desk / legacy record. The per-todo accrued worked_sec lives in
+  // SQLite (todo_sessions); this is the renderer-side "which todos" link.
+  todoIds: string[];
   // Optional free-text memo for "that day, why?" context, authored after the
   // fact in the analytics day drill-down. null = no note (same null-as-absent
   // convention as `intendedMode`).

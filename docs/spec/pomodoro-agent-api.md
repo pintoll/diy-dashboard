@@ -30,9 +30,18 @@ Commands mutate the same store the widget renders from, so the UI reflects an ag
   "presetId": "25:5",
   "overtime": null,             // or { "elapsedSec": 340, "isIdle": false }
   "pendingReview": false,       // true → a session review awaits confirmation in the app UI
-  "activeTodo": null            // or { "id": "...", "title": "..." } — same todo as GET /api/active-todo
+  "desk": [                     // todos currently on the desk; all accrue the running work clock
+    { "id": "...", "title": "..." }
+  ],
+  "activeTodo": null            // DEPRECATED alias = desk[0] ?? null (one release; use desk)
 }
 ```
+
+- `desk` is the set of todos receiving the running work clock (see
+  [`todos-agent-api.md`](todos-agent-api.md#the-desk) and
+  `docs/design/multi-pomo-todo.md`). Every member accrues time while a work pomo
+  runs; time is not divided. `activeTodo` is kept one release as `desk[0] ?? null`
+  so un-updated clients keep working — new clients read `desk`.
 
 - `remainingSec: 0` with `isRunning: true` means the phase end is imminent — the renderer tick finalizes it within a second (a finished work phase then enters overtime and `overtime` becomes non-null).
 - `503 { "error": "pomodoro bridge not ready" }` — renderer hasn't reported yet (app just launched, or no pomodoro widget on the dashboard).

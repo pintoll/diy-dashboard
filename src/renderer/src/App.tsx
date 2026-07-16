@@ -7,7 +7,10 @@ import { FocusAnalyticsPage } from "@/src/pages/focus-analytics/client";
 import { FinancePage } from "@/src/pages/finance/client";
 import { TodosPage } from "@/src/pages/todos/client";
 import { FocusModeController } from "@/src/features/focus-mode/client";
-import { PomodoroBridgeController } from "@/src/widgets/pomodoro-timer/client";
+import {
+  PomodoroBridgeController,
+  DeskAttributionController,
+} from "@/src/widgets/pomodoro-timer/client";
 
 function HomePage() {
   const [ready, setReady] = useState(false);
@@ -40,6 +43,7 @@ export default function App() {
       <UpdateToast />
       <FocusModeController />
       <PomodoroBridgeController />
+      <DeskAttributionController />
     </>
   );
 }

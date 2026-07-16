@@ -21,6 +21,8 @@ export interface PomodoroSession {
   sessionEndType: "completed" | "early-stop";
   processBuckets: Record<string, number>;
   cappedAt60m: boolean;
-  todoId: string | null;
+  // Union of todos on the desk at any point in the session; stored as a JSON
+  // array text column (todo_ids). See docs/design/multi-pomo-todo.md.
+  todoIds: string[];
   note: string | null;
 }

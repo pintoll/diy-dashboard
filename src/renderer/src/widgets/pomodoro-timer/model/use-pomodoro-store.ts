@@ -1,8 +1,18 @@
 import { useMemo } from "react";
+import { nanoid } from "nanoid";
 import { createWidgetStore } from "@/src/shared/lib/create-widget-store";
 import { useSessionLogStore } from "@/src/entities/pomodoro-session";
 import { useFocusModeStore } from "@/src/entities/focus-mode";
-import { accrueTodoWork, useTodoStore } from "@/src/entities/todo";
+import { useTodoStore } from "@/src/entities/todo";
+import {
+  initialAttribution,
+  startBlock,
+  resumeBlock,
+  pauseBlock,
+  endBlock,
+  syncDesk as syncDeskIntervals,
+  type AttributionBank,
+} from "./desk-attribution";
 import type {
   ConfirmReviewInput,
   PendingReview,
@@ -16,7 +26,7 @@ import type {
 
 type PomodoroStore = PomodoroState & PomodoroActions & { config: PomodoroConfig };
 
-const STORE_VERSION = 14;
+const STORE_VERSION = 16;
 export const OVERTIME_CAP_SEC = 3600;
 const OVERTIME_IDLE_THRESHOLD_SEC = 60;
 const OVERTIME_ALARM_THRESHOLDS_SEC = [300, 600, 1200, 1800, 3600] as const;
@@ -66,12 +76,67 @@ function computeTimeRemaining(
   return Math.max(0, phaseDuration - elapsed);
 }
 
+// The desk currently receiving the work clock: the ids of every todo on the
+// desk, in join order. The interval engine banks each independently.
+function deskMembers(): string[] {
+  return useTodoStore.getState().desk.map((t) => t.id);
+}
+
+// The desk union stamped on the pomodoro session-log record (the "celebration"
+// link): every todo that opened an interval at any point in this block. The
+// attribution engine's `seqByTodo` accumulates across start / syncDesk / resume
+// and is only cleared at endBlock, so its keys are exactly that union — and,
+// unlike a live-desk read, it still includes todos that completed or were
+// removed mid-block. Read it at every record site *before* endBlock resets it.
+function deskUnionTodoIds(attribution: PomodoroState["attribution"]): string[] {
+  return Object.keys(attribution.seqByTodo);
+}
+
+// True while desk members should accrue: a running work phase, or overtime.
+function isAccruing(state: PomodoroState): boolean {
+  return (state.phase === "work" && state.isRunning) || state.overtime !== null;
+}
+
+// Wall-clock instant the current work phase reaches 0, given its start.
+function workPhaseEndMs(startedAt: number, config: PomodoroConfig): number {
+  return startedAt + config.workDuration * 60 * 1000;
+}
+
+// Fire the interval banks at SQLite. Fire-and-forget: the pomodoro session log
+// is the primary record and must never be blocked by the todo accrual. The
+// ledger is idempotent on attributionId, so a lost write is the only failure.
+function bankWork(banks: AttributionBank[]): void {
+  const api = window.electronAPI?.todos;
+  if (!api || banks.length === 0) return;
+  for (const b of banks) {
+    api
+      .recordWork({
+        attributionId: b.attributionId,
+        todoId: b.todoId,
+        sessionId: b.sessionId,
+        startedAt: b.startedAt,
+        endedAt: b.endedAt,
+        workedSec: b.workedSec,
+      })
+      .catch((error) => {
+        // The todo may have been deleted between accrual and the write; losing
+        // the accrual is acceptable, losing the session record is not.
+        console.warn("todo work accrual failed:", error);
+      });
+  }
+}
+
+// Writes the pomodoro session-log record (the renderer-side "celebration" log).
+// Todo worked_sec accrual is NO LONGER done here — it flows through the interval
+// engine (endBlock) so partial and multi-todo work is credited correctly. The
+// desk-union `todoIds` is the log's "which todos" link. Called before endBlock,
+// so the attribution union is still intact.
 function recordCompletedWorkSession(state: PomodoroState & { config: PomodoroConfig }) {
   if (state.phase !== "work") return;
   const durationSec = state.config.workDuration * 60;
   const endedAt = Date.now();
   const startedAt = state.startedAt ?? endedAt - durationSec * 1000;
-  const entry = useSessionLogStore.getState().recordSession({
+  useSessionLogStore.getState().recordSession({
     phase: "work",
     startedAt,
     endedAt,
@@ -79,9 +144,8 @@ function recordCompletedWorkSession(state: PomodoroState & { config: PomodoroCon
     presetId: state.activePresetId,
     processBuckets: state.processBuckets,
     intendedMode: useFocusModeStore.getState().intendedMode,
-    todoId: useTodoStore.getState().activeTodoId,
+    todoIds: deskUnionTodoIds(state.attribution),
   });
-  accrueTodoWork(entry);
 }
 
 function buildPendingReview(
@@ -110,9 +174,10 @@ function buildPendingReview(
     // Snapshot intent at session end: the tab unlocks once the session is over,
     // so the review (confirmed later) must not pick up a post-session flip.
     intendedMode: useFocusModeStore.getState().intendedMode,
-    // Same snapshot rule: the review must credit the todo that was active
-    // during the session, not one activated afterwards.
-    todoId: useTodoStore.getState().activeTodoId,
+    // Same snapshot rule: the review must credit the todos worked during the
+    // session, not any added afterwards. The block's intervals are still open
+    // here (banked at confirmReview), so the union is intact.
+    todoIds: deskUnionTodoIds(state.attribution),
   };
 }
 
@@ -148,10 +213,23 @@ function startOvertime(state: PomodoroStore, set: SetFn) {
 
 function finishWorkPhase(state: PomodoroStore, set: SetFn) {
   recordCompletedWorkSession(state);
+  // Natural finish (timer reached 0) with no overtime: bank the full block to
+  // every desk member. Closing at phaseEndMs credits the whole phase even if
+  // the tick fired slightly late. Breaks carry no attribution.
+  let attribution = state.attribution;
+  if (state.phase === "work") {
+    const result = endBlock(state.attribution, {
+      at: state.attribution.phaseEndMs,
+      overtimeSec: 0,
+    });
+    attribution = result.state;
+    bankWork(result.banks);
+  }
   set({
     ...completePhase(state),
     phaseEndPulse: state.phaseEndPulse + 1,
     processBuckets: {},
+    attribution,
   });
 }
 
@@ -279,6 +357,32 @@ function migrateState(persistedState: unknown, version: number): PomodoroStore {
     }
   }
 
+  if (version < 15) {
+    // Interval-attribution bookkeeping added for the desk model. Start clean.
+    // A work block in progress across the upgrade loses its still-open interval;
+    // the field self-heals on the next *fresh* start (startBlock). A session
+    // that was paused across the upgrade and then resumed accrues nothing to the
+    // desk (resumeBlock no-ops on the null sessionId) — a one-time accepted loss.
+    state = { ...state, attribution: initialAttribution() };
+  }
+
+  if (version < 16) {
+    // pendingReview's single `todoId` became the desk union `todoIds`.
+    const pendingReview = state.pendingReview as
+      | ({ todoId?: string | null; todoIds?: string[] } & Record<string, unknown>)
+      | null;
+    if (pendingReview) {
+      const legacy = pendingReview.todoId ?? null;
+      state = {
+        ...state,
+        pendingReview: {
+          ...pendingReview,
+          todoIds: pendingReview.todoIds ?? (legacy != null ? [legacy] : []),
+        },
+      };
+    }
+  }
+
   return state as unknown as PomodoroStore;
 }
 
@@ -297,6 +401,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       lastOvertimeAlarmThresholdSec: null,
       pendingReview: null,
       processBuckets: {},
+      attribution: initialAttribution(),
       config,
 
       start: () => {},
@@ -312,6 +417,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
       setConfigFlag: () => {},
       enterOvertime: () => {},
       pollIdle: () => {},
+      syncDesk: () => {},
       stopOvertime: () => {},
       autoStopOvertime: () => {},
       confirmReview: () => {},
@@ -343,10 +449,11 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
 
         start: () => {
           const state = get();
+          const now = Date.now();
           const currentRemaining = computeTimeRemaining(state, state.config);
           const phaseDuration = getDurationForPhase(state.phase, state.config);
           const elapsedBeforePause = phaseDuration - currentRemaining;
-          const startedAt = Date.now() - elapsedBeforePause * 1000;
+          const startedAt = now - elapsedBeforePause * 1000;
 
           const isFreshWorkSession =
             state.phase === "work" &&
@@ -354,10 +461,28 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             state.pausedTimeRemaining === null &&
             state.overtime === null;
 
+          // Open interval attribution for the work phase. A fresh work session
+          // starts a new block (members open at the block start); resuming from
+          // a pause reopens intervals at `now` with the shifted phase end.
+          let attribution = state.attribution;
+          if (state.phase === "work") {
+            const phaseEndMs = workPhaseEndMs(startedAt, state.config);
+            const members = deskMembers();
+            attribution = isFreshWorkSession
+              ? startBlock({
+                  sessionId: nanoid(),
+                  blockStartMs: startedAt,
+                  phaseEndMs,
+                  members,
+                }).state
+              : resumeBlock(state.attribution, { at: now, phaseEndMs, members }).state;
+          }
+
           set({
             isRunning: true,
             startedAt,
             pausedTimeRemaining: null,
+            attribution,
             ...(isFreshWorkSession ? { processBuckets: {} } : {}),
           });
         },
@@ -366,14 +491,24 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           const state = get();
           if (state.overtime !== null) return;
           const remaining = computeTimeRemaining(state, state.config);
+          // Pausing closes and banks every open interval; resume opens fresh
+          // ones. Only the work phase accrues.
+          let attribution = state.attribution;
+          if (state.phase === "work") {
+            const result = pauseBlock(state.attribution, { at: Date.now() });
+            attribution = result.state;
+            bankWork(result.banks);
+          }
           set({
             isRunning: false,
             pausedTimeRemaining: remaining,
             startedAt: null,
+            attribution,
           });
         },
 
         reset: () => {
+          // Reset abandons the block: discard open intervals without banking.
           set({
             isRunning: false,
             startedAt: null,
@@ -381,6 +516,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             overtime: null,
             pendingReview: null,
             processBuckets: {},
+            attribution: initialAttribution(),
           });
         },
 
@@ -394,6 +530,8 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
               startedAt: null,
               pausedTimeRemaining: null,
               processBuckets: {},
+              // Nothing reviewable ran (or not a work phase): abandon intervals.
+              attribution: initialAttribution(),
             });
 
           // Only the work phase produces a reviewable session.
@@ -428,9 +566,12 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             sessionEndType: "early-stop",
             processBuckets: state.processBuckets,
             intendedMode: useFocusModeStore.getState().intendedMode,
-            todoId: useTodoStore.getState().activeTodoId,
+            todoIds: deskUnionTodoIds(state.attribution),
           };
 
+          // Leave the interval(s) open: the review lets the user edit the total,
+          // so the accrual is banked at confirmReview (endBlock), not here. The
+          // phase is now over (not accruing), so the open intervals stay frozen.
           set({
             ...completePhase(state),
             pendingReview,
@@ -441,7 +582,18 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           const state = get();
           if (state.overtime !== null) return;
           recordCompletedWorkSession(state);
-          set({ ...completePhase(state), processBuckets: {} });
+          // Skip completes the pomodoro: bank the full block (close at phaseEnd)
+          // to every desk member, matching the recorded phase duration.
+          let attribution = state.attribution;
+          if (state.phase === "work") {
+            const result = endBlock(state.attribution, {
+              at: state.attribution.phaseEndMs,
+              overtimeSec: 0,
+            });
+            attribution = result.state;
+            bankWork(result.banks);
+          }
+          set({ ...completePhase(state), processBuckets: {}, attribution });
         },
 
         tick: () => {
@@ -487,7 +639,23 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
             pausedTimeRemaining: null,
             overtime: null,
             processBuckets: {},
+            // Switching preset abandons any in-flight block.
+            attribution: initialAttribution(),
           });
+        },
+
+        syncDesk: () => {
+          const state = get();
+          // Only reconcile while accruing (running work or overtime) and a block
+          // is live. Off the clock, membership changes are picked up fresh when
+          // the next work session starts / resumes.
+          if (!isAccruing(state) || state.attribution.sessionId === null) return;
+          const result = syncDeskIntervals(state.attribution, {
+            members: deskMembers(),
+            at: Date.now(),
+          });
+          bankWork(result.banks);
+          set({ attribution: result.state });
         },
 
         setNotificationsEnabled: (enabled: boolean) => {
@@ -577,26 +745,38 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
         },
 
         confirmReview: (input: ConfirmReviewInput) => {
-          const { pendingReview } = get();
+          const state = get();
+          const { pendingReview } = state;
           if (pendingReview === null) return;
-          const entry = useSessionLogStore.getState().recordSession({
+          const overtimeSec = Math.max(0, Math.floor(input.overtimeSec));
+          useSessionLogStore.getState().recordSession({
             phase: "work",
             startedAt: pendingReview.startedAt,
             endedAt: pendingReview.endedAt,
             durationSec: pendingReview.durationSec,
             presetId: pendingReview.presetId,
-            overtimeSec: Math.max(0, Math.floor(input.overtimeSec)),
+            overtimeSec,
             idleSec: pendingReview.idleSec,
             cappedAt60m: pendingReview.cappedAt60m,
             sessionEndType: pendingReview.sessionEndType,
             processBuckets: pendingReview.processBuckets,
             intendedMode: pendingReview.intendedMode,
-            todoId: pendingReview.todoId,
+            todoIds: pendingReview.todoIds,
             attention: input.attention,
             attentionSource: input.attentionSource,
           });
-          accrueTodoWork(entry);
-          set({ pendingReview: null, processBuckets: {} });
+          // Bank the interval(s) held open since the phase ended (stop or
+          // overtime), now that the final overtime total is known. Closing at
+          // the frozen end time makes the block portion exactly durationSec, so
+          // per-todo worked_sec = durationSec + overtimeSec (as before, but now
+          // split across whoever was on the desk). A no-review path already
+          // reset attribution, so this endBlock is then a no-op.
+          const result = endBlock(state.attribution, {
+            at: pendingReview.endedAt,
+            overtimeSec,
+          });
+          bankWork(result.banks);
+          set({ pendingReview: null, processBuckets: {}, attribution: result.state });
         },
 
         addToBucket: (exeName: string, seconds: number) => {

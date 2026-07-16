@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   POMODORO_PRESETS,
   sessionsOnDate,
@@ -61,9 +61,48 @@ export function DayDrillDown({
   onClose,
   onSaveNote,
 }: DayDrillDownProps) {
-  const daySessions = date ? sessionsOnDate(sessions, date) : [];
+  const daySessions = useMemo(
+    () => (date ? sessionsOnDate(sessions, date) : []),
+    [sessions, date]
+  );
   const focusCount = daySessions.filter((s) => s.attention === "focus").length;
   const leisureCount = daySessions.length - focusCount;
+
+  // Resolve the day's todo ids to titles once the dialog opens. `titles` is null
+  // until the fetch settles, so a row shows a muted placeholder instead of
+  // briefly flashing "(deleted)" for todos that are merely still loading. A
+  // deleted todo stays absent from the map -> the fallback. Keyed on the id set,
+  // so saving a note (which does not touch todoIds) never refetches.
+  const todoIds = useMemo(
+    () => [...new Set(daySessions.flatMap((s) => s.todoIds))],
+    [daySessions]
+  );
+  const idsKey = todoIds.join(",");
+  const [titles, setTitles] = useState<Record<string, string> | null>(null);
+
+  useEffect(() => {
+    if (todoIds.length === 0) {
+      setTitles({});
+      return;
+    }
+    setTitles(null);
+    let cancelled = false;
+    window.electronAPI?.todos
+      ?.titlesByIds(todoIds)
+      .then((rows) => {
+        if (cancelled) return;
+        setTitles(Object.fromEntries(rows.map((r) => [r.id, r.title])));
+      })
+      .catch(() => {
+        // A failed resolve leaves rows on their id fallback; not worth surfacing.
+        if (!cancelled) setTitles({});
+      });
+    return () => {
+      cancelled = true;
+    };
+    // todoIds is derived from idsKey; depending on the key avoids array-identity churn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
 
   return (
     <Dialog open={date !== null} onOpenChange={(open) => !open && onClose()}>
@@ -79,7 +118,12 @@ export function DayDrillDown({
 
         <div className="flex flex-col gap-3">
           {daySessions.map((s) => (
-            <SessionRow key={s.id} session={s} onSaveNote={onSaveNote} />
+            <SessionRow
+              key={s.id}
+              session={s}
+              titles={titles}
+              onSaveNote={onSaveNote}
+            />
           ))}
         </div>
       </DialogContent>
@@ -114,9 +158,12 @@ function Badge({
 
 function SessionRow({
   session,
+  titles,
   onSaveNote,
 }: {
   session: PomodoroSessionRecord;
+  // id -> title map for this day, or null while it is still loading.
+  titles: Record<string, string> | null;
   onSaveNote: (id: string, note: string) => void;
 }) {
   const [note, setNote] = useState(session.note ?? "");
@@ -149,6 +196,32 @@ function SessionRow({
           {isCollapse ? "Collapse" : MODE_LABEL[session.attention]}
         </Badge>
       </div>
+
+      {session.todoIds.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-muted-foreground">Worked on:</span>
+          {session.todoIds.map((id) => {
+            const title = titles?.[id];
+            // titles === null: still loading -> muted placeholder. Loaded but
+            // absent: the todo was deleted since -> italic fallback.
+            const missing = titles !== null && title === undefined;
+            return (
+              <span
+                key={id}
+                className={cn(
+                  "inline-flex max-w-[16rem] items-center truncate rounded-full border px-2 py-0.5 font-medium",
+                  missing
+                    ? "border-border bg-muted/40 text-muted-foreground italic"
+                    : "border-border bg-muted text-foreground"
+                )}
+                title={title ?? (missing ? "deleted todo" : undefined)}
+              >
+                {title ?? (missing ? "(deleted)" : "…")}
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {apps.length > 0 && (
         <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">

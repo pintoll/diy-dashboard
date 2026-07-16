@@ -51,6 +51,23 @@ export function getTodo(id: string): Todo {
   return rowToTodo(getRow(id));
 }
 
+/**
+ * Resolves a set of todo ids to their titles for display — the analytics day
+ * drill-down's per-session "worked on" line, which links a pomodoro session to
+ * the todos that were on the desk during it (docs/design/multi-pomo-todo.md).
+ * Deleted todos are simply absent from the result (the caller shows a fallback),
+ * so this never throws on an unknown id the way `getTodo` does. Order is
+ * unspecified; callers key by id.
+ */
+export function getTodoTitlesByIds(ids: string[]): { id: string; title: string }[] {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return [];
+  const placeholders = unique.map(() => "?").join(",");
+  return getTodosDb()
+    .prepare(`SELECT id, title FROM todos WHERE id IN (${placeholders})`)
+    .all(...unique) as { id: string; title: string }[];
+}
+
 export function listTodos(filter: TodoListFilter): Todo[] {
   const db = getTodosDb();
   let rows: TodoRow[];
@@ -139,12 +156,10 @@ export function updateTodo(id: string, patch: TodoPatch): Todo {
        WHERE id = ?`
     ).run(title, note, date, sortOrder, done ? 1 : 0, completedOn, id);
 
-    // A finished todo cannot stay "Working...": clear the activation in the
-    // same transaction so no observer sees a done-but-active state.
+    // A finished todo steps off the desk: drop its membership in the same
+    // transaction so no observer sees a done-but-on-desk state.
     if (done && !wasDone) {
-      db.prepare(
-        "UPDATE active_todo SET todo_id = NULL, activated_at = NULL WHERE todo_id = ?"
-      ).run(id);
+      db.prepare("DELETE FROM desk WHERE todo_id = ?").run(id);
     }
   })();
 
@@ -154,7 +169,7 @@ export function updateTodo(id: string, patch: TodoPatch): Todo {
 
 export function deleteTodo(id: string): void {
   getRow(id);
-  // todo_sessions rows cascade; an active_todo reference resolves to NULL.
+  // todo_sessions and desk rows both cascade (ON DELETE CASCADE).
   getTodosDb().prepare("DELETE FROM todos WHERE id = ?").run(id);
   emitTodosChanged({ reason: "delete", id });
 }

@@ -19,7 +19,7 @@ type SessionRow = {
   session_end_type: string;
   process_buckets: string;
   capped_at_60m: number;
-  todo_id: string | null;
+  todo_ids: string | null;
   note: string | null;
 };
 
@@ -33,6 +33,22 @@ function parseBuckets(raw: string): Record<string, number> {
     // A corrupt JSON blob in this one column is not worth dropping the row for.
   }
   return {};
+}
+
+// todo_ids is a JSON string array (or NULL for legacy rows the migration left
+// untouched because they had no todo). Defends the shape so a stray value never
+// breaks the renderer's `string[]` contract; same lenient rule as parseBuckets.
+function parseTodoIds(raw: string | null): string[] {
+  if (raw === null) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed.filter((v): v is string => typeof v === "string");
+    }
+  } catch {
+    // A corrupt JSON blob in this one column is not worth dropping the row for.
+  }
+  return [];
 }
 
 function rowToSession(r: SessionRow): PomodoroSession {
@@ -54,7 +70,7 @@ function rowToSession(r: SessionRow): PomodoroSession {
     sessionEndType: r.session_end_type === "early-stop" ? "early-stop" : "completed",
     processBuckets: parseBuckets(r.process_buckets),
     cappedAt60m: r.capped_at_60m === 1,
-    todoId: r.todo_id,
+    todoIds: parseTodoIds(r.todo_ids),
     note: r.note,
   };
 }
@@ -66,11 +82,11 @@ const INSERT_SQL = `
 INSERT OR IGNORE INTO sessions (
   id, phase, started_at, ended_at, duration_sec, preset_id, overtime_sec,
   idle_sec, intended_mode, attention, attention_source, session_end_type,
-  process_buckets, capped_at_60m, todo_id, note
+  process_buckets, capped_at_60m, todo_ids, note
 ) VALUES (
   @id, @phase, @startedAt, @endedAt, @durationSec, @presetId, @overtimeSec,
   @idleSec, @intendedMode, @attention, @attentionSource, @sessionEndType,
-  @processBuckets, @cappedAt60m, @todoId, @note
+  @processBuckets, @cappedAt60m, @todoIds, @note
 )`;
 
 function toInsertParams(s: PomodoroSession) {
@@ -89,7 +105,7 @@ function toInsertParams(s: PomodoroSession) {
     sessionEndType: s.sessionEndType,
     processBuckets: JSON.stringify(s.processBuckets ?? {}),
     cappedAt60m: s.cappedAt60m ? 1 : 0,
-    todoId: s.todoId,
+    todoIds: JSON.stringify(s.todoIds ?? []),
     note: s.note,
   };
 }

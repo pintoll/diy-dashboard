@@ -46,11 +46,13 @@ work 13:28 / 25:00  running   (25:5, #4)
 ── today 2026-07-13 ─────────────
   1 [x] Review PR
 * 2 [ ] Write migration        50m
-  3 [ ] Ship release
+* 3 [ ] Ship release
 ── overdue: 2 (dyd todo overdue)
 ```
 
-`*` marks the active todo; the right column is accrued `workedSec` (minutes, omitted when 0). Pomodoro line when the bridge is not ready: `pomodoro: unavailable (no widget?)`.
+`*` marks **every** todo on the desk (there can be more than one — the desk is a
+set); the right column is accrued `workedSec` (minutes, omitted when 0). Pomodoro
+line when the bridge is not ready: `pomodoro: unavailable (no widget?)`.
 
 ### `dyd pomo` — pomodoro status
 
@@ -59,8 +61,11 @@ Verbose form of the overview line:
 ```
 phase      work (preset 25:5, 3 done this cycle)
 timer      13:28 remaining / 25:00   running
-active     Write migration
+desk       Write migration
+           Ship release
 ```
+
+The `desk` block lists every member (one per line); `desk       (none)` when empty.
 
 Overtime and pending review, when present:
 
@@ -94,9 +99,18 @@ Same list block as the overview (without the pomodoro line). `dyd todo overdue` 
 
 `PATCH /api/todos/:id { done: true }`.
 
-### `dyd todo use <n|id>`
+### `dyd todo use <n|id>` · `dyd todo drop <n|id>`
 
-`POST /api/active-todo` — decides which todo the next pomodoro session credits. `dyd todo use -` deactivates (`{ id: null }`).
+Manage the **desk** — the set of todos the running work pomodoro credits (every
+member accrues; see [`todos-agent-api.md`](todos-agent-api.md#the-desk)).
+
+- `dyd todo use <n|id>` → `POST /api/desk` — **adds** the todo to the desk
+  (additive, not a replace).
+- `dyd todo use -` → `DELETE /api/desk` — clears the whole desk.
+- `dyd todo drop <n|id>` → `DELETE /api/desk/:id` — removes one member.
+
+Each prints the resulting desk: `desk: Write migration, Ship release` (or
+`desk: (empty)`). Adding a completed todo errors (exit 1).
 
 ### Index addressing
 
@@ -107,4 +121,4 @@ Same list block as the overview (without the pomodoro line). `dyd todo overdue` 
 - News, stats/analytics, finance — not daily-driver commands; add on demand.
 - Review confirmation — app UI only (see pomodoro spec).
 - Watch/daemon mode — `watch -n 5 dyd pomo` covers it; a tmux status-line segment can later shell out to `dyd pomo --json`.
-- Editing todos beyond done/activate — the manage-todo agent path (Claude) already covers reconcile/reschedule flows.
+- Editing todos beyond done/desk membership — the manage-todo agent path (Claude) already covers reconcile/reschedule flows.

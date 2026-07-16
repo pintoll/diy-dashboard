@@ -20,6 +20,7 @@ import type {
   PomodoroConfig,
   PomodoroSessionRecord,
 } from "@/src/entities/pomodoro-session";
+import type { AttributionState } from "./desk-attribution";
 
 export type OvertimeState = {
   startedAt: number;
@@ -56,6 +57,9 @@ export type PomodoroState = {
   lastOvertimeAlarmThresholdSec: number | null;
   pendingReview: PendingReview | null;
   processBuckets: Record<string, number>;
+  // Interval-attribution bookkeeping for the desk (docs/design/multi-pomo-todo.md).
+  // Runtime state owned by the store; the pure engine lives in desk-attribution.ts.
+  attribution: AttributionState;
 };
 
 export type PomodoroActions = {
@@ -72,6 +76,9 @@ export type PomodoroActions = {
   setConfigFlag: (key: ConfigFlagKey, enabled: boolean) => void;
   enterOvertime: () => void;
   pollIdle: (idleSec: number) => void;
+  // Reconcile the open intervals against the current desk membership. Called by
+  // DeskAttributionController when the desk changes while a work pomo accrues.
+  syncDesk: () => void;
   stopOvertime: () => void;
   autoStopOvertime: () => void;
   confirmReview: (input: ConfirmReviewInput) => void;
