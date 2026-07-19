@@ -12,7 +12,12 @@ import {
 } from "electron";
 import path from "path";
 import { pathToFileURL } from "url";
-import { initAutoUpdater, checkForUpdates, quitAndInstall } from "./auto-updater";
+import {
+  initAutoUpdater,
+  checkForUpdates,
+  scheduleUpdateChecks,
+  quitAndInstall,
+} from "./auto-updater";
 import { registerMarketIpc } from "./market/ipc";
 import { registerFocusGuardIpc } from "./focus-guard/ipc";
 import { handleForeground } from "./focus-guard/app-guard";
@@ -429,6 +434,6 @@ app.whenReady().then(async () => {
 
   if (app.isPackaged && mainWindow) {
     await initAutoUpdater(mainWindow);
-    setTimeout(() => checkForUpdates(), 5000);
+    scheduleUpdateChecks();
   }
 });
