@@ -23,6 +23,16 @@ High-level direction and headline tasks per widget. Concrete work notes live und
 
 ---
 
+## Todos
+
+**Status**: the day list and the today widget both reorder by pointer-driven drag (`87b4dfc`). No headline tasks queued. The items below were consciously deferred during that rewrite, not overlooked.
+
+- **Clipping at the scroll edge.** The dragged row moves in place with `translate3d`, so dragging past the widget's `overflow-y-auto` boundary clips it — the old OS drag ghost floated above everything and did not. The usual fix, a `position: fixed` drag layer, is specifically unsafe here: every react-grid-layout item carries a transform, which makes the widget the containing block for fixed descendants. Auto-scroll starts 48px from the edge so this is rarely reached; revisit only if it is actually noticed in use.
+- **No drop animation.** Releasing between two slots snaps rather than glides. Adding it is a FLIP against the post-reorder layout plus a fourth `dropping` phase that ignores pointer input, and the `transitionend` exit must be paired with a timeout because a zero-delta transition never fires one. Independently addable; it was left out as the most bug-prone part of the feature.
+- **No tests on the reorder geometry.** `lib/reorder-geometry.ts` is pure and node-testable, so a `.test.ts` drops in without restructuring. Worth it if that math is touched again: the insertion index across rows of *unequal* height is where a wrong formulation hides, and it is invisible in hand-testing.
+
+---
+
 ## Daily News Pipeline
 
 **Status**: feedback collection and weekly signal-driven profile updates have both shipped — see [`design/daily-news-pipeline.md`](design/daily-news-pipeline.md). No headline tasks queued; promote a new one here when a concrete direction (e.g. per-source tuning, better parse-failure handling) is picked up.
