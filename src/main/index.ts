@@ -18,7 +18,8 @@ import {
   scheduleUpdateChecks,
   quitAndInstall,
 } from "./auto-updater";
-import { registerMarketIpc } from "./market/ipc";
+import { registerConnectorsIpc } from "./connectors/ipc";
+import { migrateToConnectors } from "./connectors/migrate";
 import { registerFocusGuardIpc } from "./focus-guard/ipc";
 import { handleForeground } from "./focus-guard/app-guard";
 import { unblock as unblockSites, stripFocusBlockSync } from "./focus-guard/site-guard";
@@ -411,10 +412,13 @@ app.whenReady().then(async () => {
   // Before anything that reads an API key (IPC handlers, the news scheduler):
   // upgrades plaintext keys from pre-safeStorage settings.json files in place.
   migrateSecretsToSafeStorage();
+  // Seeds connectors.json on first run and moves any legacy FRED key into the
+  // credential store. Depends on the decryption enabled just above.
+  migrateToConnectors();
 
   createAppMenu();
   createTray();
-  registerMarketIpc();
+  registerConnectorsIpc();
   registerFocusGuardIpc();
   registerDailyNewsIpc();
   registerSettingsIpc();

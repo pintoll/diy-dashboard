@@ -8,6 +8,7 @@ import { NotFoundError, ValidationError } from "../todos/types";
 import { BodyError, matchRoute, sendError, type Route } from "./router";
 import { todosRoutes } from "./todos-routes";
 import { pomodoroRoutes } from "./pomodoro-routes";
+import { connectorsRoutes } from "./connectors-routes";
 
 // Local agent API: lets an external local process (a CLI agent, Claude Code,
 // a script) read and mutate app data while the app runs. This HTTP surface is
@@ -114,7 +115,10 @@ function buildServer(routes: Route[], token: string): Server {
 export function startAgentApi(): void {
   if (server !== null) return;
   const token = ensureToken();
-  const instance = buildServer([...todosRoutes, ...pomodoroRoutes], token);
+  const instance = buildServer(
+    [...todosRoutes, ...pomodoroRoutes, ...connectorsRoutes],
+    token
+  );
   server = instance;
 
   // Attached with `once` rather than passed to listen(): a listen() callback is

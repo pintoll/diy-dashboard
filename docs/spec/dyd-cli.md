@@ -1,8 +1,8 @@
 # dyd — terminal CLI for diy-dashboard
 
-Drive the daily-use features (pomodoro, today's todos) from a terminal. Primary scenario: laptop/phone → Tailscale SSH → desktop WSL tmux, where the app runs on the same desktop's Windows side. The CLI only ever talks to the loopback agent API — remote access is SSH's job, so nothing is exposed to the network.
+Drive the daily-use features (pomodoro, today's todos) and the data sources behind the market widgets from a terminal. Primary scenario: laptop/phone → Tailscale SSH → desktop WSL tmux, where the app runs on the same desktop's Windows side. The CLI only ever talks to the loopback agent API — remote access is SSH's job, so nothing is exposed to the network.
 
-Status: **implemented.** Script at `tools/dyd/dyd`. Consumes [`todos-agent-api.md`](todos-agent-api.md) and [`pomodoro-agent-api.md`](pomodoro-agent-api.md).
+Status: **implemented.** Script at `tools/dyd/dyd`. Consumes [`todos-agent-api.md`](todos-agent-api.md), [`pomodoro-agent-api.md`](pomodoro-agent-api.md), and [`connectors-agent-api.md`](connectors-agent-api.md).
 
 Named `dyd` because `dash` is `/bin/dash` on Debian/Ubuntu.
 
@@ -115,6 +115,92 @@ Each prints the resulting desk: `desk: Write migration, Ship release` (or
 ### Index addressing
 
 `<n|id>` args: a small integer is a 1-based position in **today's list as `dyd todo` prints it** (API order: `sortOrder`, then creation). Resolved by refetching today's list at execution time — not from a cached view, so it's only racy against concurrent edits in the same second, acceptable single-user. Anything non-numeric is treated as a todo id. Positions do not address the overdue list; use ids there.
+
+### `dyd source` — data-source connectors
+
+Manage the declarative HTTP connectors behind the macro and calendar widgets.
+Connectors are addressed by **id only** (they have meaningful ids; there is no
+positional addressing). The definition schema is
+[`connector-protocol.md`](connector-protocol.md).
+
+```
+dyd source                          list (same as `dyd source list`)
+dyd source list [--group <g>] [--kind <series|events>]
+dyd source show <id>                full definition, one field per line
+dyd source add <json>               POST /api/connectors
+dyd source patch <id> <json>        PATCH /api/connectors/:id
+dyd source rm <id>                  DELETE /api/connectors/:id
+dyd source test <id>                POST /api/connectors/:id/test
+dyd source enable <id>
+dyd source disable <id>
+```
+
+```
+  DGS10            series  Rates   10Y UST
+- upbit-btc-krw    series  Crypto  BTC/KRW
+  fred-release-10  events  US      CPI
+(1 disabled, marked -)
+```
+
+A leading `-` marks a disabled connector, mirroring how `*` marks desk members.
+
+The JSON argument is passed as **one shell argument** and is syntax-checked
+locally before it is sent, so a stray comma is reported with its column instead
+of arriving as a bare `400`.
+
+`add` and `patch` are **slow on purpose**: the app fetches the endpoint for real
+before storing anything, and a failed fetch is an error, not a saved connector
+(see [`connectors-agent-api.md`](connectors-agent-api.md#why-writes-are-slow)).
+Both print the stored connector plus the dry-run sample:
+
+```
+saved      upbit-btc-krw  (series, Crypto, enabled)
+test       ok, 10 items
+           2026-07-18  97120000
+           2026-07-19  98750000
+```
+
+A rejected write surfaces the app's parse error verbatim, which is the whole
+point of the dry-run:
+
+```
+dyd: error: connector test failed: parsed 0 usable points from 10 items — check datePath "date" and valuePath "price"
+```
+
+`disable` sends `skipTest` with the patch. A connector is usually switched off
+*because* it broke, and the dry-run would otherwise refuse the very edit that
+silences it. `enable` does run the dry-run, since turning a source on is exactly
+when you want to know it works.
+
+`dyd source test` exits **1** when the connector fails, even though the API
+answered `200`: the verdict is the only reason to run the command, so it is
+scriptable as `dyd source test X && ...`.
+
+### `dyd cred` — credentials
+
+```
+dyd cred                     list (same as `dyd cred list`)
+dyd cred set <name> <host> <secret>
+dyd cred rm <name>
+```
+
+```
+  fred  api.stlouisfed.org
+  ecos  ecos.bok.or.kr
+```
+
+Secrets are **write-only**: the API has no route that returns one, so there is
+no `cred show` and nothing this CLI prints can leak a key. `list` shows the name
+and the pinned `allowedHost` only.
+
+`<host>` is the host the secret is pinned to; a connector naming this credential
+but pointing elsewhere is refused before the request goes out. A full URL is
+accepted and reduced to its hostname.
+
+The secret is an ordinary argv element, so it lands in shell history and is
+visible in `ps` while the command runs. Prefer `dyd cred set fred api.stlouisfed.org "$KEY"`
+with the key in an environment variable, or a leading space if your shell is
+configured to keep such lines out of history.
 
 ## Non-goals (MVP)
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { CalendarX, KeyRound, RefreshCw } from "lucide-react";
+import { CalendarX, RefreshCw } from "lucide-react";
 import { cn } from "@/src/shared/lib/utils";
 import { formatTimeAgo } from "@/src/shared/lib/format-time-ago";
 import { Button } from "@/src/shared/ui/button";
@@ -25,7 +25,6 @@ export function EconomicCalendarClient({
     lastFetchedAt,
     status,
     errorMessage,
-    missingApiKey,
     rangeKey,
     typeFilter,
     minImportance,
@@ -38,11 +37,11 @@ export function EconomicCalendarClient({
   const hasEvents = events.length > 0;
 
   useEffect(() => {
-    if (missingApiKey || status === "loading" || status === "error") return;
+    if (status === "loading" || status === "error") return;
     if (!hasEvents || isStale(lastFetchedAt)) {
       fetchRange();
     }
-  }, [missingApiKey, status, hasEvents, lastFetchedAt, fetchRange]);
+  }, [status, hasEvents, lastFetchedAt, fetchRange]);
 
   const groups = useMemo(() => {
     const filtered = applyFilters(events, rangeKey, typeFilter, minImportance);
@@ -79,22 +78,7 @@ export function EconomicCalendarClient({
         </div>
       </div>
 
-      {missingApiKey ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
-          <KeyRound className="size-5 text-muted-foreground/60" />
-          <div className="text-xs font-medium text-muted-foreground">
-            FRED API key is not configured
-          </div>
-          <div className="text-[10px] text-muted-foreground/60 leading-relaxed">
-            Enter your FRED API key in Settings, then refresh this widget.
-            <br />
-            Free key:{" "}
-            <span className="text-muted-foreground/80">
-              fredaccount.stlouisfed.org/apikey
-            </span>
-          </div>
-        </div>
-      ) : groups.length === 0 && status !== "loading" ? (
+      {groups.length === 0 && status !== "loading" ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
           <CalendarX className="size-5 text-muted-foreground/60" />
           <div className="text-xs text-muted-foreground">
