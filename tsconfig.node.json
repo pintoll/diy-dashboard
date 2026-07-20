@@ -18,11 +18,18 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "noUncheckedSideEffectImports": true,
+
+    /* Paths */
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["./src/shared/*"]
+    }
   },
   "include": [
     "src/main",
     "src/preload",
+    "src/shared",
     "electron.vite.config.ts"
   ]
 }

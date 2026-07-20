@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Routes, Route } from "react-router-dom";
-import { DashboardGrid } from "@/src/widgets/dashboard-grid/client";
+import { DashboardGrid, useDashboardStore } from "@/src/widgets/dashboard-grid/client";
 import { registerAllWidgets } from "@/src/widgets/widget-registry";
 import { UpdateToast } from "@/src/features/check-app-update/client";
 import { FocusAnalyticsPage } from "@/src/pages/focus-analytics/client";
@@ -31,6 +31,26 @@ function HomePage() {
   return <DashboardGrid />;
 }
 
+// The pomodoro slice's two headless controllers need the instance id of the
+// pomodoro widget on the dashboard. That lookup is resolved here rather than
+// inside the slice: `widgets` never imports from a sibling `widgets` slice, let
+// alone past its barrel into `model/` (.claude/rules/ARCHITECTURE.md). `app` is
+// the composition root and may read both, so the dependency points downward.
+//
+// Its own component so the subscription re-renders these two and not the routes.
+function PomodoroControllers() {
+  const instanceId = useDashboardStore(
+    (s) => s.widgets.find((w) => w.widgetId === "pomodoro-timer")?.instanceId ?? null
+  );
+
+  return (
+    <>
+      <PomodoroBridgeController instanceId={instanceId} />
+      <DeskAttributionController instanceId={instanceId} />
+    </>
+  );
+}
+
 export default function App() {
   return (
     <>
@@ -42,8 +62,7 @@ export default function App() {
       </Routes>
       <UpdateToast />
       <FocusModeController />
-      <PomodoroBridgeController />
-      <DeskAttributionController />
+      <PomodoroControllers />
     </>
   );
 }

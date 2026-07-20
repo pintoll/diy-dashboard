@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { useDashboardStore } from "@/src/widgets/dashboard-grid/model/use-dashboard-store";
 import { useTodoStore } from "@/src/entities/todo";
 import { getWidgetStore } from "@/src/shared/lib/create-widget-store";
 import type {
@@ -17,17 +16,20 @@ import type {
 // and opens any that joined.
 //
 // Mounted once at the app root (sibling of PomodoroBridgeController) so it stays
-// alive while the window is hidden to tray. Like the bridge, it targets the
-// first pomodoro widget instance's store, looked up lazily per change (no store
-// yet -> nothing is accruing, so nothing to reconcile).
+// alive while the window is hidden to tray. The app root supplies the target
+// instance id — the slice does not go looking for it on the dashboard — and the
+// store itself is looked up lazily per change (no store yet -> nothing is
+// accruing, so nothing to reconcile).
 
 type PomodoroStore = PomodoroState & PomodoroActions & { config: PomodoroConfig };
 
-export function DeskAttributionController() {
-  const instanceId = useDashboardStore(
-    (s) => s.widgets.find((w) => w.widgetId === "pomodoro-timer")?.instanceId ?? null
-  );
+type Props = {
+  // The pomodoro widget instance to reconcile against, or null when the
+  // dashboard has no pomodoro widget.
+  instanceId: string | null;
+};
 
+export function DeskAttributionController({ instanceId }: Props) {
   useEffect(() => {
     if (instanceId === null) return;
 

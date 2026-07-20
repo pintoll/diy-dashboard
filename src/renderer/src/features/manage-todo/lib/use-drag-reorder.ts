@@ -217,7 +217,7 @@ function createController({ listRef, rowMap, session, latest }: Ctx) {
     dragged.style.position = "relative";
     dragged.style.zIndex = "10";
 
-    document.body.toggleAttribute("data-reordering", true);
+    raiseShield(drag.scroller);
     onDragStart(ids[drag.from]);
     drag.rafId = requestAnimationFrame(frame);
   }
@@ -332,11 +332,47 @@ function createController({ listRef, rowMap, session, latest }: Ctx) {
     if (drag.gripEl.hasPointerCapture(drag.pointerId)) {
       drag.gripEl.releasePointerCapture(drag.pointerId);
     }
-    document.body.toggleAttribute("data-reordering", false);
+    dropShield();
     session.current = null;
   }
 
   return { onGripPointerDown, cancelDrag };
+}
+
+// A transparent full-viewport element held up for the duration of a drag. It
+// owns the `grabbing` cursor and the selection suppression for the whole page,
+// which the previous `body[data-reordering] *` rule bought by invalidating
+// matched styles on every node in the document — a synchronous hitch landing on
+// the first frame of the gesture, on a dashboard with many widgets mounted.
+//
+// Sitting on top also means a descendant's own cursor (the todo title button
+// sets `pointer`) cannot win, which is why an inline style on `body` was never
+// enough. Pointer events land on it and still reach the window listeners that
+// drive the drag; only one session exists at a time, so one module-scope node.
+let shield: HTMLDivElement | null = null;
+
+function raiseShield(scroller: HTMLElement | null) {
+  if (shield) return;
+  shield = document.createElement("div");
+  shield.className = "reorder-shield";
+  // Being on top, it also swallows the wheel events that used to reach the list.
+  // Scrolling by wheel mid-drag is a supported path -- frame() re-anchors the
+  // cached rects off the live list position every frame precisely so that it
+  // needs no bookkeeping -- so hand them back to whatever auto-scroll targets.
+  shield.addEventListener(
+    "wheel",
+    (event) => {
+      if (scroller) scroller.scrollTop += event.deltaY;
+      else window.scrollBy(0, event.deltaY);
+    },
+    { passive: true }
+  );
+  document.body.appendChild(shield);
+}
+
+function dropShield() {
+  shield?.remove();
+  shield = null;
 }
 
 // Module scope so every session shares one implementation; both take the

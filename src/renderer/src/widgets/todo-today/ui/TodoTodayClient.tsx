@@ -8,6 +8,12 @@ import { cn } from "@/src/shared/lib/utils";
 
 export type TodoTodayConfig = Record<string, never>;
 
+// The desk banner sits in a `shrink-0` box above the scrolling list, so every
+// line it renders is a line the list loses. Uncapped, a six-member desk at the
+// widget's minimum grid height squeezed the list to nothing and pushed the add
+// form out of view. Two plus a count keeps the height bounded.
+const DESK_BANNER_LIMIT = 2;
+
 export function TodoTodayClient() {
   const status = useTodoStore((s) => s.status);
   const error = useTodoStore((s) => s.error);
@@ -62,11 +68,16 @@ export function TodoTodayClient() {
               {sessionActive ? "Working" : "Up next"}
               {desk.length > 1 && ` · ${desk.length}`}
             </p>
-            {desk.map((todo) => (
+            {desk.slice(0, DESK_BANNER_LIMIT).map((todo) => (
               <p key={todo.id} className="truncate text-sm font-medium">
                 {todo.title}
               </p>
             ))}
+            {desk.length > DESK_BANNER_LIMIT && (
+              <p className="text-[10px] text-muted-foreground">
+                +{desk.length - DESK_BANNER_LIMIT} more
+              </p>
+            )}
           </div>
         </div>
       )}

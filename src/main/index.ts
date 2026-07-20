@@ -16,6 +16,7 @@ import {
   initAutoUpdater,
   checkForUpdates,
   scheduleUpdateChecks,
+  stopUpdateChecks,
   quitAndInstall,
 } from "./auto-updater";
 import { registerConnectorsIpc } from "./connectors/ipc";
@@ -31,7 +32,10 @@ import { registerFinanceIpc } from "./finance/ipc";
 import { registerTodosIpc } from "./todos/ipc";
 import { registerPomodoroIpc } from "./pomodoro/ipc";
 import { startAgentApi, stopAgentApi } from "./agent-api/server";
-import { registerPomodoroBridgeIpc } from "./agent-api/pomodoro-bridge";
+import {
+  registerPomodoroBridgeIpc,
+  setPomodoroBridgeWindow,
+} from "./agent-api/pomodoro-bridge";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -125,6 +129,11 @@ function createWindow(): void {
       mainWindow?.hide();
     }
   });
+
+  // This is the window that mounts PomodoroBridgeController, so it is the only
+  // one an agent-api command can be answered by.
+  setPomodoroBridgeWindow(mainWindow);
+  mainWindow.on("closed", () => setPomodoroBridgeWindow(null));
 
   if (!app.isPackaged && process.env["ELECTRON_RENDERER_URL"]) {
     mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
@@ -378,6 +387,8 @@ app.on("before-quit", () => {
   // an active session keeps blocking while hidden and releases only on quit).
   stripFocusBlockSync();
   stopAgentApi();
+  // The hourly recheck would otherwise outlive the window it reports into.
+  stopUpdateChecks();
 });
 
 app.on("window-all-closed", () => {

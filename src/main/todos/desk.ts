@@ -46,13 +46,21 @@ export function addToDesk(id: string): Todo {
 }
 
 export function removeFromDesk(id: string): void {
-  getTodosDb().prepare("DELETE FROM desk WHERE todo_id = ?").run(id);
-  emitTodosChanged({ reason: "active", id });
+  const db = getTodosDb();
+  // Symmetric with addToDesk: an id that is not a todo at all is a caller error
+  // (-> 404), not a silently successful no-op. Removing a real todo that simply
+  // is not on the desk stays a success, so the operation is still idempotent.
+  const exists = db.prepare("SELECT 1 FROM todos WHERE id = ?").get(id);
+  if (!exists) throw new NotFoundError(`No todo with id "${id}"`);
+  const info = db.prepare("DELETE FROM desk WHERE todo_id = ?").run(id);
+  // Not on the desk: nothing changed, so don't wake every listener. The store's
+  // debounced refresh costs two IPC round trips plus an attribution re-sync.
+  if (info.changes === 1) emitTodosChanged({ reason: "active", id });
 }
 
 export function clearDesk(): void {
-  getTodosDb().prepare("DELETE FROM desk").run();
-  emitTodosChanged({ reason: "active" });
+  const info = getTodosDb().prepare("DELETE FROM desk").run();
+  if (info.changes > 0) emitTodosChanged({ reason: "active" });
 }
 
 // --- Single-active compat (one release) -------------------------------------
@@ -68,8 +76,8 @@ export function setActiveTodo(id: string | null): Todo | null {
   const db = getTodosDb();
 
   if (id === null) {
-    db.prepare("DELETE FROM desk").run();
-    emitTodosChanged({ reason: "active" });
+    const info = db.prepare("DELETE FROM desk").run();
+    if (info.changes > 0) emitTodosChanged({ reason: "active" });
     return null;
   }
 

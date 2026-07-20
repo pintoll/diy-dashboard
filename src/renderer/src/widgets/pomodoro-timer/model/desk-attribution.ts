@@ -62,6 +62,29 @@ function blockOverlapSec(startMs: number, closeMs: number, phaseEndMs: number): 
   return Math.max(0, Math.floor((end - startMs) / 1000));
 }
 
+// The share of `overtimeSec` an interval is entitled to. Overtime runs in the
+// window [phaseEndMs, closeMs]; an interval that opened partway through it was
+// only present for the tail, so it cannot bank the whole total. Clamped by that
+// wall-clock presence rather than divided, matching the block rule — but never
+// above the total, which is already idle-excluded and capped.
+//
+// `closeMs <= phaseEndMs` means there is no overtime window at all: the session
+// ended before the timer ran out, so any `overtimeSec` here is the user's manual
+// top-up from the review dialog. That applies to the whole session, so it is
+// credited in full to everyone still open, as before.
+function overtimeShareSec(
+  startMs: number,
+  closeMs: number,
+  phaseEndMs: number,
+  overtimeSec: number
+): number {
+  const total = Math.max(0, Math.floor(overtimeSec));
+  if (total === 0 || closeMs <= phaseEndMs) return total;
+  const presentFrom = Math.max(startMs, phaseEndMs);
+  const presentSec = Math.max(0, Math.floor((closeMs - presentFrom) / 1000));
+  return Math.min(total, presentSec);
+}
+
 function bankInterval(
   state: AttributionState,
   interval: OpenInterval,
@@ -69,13 +92,14 @@ function bankInterval(
   overtimeSec: number
 ): AttributionBank {
   const blockSec = blockOverlapSec(interval.startMs, closeMs, state.phaseEndMs);
+  const otSec = overtimeShareSec(interval.startMs, closeMs, state.phaseEndMs, overtimeSec);
   return {
     attributionId: `${state.sessionId}:${interval.todoId}:${interval.seq}`,
     sessionId: state.sessionId as string,
     todoId: interval.todoId,
     startedAt: interval.startMs,
     endedAt: closeMs,
-    workedSec: blockSec + Math.max(0, Math.floor(overtimeSec)),
+    workedSec: blockSec + otSec,
   };
 }
 
@@ -167,8 +191,10 @@ export function resumeBlock(
 }
 
 // End the block (phase complete / stop / skip / overtime end): bank every
-// still-open interval and reset. `overtimeSec` is added in full to each present
-// member (no division), matching the block rule.
+// still-open interval and reset. `overtimeSec` is added on top without division,
+// matching the block rule — but only up to each member's own presence in the
+// overtime window (see `overtimeShareSec`), so a late joiner cannot bank an hour
+// of overtime for a minute on the desk.
 export function endBlock(state: AttributionState, params: { at: number; overtimeSec: number }): Result {
   if (state.sessionId === null) return { state: initialAttribution(), banks: [] };
   const banks = state.open.map((interval) =>

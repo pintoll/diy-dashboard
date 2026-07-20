@@ -74,7 +74,8 @@ export const todosRoutes: Route[] = [
   },
   // The desk: the set of todos receiving the running work clock. Every member
   // accrues time (docs/design/multi-pomo-todo.md). Add is additive — it does not
-  // replace the desk. Errors bubble to the central handler: unknown id → 404,
+  // replace the desk. Errors bubble to the central handler: unknown id → 404
+  // (on remove as well as add, so a typo'd id is not reported as a success),
   // completed todo → 400.
   {
     method: "GET",
