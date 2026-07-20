@@ -115,6 +115,15 @@
     @apply bg-background text-foreground font-sans;
   }
 
+  /* While a list reorder is in flight. Has to be a rule rather than an inline
+     style on body: a descendant's own cursor (the todo title button sets
+     `pointer`) would win over `document.body.style.cursor`. */
+  body[data-reordering],
+  body[data-reordering] * {
+    cursor: grabbing !important;
+    user-select: none !important;
+  }
+
   /* Thin mobile-style scrollbar */
   ::-webkit-scrollbar {
     width: 4px;
