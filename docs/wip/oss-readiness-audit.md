@@ -46,6 +46,20 @@ Legend: 🟠 high · 🟡 medium.
   `focus:site:grant-permission`). No user-gesture requirement; repeated calls
   = prompt fatigue to coax an elevation approval.
 
+## Accepted, not open
+
+The agent API's newer surface (`/api/pomodoro`, `/api/pomodoro/command`, `/api/desk*`) was reviewed
+at `5e89a51` and inherits the existing defenses intact — 127.0.0.1 bind, Host-header allowlist,
+bearer token on every route but `GET /api/health`, 64KB body cap, all SQL parameter-bound, `action`
+and `presetId` allowlisted. Two deliberate exceptions, recorded so they are not re-raised:
+
+- **Token compare is not constant-time.** Over loopback against a `nanoid(32)` secret, not worth
+  changing.
+- **`ipcMain.on("pomodoro:bridge:snapshot" | "pomodoro:bridge:command-result")` does not validate
+  the sender.** Harmless while there is exactly one renderer. Revisit if a second window is ever
+  added — the same trigger as the CSP item above, and the command path's explicit window tracking
+  does not cover these two listeners.
+
 ## 🟡 Functional / robustness
 
 - **No shared schema migration runner**. `pomodoro.db` stamps `PRAGMA

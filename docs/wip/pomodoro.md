@@ -1,6 +1,8 @@
 # WIP — Pomodoro Timer
 
-Remaining roadmap. The core (presets, persistence, native notifications, background ticking), overtime/attention detection, phase-end chime/flash, and session stats (today/week/streak/heatmap) are shipped.
+Remaining roadmap. The core (presets, persistence, native notifications, background ticking), overtime/attention detection, phase-end chime/flash, session stats (today/week/streak/heatmap), and the desk model (todos on the clock, per-todo time accrual) are shipped.
+
+The old "Task Label" item is dropped: the desk supersedes a free-text label, and it feeds stats properly rather than "later".
 
 ## High Impact
 
@@ -28,13 +30,6 @@ Optional auto-transition between work and break.
 - `useEffect` + `keydown` listener with cleanup
 
 ## Nice-to-Have
-
-### Task Label
-
-Editable text for the current focus ("Fix auth bug"). Can feed into stats later.
-
-- `PomodoroConfig.currentTask: string | null`
-- Small input above time display, persists on blur
 
 ### Tray Timer Display
 
