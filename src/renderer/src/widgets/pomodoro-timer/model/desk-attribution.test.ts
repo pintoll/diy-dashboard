@@ -171,7 +171,30 @@ describe("desk-attribution interval math", () => {
     // C joins at 27min, i.e. already in overtime (past the 25-min phase end).
     s = syncDesk(s, { members: ["C"], at: min(27) }).state;
     const end = endBlock(s, { at: min(30), overtimeSec: 250 });
-    // Block overlap clamps to 0 (start is past phase end); only overtime counts.
-    expect(end.banks[0]).toMatchObject({ todoId: "C", workedSec: 250 });
+    // Block overlap clamps to 0 (start is past phase end). The overtime share is
+    // clamped too: C was present for 3 of the 5 overtime minutes, so it banks
+    // 180s of the 250s total, not all of it.
+    expect(end.banks[0]).toMatchObject({ todoId: "C", workedSec: 180 });
+  });
+
+  it("a late joiner cannot bank overtime it was not present for", () => {
+    let s = startBlock({ sessionId: SID, blockStartMs: 0, phaseEndMs: PHASE_END, members: ["A"] }).state;
+    // 50 min of overtime after the 25-min block; C lands on the desk one minute
+    // before the stop at t=75min.
+    s = syncDesk(s, { members: ["A", "C"], at: min(74) }).state;
+    const end = endBlock(s, { at: min(75), overtimeSec: 3000 });
+    const banks = byTodo(end.banks);
+    // A rode the whole thing: full block + full overtime.
+    expect(banks["A"].workedSec).toBe(1500 + 3000);
+    // C: no block time, and only the 60s of overtime it was actually there for.
+    expect(banks["C"].workedSec).toBe(60);
+  });
+
+  it("an early stop credits a manually entered overtime total in full", () => {
+    const s = startBlock({ sessionId: SID, blockStartMs: 0, phaseEndMs: PHASE_END, members: ["A"] }).state;
+    // Stopped at 7min, so there is no overtime window at all. The 780s comes
+    // from the review dialog's editable total and applies to the session.
+    const end = endBlock(s, { at: min(7), overtimeSec: 780 });
+    expect(end.banks[0]).toMatchObject({ todoId: "A", workedSec: 420 + 780 });
   });
 });

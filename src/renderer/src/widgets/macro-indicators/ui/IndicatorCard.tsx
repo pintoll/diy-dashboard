@@ -1,28 +1,35 @@
 import { memo } from "react";
 import { cn } from "@/src/shared/lib/utils";
-import type { SeriesPoint, SeriesSnapshot } from "@/src/entities/market-indicator";
-import type { IndicatorMeta } from "../model/indicators-catalog";
+import {
+  DEFAULT_DISPLAY,
+  type IndicatorConnector,
+  type IndicatorUnit,
+  type SeriesPoint,
+  type SeriesSnapshot,
+} from "@/src/entities/market-indicator";
 import type { Timeframe } from "../model/timeframe";
 import { getTimeframeWindow } from "../model/timeframe";
 import { Sparkline } from "./Sparkline";
 
-function formatValue(value: number, meta: IndicatorMeta): string {
-  switch (meta.unit) {
+type Display = { unit: IndicatorUnit; fractionDigits: number };
+
+function formatValue(value: number, display: Display): string {
+  switch (display.unit) {
     case "percent":
-      return `${value.toFixed(meta.fractionDigits)}%`;
+      return `${value.toFixed(display.fractionDigits)}%`;
     case "currency":
       return value.toLocaleString("en-US", {
-        minimumFractionDigits: meta.fractionDigits,
-        maximumFractionDigits: meta.fractionDigits,
+        minimumFractionDigits: display.fractionDigits,
+        maximumFractionDigits: display.fractionDigits,
       });
     default:
-      return value.toFixed(meta.fractionDigits);
+      return value.toFixed(display.fractionDigits);
   }
 }
 
-function formatDelta(delta: number, meta: IndicatorMeta): string {
+function formatDelta(delta: number, display: Display): string {
   const sign = delta > 0 ? "+" : "";
-  return `${sign}${delta.toFixed(meta.fractionDigits)}`;
+  return `${sign}${delta.toFixed(display.fractionDigits)}`;
 }
 
 function formatPct(pct: number): string {
@@ -52,18 +59,21 @@ function computeChange(latest: SeriesPoint, anchor: SeriesPoint): Change {
 }
 
 type IndicatorCardProps = {
-  meta: IndicatorMeta;
+  connector: IndicatorConnector;
   snapshot: SeriesSnapshot | undefined;
+  error: string | undefined;
   timeframe: Timeframe;
   isLoading: boolean;
 };
 
 function IndicatorCardComponent({
-  meta,
+  connector,
   snapshot,
+  error,
   timeframe,
   isLoading,
 }: IndicatorCardProps) {
+  const display = connector.display ?? DEFAULT_DISPLAY;
   const points = snapshot?.points ?? [];
   const { windowPoints, anchor, latest } = getTimeframeWindow(points, timeframe);
   const prevDay = points.length >= 2 ? points[points.length - 2] : null;
@@ -78,12 +88,12 @@ function IndicatorCardComponent({
       <div className="flex items-baseline justify-between gap-1.5 min-w-0">
         <span
           className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 truncate"
-          title={meta.description}
+          title={connector.label}
         >
-          {meta.label}
+          {connector.label}
         </span>
         <span className="text-[9px] tabular-nums text-muted-foreground/40">
-          {meta.seriesId}
+          {connector.id}
         </span>
       </div>
 
@@ -91,7 +101,7 @@ function IndicatorCardComponent({
         <>
           <div className="flex items-baseline justify-between gap-2 min-w-0">
             <span className="text-base font-medium tabular-nums">
-              {formatValue(latest.value, meta)}
+              {formatValue(latest.value, display)}
             </span>
             {dayChange && dayStyle && (
               <span
@@ -100,7 +110,7 @@ function IndicatorCardComponent({
                   dayStyle.class
                 )}
               >
-                {dayStyle.arrow} {formatDelta(dayChange.delta, meta)}
+                {dayStyle.arrow} {formatDelta(dayChange.delta, display)}
                 <span className="hidden @[140px]:inline">
                   {" "}
                   ({formatPct(dayChange.pct)})
@@ -115,7 +125,7 @@ function IndicatorCardComponent({
             </span>
             {windowChange ? (
               <span className={windowStyle.class}>
-                {formatDelta(windowChange.delta, meta)} (
+                {formatDelta(windowChange.delta, display)} (
                 {formatPct(windowChange.pct)})
               </span>
             ) : (
@@ -125,6 +135,16 @@ function IndicatorCardComponent({
 
           <Sparkline points={windowPoints} color={windowStyle.stroke} />
         </>
+      ) : error ? (
+        // The connector's own failure, shown in place of its value. Definitions
+        // are user- and agent-authored, so a bad path or an expired credential
+        // has to be legible from the card rather than only in a log.
+        <div
+          className="text-[10px] leading-snug text-destructive/70 py-1 line-clamp-3"
+          title={error}
+        >
+          {error}
+        </div>
       ) : (
         <div className="text-xs text-muted-foreground/40 py-2">
           {isLoading ? "Loading…" : "—"}

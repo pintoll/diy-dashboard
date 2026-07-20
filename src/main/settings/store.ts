@@ -15,6 +15,10 @@ export type AppSettings = {
   geminiApiKeyEnc?: string;
   fredApiKey?: string;
   fredApiKeyEnc?: string;
+  // Connector credentials, as a JSON string so the existing secret twin-field
+  // machinery encrypts it unchanged. Parsed by src/main/connectors/credentials.
+  credentials?: string;
+  credentialsEnc?: string;
   usdKrwRate?: number;
   agentApiPort?: number;
   agentApiToken?: string;
@@ -93,7 +97,7 @@ export function setSettings(patch: Partial<AppSettings>): void {
 // reset) reads as unset so the user can re-enter it in Settings. There is no
 // build-time env fallback: keys are runtime-entered only, so they can never
 // end up baked into a distributed binary.
-type SecretKey = "geminiApiKey" | "fredApiKey";
+type SecretKey = "geminiApiKey" | "fredApiKey" | "credentials";
 
 function getSecret(name: SecretKey): string | undefined {
   const settings = getSettings();
@@ -128,7 +132,7 @@ function setSecret(name: SecretKey, value: string): void {
 export function migrateSecretsToSafeStorage(): void {
   if (!safeStorage.isEncryptionAvailable()) return;
   const settings = getSettings();
-  for (const name of ["geminiApiKey", "fredApiKey"] as const) {
+  for (const name of ["geminiApiKey", "fredApiKey", "credentials"] as const) {
     const plain = settings[name];
     if (plain) setSecret(name, plain);
   }
@@ -142,12 +146,24 @@ export function setGeminiApiKey(key: string): void {
   setSecret("geminiApiKey", key);
 }
 
+/**
+ * @deprecated Legacy field, read once by connectors/migrate.ts to move an
+ * existing key into the credential store, then cleared. The fields stay in
+ * AppSettings so that migration still works on installs that predate
+ * connectors; nothing else should read this.
+ */
 export function getFredApiKey(): string | undefined {
   return getSecret("fredApiKey");
 }
 
-export function setFredApiKey(key: string): void {
-  setSecret("fredApiKey", key);
+// The connector credential map, serialized. Kept as an opaque string here so
+// this module stays free of connector semantics; see connectors/credentials.ts.
+export function getCredentialsBlob(): string | undefined {
+  return getSecret("credentials");
+}
+
+export function setCredentialsBlob(json: string): void {
+  setSecret("credentials", json);
 }
 
 export function getUsdKrwRate(): number {

@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { useDashboardStore } from "@/src/widgets/dashboard-grid/model/use-dashboard-store";
 import { getWidgetStore, type WidgetStore } from "@/src/shared/lib/create-widget-store";
 import { POMODORO_PRESETS } from "../model/pomodoro.types";
 import type {
@@ -12,8 +11,9 @@ import type {
 // the main-process agent API. Mounted once at the app root (sibling of
 // FocusModeController), so it stays alive while the window is hidden to tray.
 //
-// - It binds to the FIRST pomodoro widget instance's live store and pushes a raw
-//   snapshot to main on every transition. The store's set() fires exactly on
+// - It binds to the live store of the pomodoro widget instance the app root
+//   hands it, and pushes a raw snapshot to main on every transition (the slice
+//   does not read the dashboard's widget list itself). The store's set() fires on
 //   start/pause/stop/skip/reset/set-preset, overtime enter, ~5s pollIdle updates,
 //   and overtime exit — never on the plain countdown second — so pushes are
 //   transition-driven without any timer here.
@@ -118,11 +118,13 @@ function executeCommand(
   }
 }
 
-export function PomodoroBridgeController() {
-  const instanceId = useDashboardStore(
-    (s) => s.widgets.find((w) => w.widgetId === "pomodoro-timer")?.instanceId ?? null
-  );
+type Props = {
+  // The pomodoro widget instance to expose, or null when the dashboard has no
+  // pomodoro widget (reported as unbound → 503).
+  instanceId: string | null;
+};
 
+export function PomodoroBridgeController({ instanceId }: Props) {
   useEffect(() => {
     const bridge =
       typeof window !== "undefined" ? window.electronAPI?.pomodoroBridge : undefined;

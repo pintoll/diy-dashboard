@@ -25,8 +25,9 @@
     /* Paths */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/renderer/*"]
+      "@/*": ["./src/renderer/*"],
+      "@shared/*": ["./src/shared/*"]
     }
   },
-  "include": ["src/renderer/src", "src/preload/electron-env.d.ts"]
+  "include": ["src/renderer/src", "src/shared", "src/preload/electron-env.d.ts"]
 }

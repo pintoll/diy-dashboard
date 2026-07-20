@@ -14,7 +14,7 @@ export type RouteHandler = (
 ) => Promise<void> | void;
 
 export type Route = {
-  method: "GET" | "POST" | "PATCH" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   // Path pattern; ":name" segments capture into params.
   pattern: string;
   handler: RouteHandler;

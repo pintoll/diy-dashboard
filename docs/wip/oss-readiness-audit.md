@@ -27,11 +27,16 @@ Legend: 🟠 high · 🟡 medium.
   (malware, a tainted npm postinstall) can rewrite hosts with no UAC. Revert
   on uninstall/teardown, or elevate per-write, and document the trade-off.
 
-- **Gemini/FRED key handed to the renderer verbatim** (`src/main/settings/ipc.ts`
-  `settings:getGeminiKey`/`getFredKey`). At-rest storage is `safeStorage`-encrypted,
-  but the value is still returned in full over IPC to prefill the Settings
-  dialog; a renderer compromise reads both keys. Fixing it means returning
-  only a set/unset flag and losing the prefill UX — decide alongside CSP.
+- **Gemini key handed to the renderer verbatim** (`src/main/settings/ipc.ts`
+  `settings:getGeminiKey`). At-rest storage is `safeStorage`-encrypted, but the
+  value is still returned in full over IPC to prefill the Settings dialog; a
+  renderer compromise reads it. Fixing it means returning only a set/unset flag
+  and losing the prefill UX — decide alongside CSP.
+
+  The FRED half of this item is **resolved**: `settings:getFredKey`/`setFredKey`
+  are gone, and the connector credential store that replaced them returns names
+  and hosts only (`credentials:list` → `CredentialMeta[]`), never the secret.
+  That store is the model for whatever Gemini migrates to.
 
 - **Renderer can force-kill arbitrary processes** (`src/main/focus-guard/app-guard.ts:94`).
   Renderer-supplied exe blocklist drives `taskkill /F /T /PID`. A compromised
@@ -40,6 +45,20 @@ Legend: 🟠 high · 🟡 medium.
 - **Renderer-invokable UAC prompt** (`src/main/focus-guard/ipc.ts:25`
   `focus:site:grant-permission`). No user-gesture requirement; repeated calls
   = prompt fatigue to coax an elevation approval.
+
+## Accepted, not open
+
+The agent API's newer surface (`/api/pomodoro`, `/api/pomodoro/command`, `/api/desk*`) was reviewed
+at `5e89a51` and inherits the existing defenses intact — 127.0.0.1 bind, Host-header allowlist,
+bearer token on every route but `GET /api/health`, 64KB body cap, all SQL parameter-bound, `action`
+and `presetId` allowlisted. Two deliberate exceptions, recorded so they are not re-raised:
+
+- **Token compare is not constant-time.** Over loopback against a `nanoid(32)` secret, not worth
+  changing.
+- **`ipcMain.on("pomodoro:bridge:snapshot" | "pomodoro:bridge:command-result")` does not validate
+  the sender.** Harmless while there is exactly one renderer. Revisit if a second window is ever
+  added — the same trigger as the CSP item above, and the command path's explicit window tracking
+  does not cover these two listeners.
 
 ## 🟡 Functional / robustness
 

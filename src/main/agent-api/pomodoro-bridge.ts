@@ -1,6 +1,10 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { nanoid } from "nanoid";
 import { getDesk } from "../todos/desk";
+import {
+  computeOvertimeElapsedSec,
+  computeRemainingSec,
+} from "@shared/pomodoro-time";
 
 // The pomodoro timer's authority lives in the renderer Zustand store, not in
 // main. This module is the main half of a request/reply bridge to it:
@@ -76,36 +80,40 @@ const pending = new Map<
   { resolve: (result: CommandResult) => void; timer: ReturnType<typeof setTimeout> }
 >();
 
-// Mirrors the renderer store's computeTimeRemaining.
-function recomputeRemaining(s: PomodoroRawSnapshot): number {
-  if (!s.isRunning) return s.pausedTimeRemaining ?? s.phaseDurationSec;
-  if (s.startedAt === null) return s.phaseDurationSec;
-  const elapsed = Math.floor((Date.now() - s.startedAt) / 1000);
-  return Math.max(0, s.phaseDurationSec - elapsed);
+// The dashboard window, tracked explicitly rather than picked out of
+// getAllWindows(): only this one mounts PomodoroBridgeController, so a second
+// window (settings, auth) must never be handed a command it will not answer —
+// that would burn the full COMMAND_TIMEOUT_MS and return a 504 instead of acting.
+let dashboardWindow: BrowserWindow | null = null;
+
+export function setPomodoroBridgeWindow(win: BrowserWindow | null): void {
+  dashboardWindow = win;
 }
 
-// Mirrors the renderer store's getOvertimeElapsed.
+// The derived fields come from the same module the renderer store computes them
+// with, so a poll can never report a rule the widget no longer follows.
 function recomputeOvertime(
-  s: PomodoroRawSnapshot
+  s: PomodoroRawSnapshot,
+  now: number
 ): { elapsedSec: number; isIdle: boolean } | null {
-  const o = s.overtime;
-  if (o === null) return null;
-  const elapsedSec = o.isIdle
-    ? Math.floor(o.accumulatedSec)
-    : Math.floor(Math.max(0, o.accumulatedSec + (Date.now() - o.lastActiveAt) / 1000));
-  return { elapsedSec, isIdle: o.isIdle };
+  if (s.overtime === null) return null;
+  return {
+    elapsedSec: computeOvertimeElapsedSec(s.overtime, now),
+    isIdle: s.overtime.isIdle,
+  };
 }
 
 function toApiState(s: PomodoroRawSnapshot): PomodoroApiState {
   const desk = getDesk().map((t) => ({ id: t.id, title: t.title }));
+  const now = Date.now();
   return {
     phase: s.phase,
     isRunning: s.isRunning,
-    remainingSec: recomputeRemaining(s),
+    remainingSec: computeRemainingSec(s, s.phaseDurationSec, now),
     phaseDurationSec: s.phaseDurationSec,
     completedPomodoros: s.completedPomodoros,
     presetId: s.presetId,
-    overtime: recomputeOvertime(s),
+    overtime: recomputeOvertime(s, now),
     pendingReview: s.pendingReview,
     desk,
     activeTodo: desk[0] ?? null,
@@ -128,8 +136,10 @@ export async function sendPomodoroCommand(
   presetId?: string
 ): Promise<{ applied: boolean; reason?: string; state: PomodoroApiState }> {
   if (!latest.bound) throw new BridgeNotReadyError("pomodoro bridge not ready");
-  const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
-  if (!win) throw new BridgeNotReadyError("pomodoro bridge not ready");
+  const win = dashboardWindow;
+  if (!win || win.isDestroyed()) {
+    throw new BridgeNotReadyError("pomodoro bridge not ready");
+  }
 
   const id = nanoid();
   const result = await new Promise<CommandResult>((resolve, reject) => {
@@ -138,7 +148,17 @@ export async function sendPomodoroCommand(
       reject(new BridgeTimeoutError("pomodoro bridge did not respond"));
     }, COMMAND_TIMEOUT_MS);
     pending.set(id, { resolve, timer });
-    win.webContents.send("pomodoro:bridge:command", { id, action, presetId });
+    try {
+      win.webContents.send("pomodoro:bridge:command", { id, action, presetId });
+    } catch (error) {
+      // The window can be destroyed between the check above and this send. Left
+      // unhandled the throw escapes the executor, the timer never clears and the
+      // entry leaks in `pending`, so the caller waits out the timeout for a
+      // 504 where the honest answer is an immediate 503.
+      clearTimeout(timer);
+      pending.delete(id);
+      reject(new BridgeNotReadyError(`pomodoro bridge unreachable: ${String(error)}`));
+    }
   });
 
   latest = { bound: true, snapshot: result.snapshot };

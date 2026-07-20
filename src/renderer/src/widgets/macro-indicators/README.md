@@ -1,37 +1,40 @@
 # Macro Indicators Widget
 
-Shows 6 FRED-sourced macro indicators as a card grid. Timeframe tabs (`1W`-`5Y`)
-switch the window; each card shows **value + 1D change + window change + sparkline**.
+Shows time-series indicators as a card grid. Timeframe tabs (`1W`-`5Y`) switch
+the window; each card shows **value + 1D change + window change + sparkline**.
+Group tabs above the grid come from the connectors themselves.
 
-## Indicators
-
-| Series | Label | Meaning |
-|---|---|---|
-| `DGS10` | 10Y UST | 10-year US Treasury yield |
-| `DGS2` | 2Y UST | 2-year US Treasury yield |
-| `DFF` | Fed Funds | Effective federal funds rate |
-| `DTWEXBGS` | DXY | Broad dollar index |
-| `VIXCLS` | VIX | Volatility (fear) index |
-| `DEXKOUS` | USD/KRW | Won-dollar exchange rate |
+The widget has **no hardcoded indicator list**. It renders whatever `series`
+connectors are enabled in `connectors.json`, so adding an indicator is a config
+change, not a code change. See `docs/spec/connector-protocol.md`.
 
 ## Setup
 
-Enter a FRED API key in the app's Settings dialog (stored via Electron
-`safeStorage`), then refresh the widget. Free key:
-https://fredaccount.stlouisfed.org/apikey
+Data sources are declared as connectors. A default set (FRED rates, dollar, and
+volatility series) is seeded on first run; those need a FRED credential:
+
+1. Get a free key at https://fredaccount.stlouisfed.org/apikey
+2. Settings → Data sources → Credentials → Add: name `fred`, host
+   `api.stlouisfed.org`, paste the key
+
+Add other sources from Settings, or with `dyd source add` from a terminal.
 
 ## Data flow
 
 ```
 Store.fetchAll()
-  → window.marketAPI.fred.getMany(ids, 1300)   // preload bridge
-  → ipcMain "market:fred:getMany"              // src/main/market/ipc.ts
-  → fetchManySeries()                           // src/main/market/fred-client.ts
-  → FRED api.stlouisfed.org/fred/series/observations
+  → window.marketAPI.connectors.list()          // which sources exist
+  → window.marketAPI.connectors.fetchSeries(ids, 1300)
+  → ipcMain "connectors:fetchSeries"            // src/main/connectors/ipc.ts
+  → runtime.fetchSeries()                       // cache + per-host concurrency
+  → fetcher.executeConnector()                  // URL build, auth, limits
 ```
 
-Fetches 1300 business days (~5 years) per indicator in one shot; switching tabs
-is instant local slicing (`getTimeframeWindow`).
+Fetches 1300 points (~5 years of business days) per indicator in one shot;
+switching timeframe tabs is instant local slicing (`getTimeframeWindow`).
+
+Each connector settles independently: a source that fails renders its error on
+its own card while the rest of the grid stays live.
 
 ## Structure
 
@@ -40,24 +43,26 @@ macro-indicators/
 ├── index.ts / client.ts            defineWidget + re-export
 ├── model/
 │   ├── macro-indicators.types.ts   State / Actions / Config
-│   ├── indicators-catalog.ts       metadata for the 6 indicators
 │   ├── timeframe.ts                Timeframe + getTimeframeWindow()
-│   └── use-macro-indicators-store.ts  Zustand store (persist v2)
+│   └── use-macro-indicators-store.ts  Zustand store (persist v3)
 └── ui/
-    ├── MacroIndicatorsClient.tsx   header (tabs + refresh) + card grid
+    ├── MacroIndicatorsClient.tsx   header + group tabs + card grid
     ├── IndicatorCard.tsx           value + dual delta + sparkline
     └── Sparkline.tsx               Recharts LineChart wrapper
 ```
 
 ## Cache & state
 
-localStorage persist (v2), 6-hour staleness → auto refetch on mount. Manual
-refresh button always available. The selected timeframe persists too.
+localStorage persist (v3), 6-hour staleness → auto refetch on mount. Manual
+refresh always available. Timeframe and the selected group tab persist. The
+connector list is re-read on every fetch, so sources added elsewhere (dyd,
+Settings) appear without a restart.
 
 ## Extending
 
-- **Add an indicator**: one more entry in `MACRO_INDICATORS` in
-  `indicators-catalog.ts` (adjust `grid-cols-*` beyond 6 cards)
-- **Other FRED widgets**: reuse `src/main/market/` + `window.marketAPI.fred` as-is
+- **Add an indicator**: `dyd source add` or Settings → Data sources → Add. No
+  code change. Group it under a new `group` value to get a new tab.
+- **Presentation**: a connector's `display.unit` / `display.fractionDigits`
+  drive formatting in `IndicatorCard`
 - **Time series types**: shared `SeriesPoint` / `SeriesSnapshot` in
   `src/entities/market-indicator/`

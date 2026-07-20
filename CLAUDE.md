@@ -9,10 +9,11 @@ pnpm dev          # Electron dev with HMR
 pnpm build        # electron-vite build (outputs to out/)
 pnpm preview      # Preview production build
 pnpm lint         # ESLint
+pnpm test         # vitest run
 pnpm electron:build  # Package with electron-builder
 ```
 
-No test runner is configured.
+Tests are vitest, matched by `src/**/*.test.ts`. The default environment is `node`, since coverage is deliberately limited to pure logic; a file needing a DOM opts in with a `// @vitest-environment jsdom` pragma on line 1. There are no React component tests and no testing-library dependency, so the convention is to extract logic into a pure module and test that.
 
 ## Tech Stack
 

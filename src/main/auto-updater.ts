@@ -1,5 +1,5 @@
 import { app, BrowserWindow } from "electron";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { UpdateInfo, ProgressInfo, Logger } from "electron-updater";
 
@@ -12,6 +12,8 @@ const INITIAL_CHECK_DELAY_MS = 5_000;
 const RECHECK_INTERVAL_MS = 60 * 60 * 1000;
 
 let logFilePath: string | null = null;
+let initialCheckTimer: ReturnType<typeof setTimeout> | null = null;
+let recheckTimer: ReturnType<typeof setInterval> | null = null;
 
 function formatLogArg(value: unknown): string {
   if (value instanceof Error) return value.stack ?? value.message;
@@ -23,6 +25,11 @@ function formatLogArg(value: unknown): string {
   }
 }
 
+// Truncate rather than rotate: this is a diagnostic tail, not an audit trail,
+// and a second file would double the disk cost for history nobody reads. The
+// check is a stat per write, which only happens on warn/error now.
+const MAX_LOG_BYTES = 512 * 1024;
+
 function writeLog(level: string, args: unknown[]): void {
   try {
     if (logFilePath === null) {
@@ -31,7 +38,10 @@ function writeLog(level: string, args: unknown[]): void {
       logFilePath = join(dir, "updater.log");
     }
     const line = args.map(formatLogArg).join(" ");
-    appendFileSync(logFilePath, `${new Date().toISOString()} [${level}] ${line}\n`);
+    const entry = `${new Date().toISOString()} [${level}] ${line}\n`;
+    const size = statSync(logFilePath, { throwIfNoEntry: false })?.size ?? 0;
+    if (size + entry.length > MAX_LOG_BYTES) writeFileSync(logFilePath, "");
+    appendFileSync(logFilePath, entry);
   } catch {
     // Logging is diagnostics only — it must never be the thing that breaks updates.
   }
@@ -40,8 +50,13 @@ function writeLog(level: string, args: unknown[]): void {
 // electron-updater's own logger defaults to `console`, which goes nowhere in a
 // packaged Windows GUI build (no stdout attached). Without this, every failure
 // below is invisible.
+//
+// `info` is dropped on purpose. The app lives in the tray and rechecks hourly,
+// so electron-updater's checking / resolving / not-available stream is almost
+// all of the volume, each line a synchronous append on the main thread — for a
+// message that says nothing happened. The diagnostic value is in the failures.
 const updaterLogger: Logger = {
-  info: (message?: unknown) => writeLog("info", [message]),
+  info: () => {},
   warn: (message?: unknown) => writeLog("warn", [message]),
   error: (message?: unknown) => writeLog("error", [message]),
 };
@@ -64,10 +79,20 @@ async function getAutoUpdater(): Promise<import("electron-updater").AppUpdater> 
   return autoUpdater;
 }
 
+// Every status push goes through here. `targetWindow` is captured once and the
+// hourly recheck outlives the window: on quit (or any teardown that destroys the
+// BrowserWindow while the process lingers) a bare `.webContents.send` throws
+// "Object has been destroyed", which would escape checkForUpdates' catch and
+// surface as an unhandled rejection.
+function sendStatus(payload: Record<string, unknown>): void {
+  if (targetWindow === null || targetWindow.isDestroyed()) return;
+  targetWindow.webContents.send("update-status", payload);
+}
+
 function reportError(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   writeLog("error", [error]);
-  targetWindow?.webContents.send("update-status", { status: "error", message });
+  sendStatus({ status: "error", message });
 }
 
 export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> {
@@ -93,32 +118,23 @@ export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> 
   updater.autoInstallOnAppQuit = true;
 
   updater.on("checking-for-update", () => {
-    mainWindow.webContents.send("update-status", { status: "checking" });
+    sendStatus({ status: "checking" });
   });
 
   updater.on("update-available", (info: UpdateInfo) => {
-    mainWindow.webContents.send("update-status", {
-      status: "available",
-      version: info.version,
-    });
+    sendStatus({ status: "available", version: info.version });
   });
 
   updater.on("update-not-available", () => {
-    mainWindow.webContents.send("update-status", { status: "not-available" });
+    sendStatus({ status: "not-available" });
   });
 
   updater.on("download-progress", (progress: ProgressInfo) => {
-    mainWindow.webContents.send("update-status", {
-      status: "downloading",
-      percent: progress.percent,
-    });
+    sendStatus({ status: "downloading", percent: progress.percent });
   });
 
   updater.on("update-downloaded", (info: UpdateInfo) => {
-    mainWindow.webContents.send("update-status", {
-      status: "downloaded",
-      version: info.version,
-    });
+    sendStatus({ status: "downloaded", version: info.version });
   });
 
   updater.on("error", (error: Error) => {
@@ -136,8 +152,18 @@ export async function checkForUpdates(): Promise<void> {
 }
 
 export function scheduleUpdateChecks(): void {
-  setTimeout(() => void checkForUpdates(), INITIAL_CHECK_DELAY_MS);
-  setInterval(() => void checkForUpdates(), RECHECK_INTERVAL_MS);
+  stopUpdateChecks();
+  initialCheckTimer = setTimeout(() => void checkForUpdates(), INITIAL_CHECK_DELAY_MS);
+  recheckTimer = setInterval(() => void checkForUpdates(), RECHECK_INTERVAL_MS);
+}
+
+// Called on quit: a check that fires while the app is tearing down can only
+// report into a window that is already gone.
+export function stopUpdateChecks(): void {
+  if (initialCheckTimer !== null) clearTimeout(initialCheckTimer);
+  if (recheckTimer !== null) clearInterval(recheckTimer);
+  initialCheckTimer = null;
+  recheckTimer = null;
 }
 
 export async function quitAndInstall(): Promise<void> {

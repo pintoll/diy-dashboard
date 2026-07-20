@@ -19,7 +19,6 @@ export type EconomicCalendarState = {
   lastFetchedAt: string | null;
   status: FetchStatus;
   errorMessage: string | null;
-  missingApiKey: boolean;
   rangeKey: RangeKey;
   typeFilter: TypeFilter;
   minImportance: MinImportanceFilter;

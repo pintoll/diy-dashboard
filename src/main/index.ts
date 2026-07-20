@@ -16,9 +16,11 @@ import {
   initAutoUpdater,
   checkForUpdates,
   scheduleUpdateChecks,
+  stopUpdateChecks,
   quitAndInstall,
 } from "./auto-updater";
-import { registerMarketIpc } from "./market/ipc";
+import { registerConnectorsIpc } from "./connectors/ipc";
+import { migrateToConnectors } from "./connectors/migrate";
 import { registerFocusGuardIpc } from "./focus-guard/ipc";
 import { handleForeground } from "./focus-guard/app-guard";
 import { unblock as unblockSites, stripFocusBlockSync } from "./focus-guard/site-guard";
@@ -30,7 +32,10 @@ import { registerFinanceIpc } from "./finance/ipc";
 import { registerTodosIpc } from "./todos/ipc";
 import { registerPomodoroIpc } from "./pomodoro/ipc";
 import { startAgentApi, stopAgentApi } from "./agent-api/server";
-import { registerPomodoroBridgeIpc } from "./agent-api/pomodoro-bridge";
+import {
+  registerPomodoroBridgeIpc,
+  setPomodoroBridgeWindow,
+} from "./agent-api/pomodoro-bridge";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -124,6 +129,11 @@ function createWindow(): void {
       mainWindow?.hide();
     }
   });
+
+  // This is the window that mounts PomodoroBridgeController, so it is the only
+  // one an agent-api command can be answered by.
+  setPomodoroBridgeWindow(mainWindow);
+  mainWindow.on("closed", () => setPomodoroBridgeWindow(null));
 
   if (!app.isPackaged && process.env["ELECTRON_RENDERER_URL"]) {
     mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
@@ -377,6 +387,8 @@ app.on("before-quit", () => {
   // an active session keeps blocking while hidden and releases only on quit).
   stripFocusBlockSync();
   stopAgentApi();
+  // The hourly recheck would otherwise outlive the window it reports into.
+  stopUpdateChecks();
 });
 
 app.on("window-all-closed", () => {
@@ -411,10 +423,13 @@ app.whenReady().then(async () => {
   // Before anything that reads an API key (IPC handlers, the news scheduler):
   // upgrades plaintext keys from pre-safeStorage settings.json files in place.
   migrateSecretsToSafeStorage();
+  // Seeds connectors.json on first run and moves any legacy FRED key into the
+  // credential store. Depends on the decryption enabled just above.
+  migrateToConnectors();
 
   createAppMenu();
   createTray();
-  registerMarketIpc();
+  registerConnectorsIpc();
   registerFocusGuardIpc();
   registerDailyNewsIpc();
   registerSettingsIpc();

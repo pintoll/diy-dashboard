@@ -5,6 +5,10 @@ import { useSessionLogStore } from "@/src/entities/pomodoro-session";
 import { useFocusModeStore } from "@/src/entities/focus-mode";
 import { useTodoStore } from "@/src/entities/todo";
 import {
+  computeOvertimeElapsedSec,
+  computeRemainingSec,
+} from "@shared/pomodoro-time";
+import {
   initialAttribution,
   startBlock,
   resumeBlock,
@@ -58,22 +62,14 @@ function getDurationForPhase(phase: PomodoroPhase, config: PomodoroConfig): numb
   }
 }
 
+// Thin wrapper over the shared timer math: this store is the authority for the
+// running clock, and main's GET /api/pomodoro derives its `remainingSec` from
+// the same module, so the two can no longer disagree.
 function computeTimeRemaining(
   state: Pick<PomodoroState, "isRunning" | "startedAt" | "pausedTimeRemaining" | "phase">,
   config: PomodoroConfig
 ): number {
-  const phaseDuration = getDurationForPhase(state.phase, config);
-
-  if (!state.isRunning) {
-    return state.pausedTimeRemaining ?? phaseDuration;
-  }
-
-  if (state.startedAt === null) {
-    return phaseDuration;
-  }
-
-  const elapsed = Math.floor((Date.now() - state.startedAt) / 1000);
-  return Math.max(0, phaseDuration - elapsed);
+  return computeRemainingSec(state, getDurationForPhase(state.phase, config), Date.now());
 }
 
 // The desk currently receiving the work clock: the ids of every todo on the
@@ -124,6 +120,24 @@ function bankWork(banks: AttributionBank[]): void {
         console.warn("todo work accrual failed:", error);
       });
   }
+}
+
+// A session that ended via Stop or overtime leaves its intervals open on purpose
+// so `confirmReview` can bank them once the user has settled the overtime total.
+// Anything that throws that attribution away before the review is confirmed —
+// reset, a preset switch, a fresh start — has to bank it first, or the session
+// log credits todos whose `worked_sec` never moves. All three are reachable
+// remotely (`dyd pomo reset`), where no modal is in the way.
+//
+// Banked with no overtime bonus: the review that would have supplied the final
+// total is the thing being abandoned.
+function bankAbandonedReview(state: PomodoroState): void {
+  if (state.pendingReview === null || state.attribution.sessionId === null) return;
+  const result = endBlock(state.attribution, {
+    at: state.pendingReview.endedAt,
+    overtimeSec: 0,
+  });
+  bankWork(result.banks);
 }
 
 // Writes the pomodoro session-log record (the renderer-side "celebration" log).
@@ -438,14 +452,7 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           return computeTimeRemaining(state, state.config);
         },
 
-        getOvertimeElapsed: () => {
-          const { overtime } = get();
-          if (overtime === null) return 0;
-          if (overtime.isIdle) return Math.floor(overtime.accumulatedSec);
-          const liveSec =
-            overtime.accumulatedSec + (Date.now() - overtime.lastActiveAt) / 1000;
-          return Math.floor(Math.max(0, liveSec));
-        },
+        getOvertimeElapsed: () => computeOvertimeElapsedSec(get().overtime, Date.now()),
 
         start: () => {
           const state = get();
@@ -468,6 +475,9 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
           if (state.phase === "work") {
             const phaseEndMs = workPhaseEndMs(startedAt, state.config);
             const members = deskMembers();
+            // A fresh block replaces the attribution wholesale, so an earlier
+            // session's unconfirmed intervals have to be banked on the way out.
+            if (isFreshWorkSession) bankAbandonedReview(state);
             attribution = isFreshWorkSession
               ? startBlock({
                   sessionId: nanoid(),
@@ -508,7 +518,11 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
         },
 
         reset: () => {
-          // Reset abandons the block: discard open intervals without banking.
+          // A block still running is abandoned outright — nothing is banked, the
+          // work was never recorded anywhere. But intervals held open for a
+          // pending review belong to a session that IS already in the log, so
+          // those are banked before the state is cleared.
+          bankAbandonedReview(get());
           set({
             isRunning: false,
             startedAt: null,
@@ -630,6 +644,9 @@ export function usePomodoroStore(instanceId: string, config: PomodoroConfig) {
         },
 
         setPreset: (presetId: PomodoroPresetId, newConfig: PomodoroConfig) => {
+          // Same rule as reset: a live block is abandoned, but a recorded
+          // session awaiting review is banked rather than dropped.
+          bankAbandonedReview(get());
           set({
             config: newConfig,
             activePresetId: presetId,

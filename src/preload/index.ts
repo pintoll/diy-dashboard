@@ -1,17 +1,25 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("marketAPI", {
-  fred: {
-    getSeries: (seriesId: string, limit?: number) =>
-      ipcRenderer.invoke("market:fred:getSeries", { seriesId, limit }),
-    getMany: (seriesIds: string[], limit?: number) =>
-      ipcRenderer.invoke("market:fred:getMany", { seriesIds, limit }),
-    getReleaseDates: (releaseIds: number[], from: string, to: string) =>
-      ipcRenderer.invoke("market:fred:getReleaseDates", {
-        releaseIds,
-        from,
-        to,
-      }),
+  connectors: {
+    list: () => ipcRenderer.invoke("connectors:list"),
+    upsert: (connector: unknown) =>
+      ipcRenderer.invoke("connectors:upsert", connector),
+    patch: (id: string, patch: unknown) =>
+      ipcRenderer.invoke("connectors:patch", { id, patch }),
+    remove: (id: string) => ipcRenderer.invoke("connectors:remove", { id }),
+    test: (connector: unknown) =>
+      ipcRenderer.invoke("connectors:test", { connector }),
+    fetchSeries: (ids: string[], limit: number) =>
+      ipcRenderer.invoke("connectors:fetchSeries", { ids, limit }),
+    fetchEvents: (ids: string[], from: string, to: string) =>
+      ipcRenderer.invoke("connectors:fetchEvents", { ids, from, to }),
+  },
+  credentials: {
+    list: () => ipcRenderer.invoke("credentials:list"),
+    set: (name: string, secret: string, allowedHost: string) =>
+      ipcRenderer.invoke("credentials:set", { name, secret, allowedHost }),
+    remove: (name: string) => ipcRenderer.invoke("credentials:remove", { name }),
   },
 });
 
@@ -94,9 +102,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getGeminiKey: () => ipcRenderer.invoke("settings:getGeminiKey"),
     setGeminiKey: (key: string) =>
       ipcRenderer.invoke("settings:setGeminiKey", key),
-    getFredKey: () => ipcRenderer.invoke("settings:getFredKey"),
-    setFredKey: (key: string) =>
-      ipcRenderer.invoke("settings:setFredKey", key),
   },
   pomodoro: {
     list: () => ipcRenderer.invoke("pomodoro:sessions:list"),

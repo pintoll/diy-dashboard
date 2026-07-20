@@ -206,6 +206,67 @@ describe("pomodoro store -> desk interval accrual (glue)", () => {
     expect(calls[0]).toMatchObject({ todoId: "T1", workedSec: 420 });
   });
 
+  it("reset after a stop banks the session awaiting review instead of dropping it", () => {
+    useTodoStore.setState({ desk: deskOf("T1") });
+    const store = freshStore();
+
+    store.getState().start();
+    vi.setSystemTime(T0 + 1_200_000); // 20 min in
+    store.getState().stop(); // session-log record written, intervals left open
+    expect(recordWorkCalls()).toHaveLength(0);
+
+    // Reset (or `dyd pomo reset`) before confirming: the log already credits T1,
+    // so the seconds must land on the todo rather than vanish with the state.
+    store.getState().reset();
+
+    const calls = recordWorkCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ todoId: "T1", workedSec: 1200 });
+  });
+
+  it("switching preset before confirming the review still banks the accrual", () => {
+    useTodoStore.setState({ desk: deskOf("T1") });
+    const store = freshStore();
+
+    store.getState().start();
+    vi.setSystemTime(T0 + 600_000); // 10 min in
+    store.getState().stop();
+    store.getState().setPreset("50:10", { ...CONFIG, workDuration: 50 });
+
+    const calls = recordWorkCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ todoId: "T1", workedSec: 600 });
+  });
+
+  it("starting a fresh block before confirming the review banks the old one first", () => {
+    useTodoStore.setState({ desk: deskOf("T1") });
+    const store = freshStore();
+
+    store.getState().start();
+    vi.setSystemTime(T0 + 600_000); // 10 min in
+    store.getState().stop(); // phase advances to a break; review pending
+
+    // Straight into a new work block without confirming. startBlock replaces the
+    // attribution, so the old session's open interval has to be banked here.
+    store.getState().skip(); // finish the break, back to work
+    store.getState().start();
+
+    const calls = recordWorkCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ todoId: "T1", workedSec: 600 });
+  });
+
+  it("reset with no pending review still discards a live block", () => {
+    useTodoStore.setState({ desk: deskOf("T1") });
+    const store = freshStore();
+
+    store.getState().start();
+    vi.setSystemTime(T0 + 600_000); // 10 min in
+    store.getState().reset(); // abandoning a running block accrues nothing
+
+    expect(recordWorkCalls()).toHaveLength(0);
+  });
+
   it("pause then resume yields two distinct interval rows summing to the block", () => {
     useTodoStore.setState({ desk: deskOf("T1") });
     const store = freshStore();

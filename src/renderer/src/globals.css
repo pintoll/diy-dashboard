@@ -115,6 +115,20 @@
     @apply bg-background text-foreground font-sans;
   }
 
+  /* The shield a list reorder raises over the page (see use-drag-reorder). One
+     element on top of everything, so the grabbing cursor and the selection
+     suppression apply everywhere without a `body[...] *` rule — that universal
+     selector invalidated matched styles for every node on the dashboard, on the
+     first frame of the gesture. */
+  .reorder-shield {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483647;
+    cursor: grabbing;
+    user-select: none;
+    background: transparent;
+  }
+
   /* Thin mobile-style scrollbar */
   ::-webkit-scrollbar {
     width: 4px;
