@@ -27,11 +27,16 @@ Legend: 🟠 high · 🟡 medium.
   (malware, a tainted npm postinstall) can rewrite hosts with no UAC. Revert
   on uninstall/teardown, or elevate per-write, and document the trade-off.
 
-- **Gemini/FRED key handed to the renderer verbatim** (`src/main/settings/ipc.ts`
-  `settings:getGeminiKey`/`getFredKey`). At-rest storage is `safeStorage`-encrypted,
-  but the value is still returned in full over IPC to prefill the Settings
-  dialog; a renderer compromise reads both keys. Fixing it means returning
-  only a set/unset flag and losing the prefill UX — decide alongside CSP.
+- **Gemini key handed to the renderer verbatim** (`src/main/settings/ipc.ts`
+  `settings:getGeminiKey`). At-rest storage is `safeStorage`-encrypted, but the
+  value is still returned in full over IPC to prefill the Settings dialog; a
+  renderer compromise reads it. Fixing it means returning only a set/unset flag
+  and losing the prefill UX — decide alongside CSP.
+
+  The FRED half of this item is **resolved**: `settings:getFredKey`/`setFredKey`
+  are gone, and the connector credential store that replaced them returns names
+  and hosts only (`credentials:list` → `CredentialMeta[]`), never the secret.
+  That store is the model for whatever Gemini migrates to.
 
 - **Renderer can force-kill arbitrary processes** (`src/main/focus-guard/app-guard.ts:94`).
   Renderer-supplied exe blocklist drives `taskkill /F /T /PID`. A compromised
