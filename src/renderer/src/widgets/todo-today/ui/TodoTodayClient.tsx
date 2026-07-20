@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { useFocusModeStore } from "@/src/entities/focus-mode";
 import { kstToday, useTodoStore } from "@/src/entities/todo";
-import { AddTodoForm, TodoRow } from "@/src/features/manage-todo/client";
+import { AddTodoForm, SortableTodoList, TodoRow } from "@/src/features/manage-todo/client";
 import { cn } from "@/src/shared/lib/utils";
 
 export type TodoTodayConfig = Record<string, never>;
@@ -90,9 +90,7 @@ export function TodoTodayClient() {
             Nothing planned today.
           </p>
         )}
-        {todos.map((todo) => (
-          <TodoRow key={todo.id} todo={todo} />
-        ))}
+        <SortableTodoList todos={todos} date={selectedDate} />
       </div>
 
       <div className="shrink-0">
