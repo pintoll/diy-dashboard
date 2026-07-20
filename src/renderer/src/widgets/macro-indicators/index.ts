@@ -9,7 +9,8 @@ export const macroIndicatorsWidget = defineWidget<MacroIndicatorsConfig>({
   meta: {
     id: "macro-indicators",
     name: "Macro Indicators",
-    description: "FRED macro indicators: rates, dollar index, volatility at a glance",
+    description:
+      "Rates, dollar, and risk gauges from your configured data sources, grouped into tabs",
     category: "data",
     icon: LineChart,
     size: {

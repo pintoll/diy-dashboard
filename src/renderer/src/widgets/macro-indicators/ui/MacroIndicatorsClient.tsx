@@ -1,11 +1,11 @@
 import { useEffect } from "react";
-import { KeyRound, RefreshCw } from "lucide-react";
+import { Plug, RefreshCw } from "lucide-react";
 import { cn } from "@/src/shared/lib/utils";
 import { formatTimeAgo } from "@/src/shared/lib/format-time-ago";
 import { Button } from "@/src/shared/ui/button";
+import { groupsOf } from "@/src/entities/market-indicator";
 import type { WidgetProps } from "@/src/shared/types";
 import type { MacroIndicatorsConfig } from "../model/macro-indicators.types";
-import { MACRO_INDICATORS } from "../model/indicators-catalog";
 import { TIMEFRAMES } from "../model/timeframe";
 import {
   isStale,
@@ -19,24 +19,34 @@ export function MacroIndicatorsClient({
   const store = useMacroIndicatorsStore(instanceId);
   const state = store();
   const {
+    connectors,
     snapshots,
+    errors,
     lastFetchedAt,
     status,
     errorMessage,
-    missingApiKey,
     timeframe,
+    activeGroup,
     fetchAll,
     setTimeframe,
+    setActiveGroup,
   } = state;
 
   const hasSnapshots = Object.keys(snapshots).length > 0;
 
   useEffect(() => {
-    if (missingApiKey || status === "loading" || status === "error") return;
+    if (status === "loading" || status === "error") return;
     if (!hasSnapshots || isStale(lastFetchedAt)) {
       fetchAll();
     }
-  }, [missingApiKey, status, hasSnapshots, lastFetchedAt, fetchAll]);
+  }, [status, hasSnapshots, lastFetchedAt, fetchAll]);
+
+  const groups = groupsOf(connectors);
+  // Falling back to the first group rather than storing a default keeps the
+  // selection valid when connectors change underneath a persisted choice.
+  const currentGroup =
+    activeGroup && groups.includes(activeGroup) ? activeGroup : groups[0];
+  const visible = connectors.filter((c) => c.group === currentGroup);
 
   return (
     <div className="flex flex-col h-full">
@@ -79,29 +89,50 @@ export function MacroIndicatorsClient({
         </div>
       </div>
 
-      {missingApiKey ? (
+      {connectors.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
-          <KeyRound className="size-5 text-muted-foreground/60" />
+          <Plug className="size-5 text-muted-foreground/60" />
           <div className="text-xs font-medium text-muted-foreground">
-            FRED API key is not configured
+            No data sources configured
           </div>
           <div className="text-[10px] text-muted-foreground/60 leading-relaxed">
-            Enter your FRED API key in Settings, then refresh this widget.
-            <br />
-            Get a free key:{" "}
-            <span className="text-muted-foreground/80">
-              fredaccount.stlouisfed.org/apikey
-            </span>
+            Add a source in Settings, then refresh this widget.
           </div>
         </div>
       ) : (
         <>
+          {/* One tab per group. Groups come from the connector definitions, so
+              adding a source in a new group grows the tab bar on its own. */}
+          {groups.length > 1 && (
+            <div className="flex items-center gap-0.5 px-2 pb-1.5 shrink-0 overflow-x-auto">
+              {groups.map((group) => {
+                const isActive = group === currentGroup;
+                return (
+                  <button
+                    key={group}
+                    type="button"
+                    onClick={() => setActiveGroup(group)}
+                    className={cn(
+                      "px-2 py-0.5 rounded text-[10px] font-medium whitespace-nowrap transition-colors",
+                      isActive
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/40"
+                    )}
+                  >
+                    {group}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-1.5 px-2 pb-2 md:grid-cols-3">
-            {MACRO_INDICATORS.map((meta) => (
+            {visible.map((connector) => (
               <IndicatorCard
-                key={meta.seriesId}
-                meta={meta}
-                snapshot={snapshots[meta.seriesId]}
+                key={connector.id}
+                connector={connector}
+                snapshot={snapshots[connector.id]}
+                error={errors[connector.id]}
                 timeframe={timeframe}
                 isLoading={status === "loading"}
               />

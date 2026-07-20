@@ -1,6 +1,11 @@
 export type {
   SeriesPoint,
   SeriesSnapshot,
+  EventEntry,
+  EventsSnapshot,
   IndicatorUnit,
+  ConnectorKind,
+  IndicatorConnector,
+  FetchOutcome,
 } from "./model/market-indicator.types";
-export { MISSING_FRED_API_KEY_ERROR } from "./model/errors";
+export { DEFAULT_DISPLAY, groupsOf } from "./model/market-indicator.types";

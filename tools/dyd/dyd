@@ -19,6 +19,17 @@ usage:
   dyd todo done <n|id>
   dyd todo use <n|id|->       add a todo to the desk (- clears the desk)
   dyd todo drop <n|id>        remove a todo from the desk
+  dyd source                  list data-source connectors
+  dyd source list [--group <g>] [--kind <series|events>]
+  dyd source show <id>
+  dyd source add <json>       add a connector; the app fetches it before saving
+  dyd source patch <id> <json>
+  dyd source rm <id>
+  dyd source test <id>        fetch a stored connector now, print a sample
+  dyd source enable <id> | disable <id>
+  dyd cred                    list credential names and their pinned hosts
+  dyd cred set <name> <host> <secret>
+  dyd cred rm <name>
   global: --json              print the raw API response body
 USAGE
   exit 1
@@ -96,6 +107,27 @@ jget() { # jget JSON 'python-expr on d'
   printf '%s' "$1" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(eval(sys.argv[1]))' "$2"
 }
 
+json_arg() { # json_arg <text> -> compact JSON on stdout; 1 + message on a syntax error
+  # Connector definitions are typed or pasted by hand, so a stray comma is the
+  # likeliest failure. Catch it here where the caret position is still useful,
+  # rather than shipping it as a bare "not valid JSON" 400.
+  local out
+  out=$(printf '%s' "$1" | python3 -c '
+import json, sys
+try:
+    print(json.dumps(json.load(sys.stdin)))
+except Exception as e:
+    print(e, file=sys.stderr); sys.exit(1)' 2>&1) || {
+    echo "${PROG}: error: argument is not valid JSON (${out})" >&2
+    return 1
+  }
+  printf '%s' "$out"
+}
+
+urlenc() { # group names are free-form and may contain spaces
+  printf '%s' "$1" | python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read(), safe=""))'
+}
+
 # --- formatter (all human output) -----------------------------------------
 FORMATTER=$(cat <<'PY'
 import json, sys
@@ -147,6 +179,36 @@ def kst_today():
         return datetime.now(ZoneInfo("Asia/Seoul")).date()
     except Exception:
         return datetime.now().date()
+
+# Connector definitions name a credential; they never carry the secret, so there
+# is nothing to redact here.
+def auth_label(a):
+    m = a["mode"]
+    if m == "none":
+        return "none"
+    if m == "query":
+        return f"query param {a['param']} (credential {a['credential']})"
+    if m == "bearer":
+        return f"bearer (credential {a['credential']})"
+    if m == "header":
+        return f"header {a['header']} (credential {a['credential']})"
+    return m
+
+def sample_lines(t, indent):
+    for s in (t.get("sample") or []):
+        v = s.get("value")
+        print(f"{indent}{s['date']}  {s.get('label') if v is None else v}")
+
+def test_block(t):
+    # None means the write asked to skip the dry-run, not that it passed.
+    if t is None:
+        print("test       skipped")
+        return
+    if not t.get("ok"):
+        print(f"test       FAILED: {t.get('error', '')}")
+        return
+    print(f"test       ok, {t.get('itemCount', 0)} items")
+    sample_lines(t, "           ")
 
 def desk_ids(desk):
     # desk body is {"todos": [...]}; every member is marked on the desk.
@@ -237,6 +299,77 @@ elif mode == "todo_line":
 elif mode == "desk_set":
     d = load(sys.argv[2]); ts = (d or {}).get("todos", [])
     print("desk: " + ", ".join(t["title"] for t in ts) if ts else "desk: (empty)")
+
+elif mode == "sources":
+    cs = (load(sys.argv[2]) or {}).get("connectors", [])
+    if not cs:
+        print("no connectors")
+    else:
+        wid = max(len(c["id"]) for c in cs)
+        wgr = max(len(c["group"]) for c in cs)
+        for c in cs:
+            mark = " " if c["enabled"] else "-"
+            print(f"{mark} {c['id']:<{wid}}  {c['kind']:<6}  {c['group']:<{wgr}}  {c['label']}")
+        off = sum(1 for c in cs if not c["enabled"])
+        if off:
+            print(f"({off} disabled, marked -)")
+
+elif mode == "source_show":
+    c = load(sys.argv[2])["connector"]
+    print(f"id         {c['id']}")
+    print(f"kind       {c['kind']}")
+    print(f"label      {c['label']}")
+    print(f"group      {c['group']}")
+    print(f"enabled    {'yes' if c['enabled'] else 'no'}")
+    r = c["request"]
+    print(f"url        {r['url']}")
+    if r.get("query"):
+        print("query      " + "  ".join(f"{k}={v}" for k, v in r["query"].items()))
+    if r.get("headers"):
+        print("headers    " + "  ".join(f"{k}={v}" for k, v in r["headers"].items()))
+    print(f"auth       {auth_label(r['auth'])}")
+    resp = c["response"]
+    bits = [f"items={resp['itemsPath'] or '(root)'}", f"date={resp['datePath']}"]
+    if c["kind"] == "series":
+        bits.append(f"value={resp['valuePath']}")
+        if resp.get("skipValues"):
+            bits.append("skip=" + ",".join(resp["skipValues"]))
+    elif resp.get("labelPath"):
+        bits.append(f"label={resp['labelPath']}")
+    print("response   " + "  ".join(bits))
+    if c["kind"] == "series":
+        print(f"display    {c['display']['unit']}, {c['display']['fractionDigits']} digits")
+    if c.get("cacheTtlMs"):
+        print(f"cache      {c['cacheTtlMs'] // 1000}s")
+    if c.get("meta"):
+        print("meta       " + "  ".join(f"{k}={v}" for k, v in c["meta"].items()))
+
+elif mode == "source_write":
+    d = load(sys.argv[2]); c = d["connector"]
+    state = "enabled" if c["enabled"] else "disabled"
+    print(f"saved      {c['id']}  ({c['kind']}, {c['group']}, {state})")
+    test_block(d.get("test"))
+
+elif mode == "test_result":
+    t = load(sys.argv[2])["test"]
+    if not t.get("ok"):
+        print(f"FAILED: {t.get('error', '')}")
+    else:
+        print(f"ok, {t.get('itemCount', 0)} items")
+        sample_lines(t, "  ")
+
+elif mode == "creds":
+    cs = (load(sys.argv[2]) or {}).get("credentials", [])
+    if not cs:
+        print("no credentials")
+    else:
+        w = max(len(c["name"]) for c in cs)
+        for c in cs:
+            print(f"  {c['name']:<{w}}  {c['allowedHost']}")
+
+elif mode == "cred_set":
+    c = load(sys.argv[2])["credential"]
+    print(f"set  {c['name']} -> {c['allowedHost']}")
 PY
 )
 
@@ -413,6 +546,99 @@ print(json.dumps(out))')
   esac
 }
 
+# Data-source connectors. Writes go through the API's dry-run: the app fetches
+# the definition for real before storing it, so `add`/`patch` can take a few
+# seconds and a bad path comes back as an error instead of a silent dud card.
+cmd_source() {
+  local sub="${1:-list}"; [ $# -gt 0 ] && shift
+  case "$sub" in
+    list)
+      local qs=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --group) [ $# -ge 2 ] || die_usage; qs="$qs&group=$(urlenc "$2")"; shift 2 ;;
+          --kind) [ $# -ge 2 ] || die_usage; qs="$qs&kind=$(urlenc "$2")"; shift 2 ;;
+          *) die_usage ;;
+        esac
+      done
+      local path="/api/connectors"
+      [ -n "$qs" ] && path="$path?${qs#&}"
+      api GET "$path"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt sources "$BODY" ;;
+    show)
+      [ $# -eq 1 ] || die_usage
+      api GET "/api/connectors/$1"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt source_show "$BODY" ;;
+    add)
+      [ $# -eq 1 ] || die_usage
+      local body; body=$(json_arg "$1") || exit 1
+      api POST /api/connectors "$body"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt source_write "$BODY" ;;
+    patch)
+      [ $# -eq 2 ] || die_usage
+      local body; body=$(json_arg "$2") || exit 1
+      api PATCH "/api/connectors/$1" "$body"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt source_write "$BODY" ;;
+    rm)
+      [ $# -eq 1 ] || die_usage
+      api DELETE "/api/connectors/$1"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; echo "removed  $1" ;;
+    test)
+      [ $# -eq 1 ] || die_usage
+      api POST "/api/connectors/$1/test"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die
+      fmt test_result "$BODY"
+      # A reachable app that fetched a broken source is HTTP 200 with ok:false.
+      # Exit 1 anyway: the verdict is the whole reason to run this command.
+      [ "$(jget "$BODY" 'd["test"]["ok"]')" = "True" ] || exit 1 ;;
+    enable|disable)
+      [ $# -eq 1 ] || die_usage
+      local body='{"enabled":true}'
+      [ "$sub" = "disable" ] && body='{"enabled":false}'
+      # No skipTest either way: the server treats an enabled-only patch as a
+      # state flip and does not dry-run it. So a broken source can still be
+      # switched off, and one can be switched back on before its key is set.
+      api PATCH "/api/connectors/$1" "$body"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt source_write "$BODY" ;;
+    *) die_usage ;;
+  esac
+}
+
+# Credentials are write-only: the API returns names and pinned hosts, never a
+# secret, so there is no `cred show`.
+cmd_cred() {
+  local sub="${1:-list}"; [ $# -gt 0 ] && shift
+  case "$sub" in
+    list)
+      [ $# -eq 0 ] || die_usage
+      api GET /api/credentials
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt creds "$BODY" ;;
+    set)
+      [ $# -eq 3 ] || die_usage
+      local body
+      body=$(HOST="$2" SECRET="$3" python3 -c '
+import json, os
+print(json.dumps({"allowedHost": os.environ["HOST"], "secret": os.environ["SECRET"]}))')
+      api PUT "/api/credentials/$1" "$body"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt cred_set "$BODY" ;;
+    rm)
+      [ $# -eq 1 ] || die_usage
+      api DELETE "/api/credentials/$1"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; echo "removed  $1" ;;
+    *) die_usage ;;
+  esac
+}
+
 if [ $# -eq 0 ]; then
   cmd_overview
   exit 0
@@ -422,6 +648,8 @@ top="$1"; shift
 case "$top" in
   pomo) cmd_pomo "$@" ;;
   todo) cmd_todo "$@" ;;
+  source) cmd_source "$@" ;;
+  cred) cmd_cred "$@" ;;
   -h|--help|help) die_usage ;;
   *) die_usage ;;
 esac

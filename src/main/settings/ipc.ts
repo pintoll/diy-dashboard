@@ -1,10 +1,5 @@
 import { ipcMain } from "electron";
-import {
-  getFredApiKey,
-  getGeminiApiKey,
-  setFredApiKey,
-  setGeminiApiKey,
-} from "./store";
+import { getGeminiApiKey, setGeminiApiKey } from "./store";
 
 // IPC boundary validation: a real API key is well under this, and an
 // unchecked payload would be written into settings.json as-is.
@@ -18,18 +13,14 @@ function assertKey(value: unknown): asserts value is string {
   }
 }
 
+// Gemini (daily-news) is the only key left here. Market data credentials moved
+// to the connector credential store, which never hands a secret back to the
+// renderer; see src/main/connectors/ipc.ts.
 export function registerSettingsIpc(): void {
   ipcMain.handle("settings:getGeminiKey", (): string => getGeminiApiKey() ?? "");
 
   ipcMain.handle("settings:setGeminiKey", (_event, key: unknown): void => {
     assertKey(key);
     setGeminiApiKey(key);
-  });
-
-  ipcMain.handle("settings:getFredKey", (): string => getFredApiKey() ?? "");
-
-  ipcMain.handle("settings:setFredKey", (_event, key: unknown): void => {
-    assertKey(key);
-    setFredApiKey(key);
   });
 }

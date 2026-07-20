@@ -125,8 +125,6 @@ interface DailyNewsAPI {
 interface SettingsAPI {
   getGeminiKey: () => Promise<string>;
   setGeminiKey: (key: string) => Promise<void>;
-  getFredKey: () => Promise<string>;
-  setFredKey: (key: string) => Promise<void>;
 }
 
 // Finance ledger. Amounts are integers in the minor unit of their own row's
@@ -557,21 +555,96 @@ interface MarketSeriesSnapshot {
   fetchedAt: string;
 }
 
-interface FredReleaseDateEntry {
-  releaseId: number;
-  releaseName: string;
+interface MarketEventEntry {
+  id: string;
   date: string;
+  label: string;
+}
+
+interface MarketEventsSnapshot {
+  id: string;
+  events: MarketEventEntry[];
+  fetchedAt: string;
+}
+
+// Per-connector result. Fetches settle independently so one failing source
+// degrades a single card instead of the whole widget.
+type MarketFetchOutcome<T> =
+  | { id: string; ok: true; data: T }
+  | { id: string; ok: false; error: string };
+
+type ConnectorAuthConfig =
+  | { mode: "none" }
+  | { mode: "query"; param: string; credential: string }
+  | { mode: "bearer"; credential: string }
+  | { mode: "header"; header: string; prefix?: string; credential: string };
+
+interface ConnectorDefinition {
+  id: string;
+  kind: "series" | "events";
+  label: string;
+  group: string;
+  enabled: boolean;
+  order?: number;
+  request: {
+    url: string;
+    query?: Record<string, string>;
+    headers?: Record<string, string>;
+    auth: ConnectorAuthConfig;
+  };
+  response: {
+    itemsPath: string;
+    datePath: string;
+    valuePath?: string;
+    labelPath?: string;
+    skipValues?: string[];
+  };
+  display?: {
+    unit: "percent" | "index" | "currency" | "basis_points";
+    fractionDigits: number;
+  };
+  cacheTtlMs?: number;
+  meta?: Record<string, string | number | boolean>;
+}
+
+interface ConnectorTestResult {
+  ok: boolean;
+  error?: string;
+  itemCount?: number;
+  sample?: Array<{ date: string; value?: number; label?: string }>;
+}
+
+// Name and host only — secrets never cross back to the renderer.
+interface CredentialMeta {
+  name: string;
+  allowedHost: string;
 }
 
 interface MarketAPI {
-  fred: {
-    getSeries: (seriesId: string, limit?: number) => Promise<MarketSeriesSnapshot>;
-    getMany: (seriesIds: string[], limit?: number) => Promise<MarketSeriesSnapshot[]>;
-    getReleaseDates: (
-      releaseIds: number[],
+  connectors: {
+    list: () => Promise<ConnectorDefinition[]>;
+    upsert: (connector: unknown) => Promise<ConnectorDefinition>;
+    patch: (id: string, patch: unknown) => Promise<ConnectorDefinition>;
+    remove: (id: string) => Promise<void>;
+    test: (connector: unknown) => Promise<ConnectorTestResult>;
+    fetchSeries: (
+      ids: string[],
+      limit: number
+    ) => Promise<Array<MarketFetchOutcome<MarketSeriesSnapshot>>>;
+    fetchEvents: (
+      ids: string[],
       from: string,
       to: string
-    ) => Promise<FredReleaseDateEntry[]>;
+    ) => Promise<Array<MarketFetchOutcome<MarketEventsSnapshot>>>;
+  };
+  credentials: {
+    list: () => Promise<CredentialMeta[]>;
+    set: (
+      name: string,
+      secret: string,
+      allowedHost: string
+    ) => Promise<CredentialMeta>;
+    remove: (name: string) => Promise<boolean>;
   };
 }
 
