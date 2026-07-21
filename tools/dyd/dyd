@@ -92,6 +92,37 @@ api() {
   BODY="${resp%$'\n'*}"
 }
 
+# api_get_all PATH... -> fills PAR_BODY / PAR_STATUS, one entry per path, in
+# argument order. The requests are issued concurrently, so a view built from
+# several independent reads costs one round trip of latency instead of N.
+# Validation is left to the caller (assign HTTP_STATUS/BODY, call
+# api_ok_or_die), because tolerance differs per endpoint.
+api_get_all() {
+  local dir path i=0 pid failed=0 resp
+  local pids=()
+  dir=$(mktemp -d) || not_running
+  for path in "$@"; do
+    "$CURL" -s -S -o - -w '\n%{http_code}' -X GET \
+      -H "Authorization: Bearer $TOKEN" \
+      "http://127.0.0.1:$PORT$path" > "$dir/$i" 2>/dev/null &
+    pids+=("$!")
+    i=$((i + 1))
+  done
+  for pid in "${pids[@]}"; do
+    wait "$pid" || failed=1
+  done
+  PAR_BODY=(); PAR_STATUS=()
+  i=0
+  for path in "$@"; do
+    resp=$(cat "$dir/$i" 2>/dev/null)
+    PAR_STATUS+=("${resp##*$'\n'}")
+    PAR_BODY+=("${resp%$'\n'*}")
+    i=$((i + 1))
+  done
+  rm -rf "$dir"
+  [ "$failed" = 0 ] || not_running
+}
+
 api_ok_or_die() {
   case "$HTTP_STATUS" in
     2*) return 0 ;;
@@ -465,12 +496,19 @@ resolve_conn
 
 # --- commands --------------------------------------------------------------
 cmd_overview() {
-  api GET /api/pomodoro; local pb="" ; [ "${HTTP_STATUS:0:1}" = "2" ] && pb="$BODY"
-  local pomo_body="$pb"
-  api GET /api/todos; api_ok_or_die; local todos_body="$BODY"
-  api GET /api/todos/overdue; api_ok_or_die; local overdue_body="$BODY"
-  api GET /api/desk; api_ok_or_die; local desk_body="$BODY"
-  api GET /api/todos/backlog; api_ok_or_die; local backlog_body="$BODY"
+  # Five independent reads for one screen: issued concurrently, since serially
+  # they are five round trips of latency before anything prints.
+  api_get_all /api/pomodoro /api/todos /api/todos/overdue /api/desk /api/todos/backlog
+  # The pomodoro read is the one allowed to fail (no session yet): a non-2xx
+  # there prints an idle timer rather than killing the whole overview.
+  local pomo_body=""
+  [ "${PAR_STATUS[0]:0:1}" = "2" ] && pomo_body="${PAR_BODY[0]}"
+  local i
+  for i in 1 2 3 4; do
+    HTTP_STATUS="${PAR_STATUS[$i]}"; BODY="${PAR_BODY[$i]}"; api_ok_or_die
+  done
+  local todos_body="${PAR_BODY[1]}" overdue_body="${PAR_BODY[2]}"
+  local desk_body="${PAR_BODY[3]}" backlog_body="${PAR_BODY[4]}"
   if [ "$JSON_OUT" = 1 ]; then
     python3 -c '
 import json, sys

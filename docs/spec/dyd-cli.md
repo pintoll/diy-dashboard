@@ -21,6 +21,8 @@ In order:
 
 Read `port` + `token` per request (cheap, and survives app restarts that change the port). JSON bodies are built with `python3` (correct escaping of titles/notes) and passed inline via `-d`; never via temp files (`curl.exe` cannot read WSL paths).
 
+A view built from several independent reads issues them **concurrently** (`api_get_all`), so its latency is one round trip rather than N — the overview needs five. Responses land in a scratch directory, which does not violate the rule above: the redirect is bash's, so `curl.exe` is never handed a WSL path. Each caller still validates every response itself, because tolerance differs per endpoint (a failed `/api/pomodoro` prints an unavailable line; a failed todo read is fatal).
+
 No discovery file, or connection refused → print `diy-dashboard is not running` and exit `2`. No daemon to wait for; do not retry.
 
 ## Exit codes
