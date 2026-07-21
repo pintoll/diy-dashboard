@@ -5,6 +5,7 @@ import {
   createTodo,
   deleteTodo,
   getTodoTitlesByIds,
+  listBacklog,
   listOverdue,
   listTodos,
   reorderTodos,
@@ -33,6 +34,10 @@ export function registerTodosIpc(): void {
     listOverdue(before ?? kstToday())
   );
 
+  // The backlog: todos with no planned day. Not reachable through todos:list,
+  // whose filters are date-based by construction.
+  ipcMain.handle("todos:backlog", (): Todo[] => listBacklog());
+
   ipcMain.handle("todos:create", (_event, input: TodoCreateInput): Todo =>
     createTodo(input, "user")
   );
@@ -54,7 +59,7 @@ export function registerTodosIpc(): void {
 
   ipcMain.handle(
     "todos:reorder",
-    (_event, payload: { date: string; ids: string[] }): void =>
+    (_event, payload: { date: string | null; ids: string[] }): void =>
       reorderTodos(payload.date, payload.ids)
   );
 

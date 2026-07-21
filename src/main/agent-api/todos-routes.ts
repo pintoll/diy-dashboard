@@ -3,6 +3,7 @@ import { addToDesk, clearDesk, getDesk, removeFromDesk } from "../todos/desk";
 import {
   createTodo,
   deleteTodo,
+  listBacklog,
   listOverdue,
   listTodos,
   updateTodo,
@@ -43,6 +44,15 @@ export const todosRoutes: Route[] = [
     pattern: "/api/todos/overdue",
     handler: (_req, res) => {
       sendJson(res, 200, { todos: listOverdue(kstToday()) });
+    },
+  },
+  // The backlog: todos with `"date": null`. They are excluded from every dated
+  // query by construction, so this is the only route that returns them.
+  {
+    method: "GET",
+    pattern: "/api/todos/backlog",
+    handler: (_req, res) => {
+      sendJson(res, 200, { todos: listBacklog() });
     },
   },
   {

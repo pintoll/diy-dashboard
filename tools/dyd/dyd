@@ -15,8 +15,10 @@ usage:
   dyd pomo set <25:5|50:10|100:20|120:30>
   dyd todo                    today's list
   dyd todo overdue            overdue list
-  dyd todo add "<title>" [-d <date|tomorrow>] [-n <note>]
+  dyd todo backlog            backlog (todos with no planned day)
+  dyd todo add "<title>" [-d <date|today|tomorrow|backlog>] [-n <note>]
   dyd todo done <n|id>
+  dyd todo move <n|id|b<n>> <date|today|tomorrow|backlog>
   dyd todo use <n|id|->       add a todo to the desk (- clears the desk)
   dyd todo drop <n|id>        remove a todo from the desk
   dyd source                  list data-source connectors
@@ -90,6 +92,37 @@ api() {
   BODY="${resp%$'\n'*}"
 }
 
+# api_get_all PATH... -> fills PAR_BODY / PAR_STATUS, one entry per path, in
+# argument order. The requests are issued concurrently, so a view built from
+# several independent reads costs one round trip of latency instead of N.
+# Validation is left to the caller (assign HTTP_STATUS/BODY, call
+# api_ok_or_die), because tolerance differs per endpoint.
+api_get_all() {
+  local dir path i=0 pid failed=0 resp
+  local pids=()
+  dir=$(mktemp -d) || not_running
+  for path in "$@"; do
+    "$CURL" -s -S -o - -w '\n%{http_code}' -X GET \
+      -H "Authorization: Bearer $TOKEN" \
+      "http://127.0.0.1:$PORT$path" > "$dir/$i" 2>/dev/null &
+    pids+=("$!")
+    i=$((i + 1))
+  done
+  for pid in "${pids[@]}"; do
+    wait "$pid" || failed=1
+  done
+  PAR_BODY=(); PAR_STATUS=()
+  i=0
+  for path in "$@"; do
+    resp=$(cat "$dir/$i" 2>/dev/null)
+    PAR_STATUS+=("${resp##*$'\n'}")
+    PAR_BODY+=("${resp%$'\n'*}")
+    i=$((i + 1))
+  done
+  rm -rf "$dir"
+  [ "$failed" = 0 ] || not_running
+}
+
 api_ok_or_die() {
   case "$HTTP_STATUS" in
     2*) return 0 ;;
@@ -126,6 +159,30 @@ except Exception as e:
 
 urlenc() { # group names are free-form and may contain spaces
   printf '%s' "$1" | python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read(), safe=""))'
+}
+
+# date_json <today|tomorrow|backlog|YYYY-MM-DD> -> the JSON value for a body's
+# "date" field. `backlog` is null on the wire, not a magic string; an unknown
+# spec is passed through verbatim so the API rejects it with a useful message.
+date_json() {
+  SPEC="$1" python3 -c '
+import json, os
+from datetime import datetime, timedelta
+def kst_now():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Asia/Seoul"))
+    except Exception:
+        return datetime.now()
+spec = os.environ["SPEC"].strip().lower()
+if spec == "backlog":
+    print("null")
+elif spec == "tomorrow":
+    print(json.dumps(str((kst_now() + timedelta(days=1)).date())))
+elif spec == "today":
+    print(json.dumps(str(kst_now().date())))
+else:
+    print(json.dumps(os.environ["SPEC"]))'
 }
 
 # --- formatter (all human output) -----------------------------------------
@@ -230,6 +287,7 @@ mode = sys.argv[1]
 
 if mode == "overview":
     p = load(sys.argv[2]); todos = load(sys.argv[3]); overdue = load(sys.argv[4]); desk = load(sys.argv[5])
+    backlog = load(sys.argv[6])
     ids = desk_ids(desk)
     print(pomo_line(p))
     tlist = (todos or {}).get("todos", [])
@@ -237,6 +295,9 @@ if mode == "overview":
     n = len((overdue or {}).get("todos", []))
     if n:
         print(f"── overdue: {n} (dyd todo overdue)")
+    b = len((backlog or {}).get("todos", []))
+    if b:
+        print(f"── backlog: {b} (dyd todo backlog)")
 
 elif mode == "todo":
     todos = load(sys.argv[2]); desk = load(sys.argv[3])
@@ -251,6 +312,18 @@ elif mode == "overdue":
         for t in ts:
             box = "[x]" if t["done"] else "[ ]"
             print(f"  {box} {t['title']}   ({t['date']})   {t['id']}")
+
+elif mode == "backlog":
+    ts = (load(sys.argv[2]) or {}).get("todos", [])
+    if not ts:
+        print("backlog is empty")
+    else:
+        # b<n> is how these are addressed: `dyd todo move b2 today`.
+        for i, t in enumerate(ts, 1):
+            box = "[x]" if t["done"] else "[ ]"
+            w = worked(t["workedSec"])
+            line = f"  b{i} {box} {t['title']}"
+            print(f"{line:<32} {w}".rstrip() if w else line)
 
 elif mode == "pomo":
     p = load(sys.argv[2])
@@ -285,16 +358,23 @@ elif mode in ("cmdresult", "setresult"):
 
 elif mode == "added":
     todos = load(sys.argv[2]); created_id = sys.argv[3]
+    # Position prefix: "" for a day list, "b" when the todo landed in the backlog.
+    prefix = sys.argv[4] if len(sys.argv) > 4 else ""
     ts = (todos or {}).get("todos", [])
     for i, t in enumerate(ts, 1):
         if t["id"] == created_id:
-            print(f"added  {i} [ ] {t['title']}   ({t['date']})")
+            print(f"added  {prefix}{i} [ ] {t['title']}   ({t['date'] or 'backlog'})")
             break
 
 elif mode == "todo_line":
     t = load(sys.argv[2])["todo"]
     box = "[x]" if t["done"] else "[ ]"
     print(f"{sys.argv[3]} {box} {t['title']}")
+
+elif mode == "moved":
+    t = load(sys.argv[2])["todo"]
+    box = "[x]" if t["done"] else "[ ]"
+    print(f"moved: {box} {t['title']}   -> {t['date'] or 'backlog'}")
 
 elif mode == "desk_set":
     d = load(sys.argv[2]); ts = (d or {}).get("todos", [])
@@ -375,21 +455,30 @@ PY
 
 fmt() { python3 -c "$FORMATTER" "$@"; }
 
-resolve_id() { # resolve_id <n|id> -> sets RESOLVED_ID; returns 1 on bad position.
+resolve_id() { # resolve_id <n|b<n>|id> -> sets RESOLVED_ID; returns 1 on bad position.
   # NOTE: sets a global rather than echoing, so callers invoke it directly (not
   # in $(...)). exit inside a command substitution would only end the subshell.
-  local arg="$1"
+  # `<n>` is a position in today's list, `b<n>` one in the backlog; anything
+  # else is taken as an id. A 21-char nanoid that happens to be all digits (or
+  # "b" + digits) would be misread, which is not worth guarding at ~1e-17 odds.
+  local arg="$1" path="/api/todos" pos="$1" what="today's list"
   case "$arg" in
+    b*)
+      pos="${arg#b}"
+      case "$pos" in
+        ''|*[!0-9]*) RESOLVED_ID="$arg"; return 0 ;;  # not b<n>: an id
+      esac
+      path="/api/todos/backlog"; what="the backlog" ;;
     ''|*[!0-9]*) RESOLVED_ID="$arg"; return 0 ;;  # non-numeric = id
   esac
-  api GET /api/todos; api_ok_or_die
+  api GET "$path"; api_ok_or_die
   local id
   id=$(printf '%s' "$BODY" | python3 -c '
 import json, sys
 d = json.load(sys.stdin); n = int(sys.argv[1]); ts = d["todos"]
-print(ts[n-1]["id"] if 1 <= n <= len(ts) else "")' "$arg")
+print(ts[n-1]["id"] if 1 <= n <= len(ts) else "")' "$pos")
   if [ -z "$id" ]; then
-    echo "${PROG}: no todo at position $arg in today's list" >&2
+    echo "${PROG}: no todo at position $arg in $what" >&2
     return 1
   fi
   RESOLVED_ID="$id"
@@ -407,11 +496,19 @@ resolve_conn
 
 # --- commands --------------------------------------------------------------
 cmd_overview() {
-  api GET /api/pomodoro; local pb="" ; [ "${HTTP_STATUS:0:1}" = "2" ] && pb="$BODY"
-  local pomo_body="$pb"
-  api GET /api/todos; api_ok_or_die; local todos_body="$BODY"
-  api GET /api/todos/overdue; api_ok_or_die; local overdue_body="$BODY"
-  api GET /api/desk; api_ok_or_die; local desk_body="$BODY"
+  # Five independent reads for one screen: issued concurrently, since serially
+  # they are five round trips of latency before anything prints.
+  api_get_all /api/pomodoro /api/todos /api/todos/overdue /api/desk /api/todos/backlog
+  # The pomodoro read is the one allowed to fail (no session yet): a non-2xx
+  # there prints an idle timer rather than killing the whole overview.
+  local pomo_body=""
+  [ "${PAR_STATUS[0]:0:1}" = "2" ] && pomo_body="${PAR_BODY[0]}"
+  local i
+  for i in 1 2 3 4; do
+    HTTP_STATUS="${PAR_STATUS[$i]}"; BODY="${PAR_BODY[$i]}"; api_ok_or_die
+  done
+  local todos_body="${PAR_BODY[1]}" overdue_body="${PAR_BODY[2]}"
+  local desk_body="${PAR_BODY[3]}" backlog_body="${PAR_BODY[4]}"
   if [ "$JSON_OUT" = 1 ]; then
     python3 -c '
 import json, sys
@@ -422,10 +519,11 @@ print(json.dumps({
   "todos": load(sys.argv[2]),
   "overdue": load(sys.argv[3]),
   "desk": load(sys.argv[4]),
-}))' "$pomo_body" "$todos_body" "$overdue_body" "$desk_body"
+  "backlog": load(sys.argv[5]),
+}))' "$pomo_body" "$todos_body" "$overdue_body" "$desk_body" "$backlog_body"
     return
   fi
-  fmt overview "$pomo_body" "$todos_body" "$overdue_body" "$desk_body"
+  fmt overview "$pomo_body" "$todos_body" "$overdue_body" "$desk_body" "$backlog_body"
 }
 
 cmd_pomo() {
@@ -478,6 +576,10 @@ cmd_todo() {
       api GET /api/todos/overdue
       if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
       api_ok_or_die; fmt overdue "$BODY" ;;
+    backlog)
+      api GET /api/todos/backlog
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt backlog "$BODY" ;;
     add)
       [ $# -ge 1 ] || die_usage
       local title="$1"; shift
@@ -489,24 +591,16 @@ cmd_todo() {
           *) die_usage ;;
         esac
       done
+      # No -d at all leaves "date" out of the body entirely, which the API reads
+      # as today. That is not the same as -d backlog, which sends null.
+      local datejson=""
+      [ -n "$date" ] && datejson=$(date_json "$date")
       local body
-      body=$(TITLE="$title" DATE="$date" NOTE="$note" python3 -c '
+      body=$(TITLE="$title" DATEJSON="$datejson" NOTE="$note" python3 -c '
 import json, os
-from datetime import datetime, timedelta
-def kst_now():
-    try:
-        from zoneinfo import ZoneInfo
-        return datetime.now(ZoneInfo("Asia/Seoul"))
-    except Exception:
-        return datetime.now()
-spec = os.environ["DATE"].strip().lower()
 out = {"title": os.environ["TITLE"]}
-if spec == "tomorrow":
-    out["date"] = str((kst_now() + timedelta(days=1)).date())
-elif spec == "today":
-    out["date"] = str(kst_now().date())
-elif spec:
-    out["date"] = os.environ["DATE"]
+if os.environ["DATEJSON"]:
+    out["date"] = json.loads(os.environ["DATEJSON"])
 if os.environ["NOTE"]:
     out["note"] = os.environ["NOTE"]
 print(json.dumps(out))')
@@ -515,9 +609,21 @@ print(json.dumps(out))')
       api_ok_or_die
       local created_id created_date
       created_id=$(jget "$BODY" 'd["todo"]["id"]')
-      created_date=$(jget "$BODY" 'd["todo"]["date"]')
-      api "GET" "/api/todos?date=$created_date"; api_ok_or_die
-      fmt added "$BODY" "$created_id" ;;
+      created_date=$(jget "$BODY" 'd["todo"]["date"] or ""')
+      if [ -z "$created_date" ]; then
+        api GET /api/todos/backlog; api_ok_or_die
+        fmt added "$BODY" "$created_id" b
+      else
+        api "GET" "/api/todos?date=$created_date"; api_ok_or_die
+        fmt added "$BODY" "$created_id"
+      fi ;;
+    move)
+      # Re-plan a todo: onto a day, or into the backlog (no day at all).
+      [ $# -eq 2 ] || die_usage
+      resolve_id "$1" || exit 1
+      api PATCH "/api/todos/$RESOLVED_ID" "$(printf '{"date":%s}' "$(date_json "$2")")"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt moved "$BODY" ;;
     done)
       [ $# -eq 1 ] || die_usage
       resolve_id "$1" || exit 1

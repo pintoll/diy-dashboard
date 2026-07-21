@@ -46,7 +46,7 @@ AUTH="Authorization: Bearer $TOKEN"
 ```jsonc
 {
   "id": "wpHNyyWea7kRuNwVm_xCv",  // nanoid
-  "date": "2026-07-09",           // the day it is PLANNED for (Asia/Seoul)
+  "date": "2026-07-09",           // the day it is PLANNED for (Asia/Seoul); null = backlog
   "title": "Design the API",
   "note": null,
   "done": false,
@@ -59,10 +59,18 @@ AUTH="Authorization: Bearer $TOKEN"
 }
 ```
 
-Two rules worth internalizing:
+Three rules worth internalizing:
 
 - **`date` is never rewritten by carry-over.** An unfinished todo from Monday stays dated Monday; the UI surfaces it in today's "Overdue" section. Move it only if the user asks.
 - **Completing sets `completedOn` to today**, leaving `date` alone. So a past day always shows what was actually planned that day.
+- **`date: null` means the backlog** — wanted, but with no planned day (`docs/design/todo-backlog.md`). A backlog todo is excluded from *every* dated query, Overdue included, so `GET /api/todos/backlog` is the only way to see it. Park something when the user wants it off the calendar indefinitely; do not park something merely because its day is unclear — ask.
+
+**The un-park rule.** Work belongs to a day, so anything that means work is happening assigns one:
+
+- adding a backlog todo to the desk sets `date` to today,
+- marking a backlog todo done sets `date` to today.
+
+An explicit `date` in the same patch always wins over this.
 
 ## Routes
 
@@ -95,6 +103,15 @@ GET /api/todos/overdue
 
 Open todos planned before today. This is the carry-over list — they keep their original `date`.
 
+### `GET /api/todos/backlog`
+
+```
+GET /api/todos/backlog
+→ 200 { "todos": [ ...Todo ] }
+```
+
+Todos with `"date": null`, in manual order. They are invisible to every dated query, so this route is the only way to reach them.
+
 ### `POST /api/todos`
 
 ```
@@ -103,7 +120,7 @@ POST /api/todos
 → 201 { "todo": {...} }
 ```
 
-`date` defaults to today. `source` is forced to `"agent"` — you cannot impersonate a user-created todo.
+Omitting `date` means today; `"date": null` puts the todo straight into the backlog. The two are deliberately different, so a caller that simply does not care about the day still gets today. `source` is forced to `"agent"` — you cannot impersonate a user-created todo.
 
 ### `PATCH /api/todos/:id`
 
@@ -114,6 +131,8 @@ PATCH /api/todos/abc123
 ```
 
 All fields optional. Setting `done: true` stamps `completedOn` and steps the todo off the desk if it was a member (banking its open interval). Setting `done: false` clears `completedOn`.
+
+`"date": null` parks the todo in the backlog; a date pulls it back out. Either way, unless the patch also sets `sortOrder`, a todo that changes bucket is appended to the end of its destination rather than keeping an order number that would drop it into the middle of the other list.
 
 ### `DELETE /api/todos/:id`
 
@@ -148,7 +167,8 @@ POST /api/desk
 
 **Additive** — adds one member; it does not replace the desk. Adding a member
 already present is a no-op. Adding a completed todo is a `400`; an unknown id is
-a `404`.
+a `404`. Adding a **backlog** todo un-parks it: its `date` becomes today, since
+it is about to accrue time and time belongs to a day.
 
 #### `DELETE /api/desk/:id`
 

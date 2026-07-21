@@ -1,4 +1,6 @@
+import { nextSortOrder } from "./crud";
 import { getTodosDb } from "./db";
+import { kstToday } from "./date";
 import { emitTodosChanged } from "./events";
 import {
   NotFoundError,
@@ -36,12 +38,33 @@ function loadOpenTodo(id: string): TodoRow {
 }
 
 export function addToDesk(id: string): Todo {
+  const db = getTodosDb();
   const row = loadOpenTodo(id);
-  const info = getTodosDb()
-    .prepare("INSERT OR IGNORE INTO desk (todo_id, joined_at) VALUES (?, ?)")
-    .run(id, new Date().toISOString());
-  // Already on the desk: the INSERT was ignored, so nothing changed — don't emit.
-  if (info.changes === 1) emitTodosChanged({ reason: "active", id });
+  let changed = false;
+
+  db.transaction(() => {
+    // Un-park: a backlog todo joining the desk is about to accrue pomodoro
+    // time, and time belongs to a day. Left dateless it would bank workedSec
+    // while appearing in neither today's list, the today widget, nor `dyd`.
+    if (row.date === null) {
+      const today = kstToday();
+      const next = nextSortOrder(db, today);
+      db.prepare(
+        `UPDATE todos SET date = ?, sort_order = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`
+      ).run(today, next, id);
+      row.date = today;
+      row.sort_order = next;
+      changed = true;
+    }
+    const info = db
+      .prepare("INSERT OR IGNORE INTO desk (todo_id, joined_at) VALUES (?, ?)")
+      .run(id, new Date().toISOString());
+    if (info.changes === 1) changed = true;
+  })();
+
+  // Already on the desk and already dated: nothing changed — don't emit.
+  if (changed) emitTodosChanged({ reason: "active", id });
   return rowToTodo(row);
 }
 
@@ -81,14 +104,13 @@ export function setActiveTodo(id: string | null): Todo | null {
     return null;
   }
 
-  const row = loadOpenTodo(id);
-  db.transaction(() => {
+  // Validate before the destructive clear, then delegate: addToDesk owns the
+  // un-park rule and the single event, so the compat path cannot drift from it.
+  // Clear and join share one transaction (better-sqlite3 nests via SAVEPOINT),
+  // so a failed join cannot leave the desk empty with no event to announce it.
+  loadOpenTodo(id);
+  return db.transaction((): Todo => {
     db.prepare("DELETE FROM desk").run();
-    db.prepare("INSERT INTO desk (todo_id, joined_at) VALUES (?, ?)").run(
-      id,
-      new Date().toISOString()
-    );
+    return addToDesk(id);
   })();
-  emitTodosChanged({ reason: "active", id });
-  return rowToTodo(row);
 }
