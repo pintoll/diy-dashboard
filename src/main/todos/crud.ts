@@ -49,15 +49,15 @@ function normalizeDate(date: unknown): string | null {
   return assertDate(date);
 }
 
-// Appends to the end of a bucket. A NULL bind matches no row under `= ?`, so
-// the backlog needs its own predicate or every parked todo would land on 0.
-function nextSortOrder(db: Database.Database, date: string | null): number {
-  const sql =
-    date === null
-      ? "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM todos WHERE date IS NULL"
-      : "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM todos WHERE date = ?";
-  const params = date === null ? [] : [date];
-  const { next } = db.prepare(sql).get(...params) as { next: number };
+// Appends to the end of a bucket — a day, or the backlog (`null`). `IS` rather
+// than `=` because a NULL bind matches no row under `= ?`, which would land
+// every parked todo on sort_order 0; for a non-null bind the two are identical.
+export function nextSortOrder(db: Database.Database, date: string | null): number {
+  const { next } = db
+    .prepare(
+      "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM todos WHERE date IS ?"
+    )
+    .get(date) as { next: number };
   return next;
 }
 
@@ -227,19 +227,14 @@ export function reorderTodos(date: string | null, ids: string[]): void {
   if (date !== null) assertDate(date);
   const db = getTodosDb();
   // The date predicate scopes the rewrite, so ids from another bucket are
-  // ignored rather than silently renumbered.
+  // ignored rather than silently renumbered. `IS` is NULL-safe, so the backlog
+  // needs no separate statement.
   const update = db.prepare(
-    date === null
-      ? `UPDATE todos SET sort_order = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ? AND date IS NULL`
-      : `UPDATE todos SET sort_order = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ? AND date = ?`
+    `UPDATE todos SET sort_order = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND date IS ?`
   );
   db.transaction(() => {
-    ids.forEach((id, index) => {
-      if (date === null) update.run(index, id);
-      else update.run(index, id, date);
-    });
+    ids.forEach((id, index) => update.run(index, id, date));
   })();
   emitTodosChanged({ reason: "reorder" });
 }

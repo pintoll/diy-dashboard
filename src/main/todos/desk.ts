@@ -1,3 +1,4 @@
+import { nextSortOrder } from "./crud";
 import { getTodosDb } from "./db";
 import { kstToday } from "./date";
 import { emitTodosChanged } from "./events";
@@ -47,11 +48,7 @@ export function addToDesk(id: string): Todo {
     // while appearing in neither today's list, the today widget, nor `dyd`.
     if (row.date === null) {
       const today = kstToday();
-      const { next } = db
-        .prepare(
-          "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM todos WHERE date = ?"
-        )
-        .get(today) as { next: number };
+      const next = nextSortOrder(db, today);
       db.prepare(
         `UPDATE todos SET date = ?, sort_order = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`
