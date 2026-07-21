@@ -109,7 +109,11 @@ export function setActiveTodo(id: string | null): Todo | null {
 
   // Validate before the destructive clear, then delegate: addToDesk owns the
   // un-park rule and the single event, so the compat path cannot drift from it.
+  // Clear and join share one transaction (better-sqlite3 nests via SAVEPOINT),
+  // so a failed join cannot leave the desk empty with no event to announce it.
   loadOpenTodo(id);
-  db.prepare("DELETE FROM desk").run();
-  return addToDesk(id);
+  return db.transaction((): Todo => {
+    db.prepare("DELETE FROM desk").run();
+    return addToDesk(id);
+  })();
 }

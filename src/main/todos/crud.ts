@@ -201,9 +201,12 @@ export function updateTodo(id: string, patch: TodoPatch): Todo {
        WHERE id = ?`
     ).run(title, note, date, sortOrder, done ? 1 : 0, completedOn, id);
 
-    // A finished todo steps off the desk: drop its membership in the same
-    // transaction so no observer sees a done-but-on-desk state.
-    if (done && !wasDone) {
+    // A todo steps off the desk the moment it can no longer be worked on there:
+    // it is finished, or it has just been parked. Both drop membership in this
+    // transaction, so no observer sees a done-but-on-desk state — nor a desk
+    // member with no day to bank its time against, which is the un-park rule
+    // (docs/design/todo-backlog.md) read from the other side.
+    if ((done && !wasDone) || date === null) {
       db.prepare("DELETE FROM desk WHERE todo_id = ?").run(id);
     }
   })();

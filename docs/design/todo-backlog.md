@@ -61,6 +61,11 @@ Anything that means *work is happening* assigns a real day:
 An explicit `date` in the same patch always wins, so a caller can still park a
 completed todo deliberately.
 
+The rule has a mirror image: parking a todo (`date = null`) drops it from the
+desk in the same transaction. Without that, the invariant holds only on the way
+in — a member could be parked mid-session and keep accruing time from the very
+bucket the rule exists to keep it out of.
+
 Without this, a desk member with no date would accrue `workedSec` while
 appearing in neither today's list, the today widget, nor `dyd`'s overview — time
 banked into a bucket nobody looks at. The rule also keeps the invariant that
