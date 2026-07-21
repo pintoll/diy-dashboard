@@ -354,11 +354,15 @@ interface FinanceAPI {
 // Date-based todos. `date` is the planned day (yyyy-MM-dd, Asia/Seoul) and is
 // never mutated by overdue carry-over; `completedOn` is the day it was
 // actually finished. `workedSec` is pomodoro time accrued via recordWork.
+//
+// `date: null` means the todo is in the backlog — wanted, but with no planned
+// day (docs/design/todo-backlog.md). Backlog todos appear in no date query,
+// including Overdue; `todos.backlog()` is the only way to list them.
 type TodoSource = "user" | "agent";
 
 interface TodoItem {
   id: string;
-  date: string;
+  date: string | null;
   title: string;
   note: string | null;
   done: boolean;
@@ -370,16 +374,17 @@ interface TodoItem {
   updatedAt: string;
 }
 
+// Omitting `date` means today; `date: null` means the backlog.
 interface TodoCreateInput {
   title: string;
-  date?: string;
+  date?: string | null;
   note?: string | null;
 }
 
 interface TodoPatch {
   title?: string;
   note?: string | null;
-  date?: string;
+  date?: string | null;
   done?: boolean;
   sortOrder?: number;
 }
@@ -417,13 +422,15 @@ interface TodosChangedPayload {
 interface TodosAPI {
   list: (filter?: TodoListFilter) => Promise<TodoItem[]>;
   overdue: (before?: string) => Promise<TodoItem[]>;
+  backlog: () => Promise<TodoItem[]>;
   create: (input: TodoCreateInput) => Promise<TodoItem>;
   update: (id: string, patch: TodoPatch) => Promise<TodoItem>;
   remove: (id: string) => Promise<void>;
   // Batch id -> title resolve for display (analytics drill-down). Deleted ids
   // are absent from the result; the caller shows a fallback.
   titlesByIds: (ids: string[]) => Promise<{ id: string; title: string }[]>;
-  reorder: (date: string, ids: string[]) => Promise<void>;
+  // `null` reorders the backlog; a date reorders that day.
+  reorder: (date: string | null, ids: string[]) => Promise<void>;
   active: {
     get: () => Promise<TodoItem | null>;
     set: (id: string | null) => Promise<TodoItem | null>;

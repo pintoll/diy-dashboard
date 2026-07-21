@@ -16,10 +16,15 @@ import type Database from "better-sqlite3";
 // `desk` is the set of todos currently receiving the running work clock
 // (replaces the single-row `active_todo`). `joined_at` clamps the start of a
 // member's in-flight interval.
+//
+// `todos.date` is nullable: NULL is the backlog, the bucket for work with no
+// planned day (see docs/design/todo-backlog.md). Every date query already
+// excludes it for free — NULL matches neither `= ?` nor `BETWEEN` nor `< ?` —
+// so a parked todo can never leak into a day list or into Overdue.
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS todos (
   id           TEXT PRIMARY KEY,
-  date         TEXT NOT NULL,
+  date         TEXT,
   title        TEXT NOT NULL,
   note         TEXT,
   done         INTEGER NOT NULL DEFAULT 0,
@@ -59,9 +64,14 @@ function tableExists(db: Database.Database, name: string): boolean {
     .get(name);
 }
 
+type ColumnInfo = { name: string; notnull: number };
+
+function columns(db: Database.Database, table: string): ColumnInfo[] {
+  return db.prepare(`PRAGMA table_info(${table})`).all() as ColumnInfo[];
+}
+
 function columnNames(db: Database.Database, table: string): string[] {
-  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-  return rows.map((r) => r.name);
+  return columns(db, table).map((c) => c.name);
 }
 
 // Run-once-then-inert migrations. Each guards on the live schema, so calling
@@ -112,5 +122,56 @@ export function migrateSchema(db: Database.Database): void {
       }
       db.exec("DROP TABLE active_todo");
     })();
+  }
+
+  // 3. todos.date: NOT NULL -> nullable, so NULL can mean "backlog"
+  //    (docs/design/todo-backlog.md). SQLite cannot relax a column constraint in
+  //    place, so the table is rebuilt.
+  //
+  //    Unlike migration 1, the table being rebuilt is a *parent*: both
+  //    todo_sessions and desk reference todos(id) ON DELETE CASCADE, and db.ts
+  //    turns `foreign_keys = ON` before calling this. A plain DROP TABLE would
+  //    therefore cascade away the entire worked-time ledger. Hence the pragma
+  //    dance — and it has to sit outside the transaction, because SQLite
+  //    silently ignores a foreign_keys change made inside one.
+  const dateColumn = columns(db, "todos").find((c) => c.name === "date");
+  if (dateColumn && dateColumn.notnull === 1) {
+    const COLUMNS =
+      "id, date, title, note, done, completed_on, sort_order, worked_sec, source, created_at, updated_at";
+    db.pragma("foreign_keys = OFF");
+    try {
+      db.transaction(() => {
+        db.exec(`
+          CREATE TABLE todos_new (
+            id           TEXT PRIMARY KEY,
+            date         TEXT,
+            title        TEXT NOT NULL,
+            note         TEXT,
+            done         INTEGER NOT NULL DEFAULT 0,
+            completed_on TEXT,
+            sort_order   INTEGER NOT NULL DEFAULT 0,
+            worked_sec   INTEGER NOT NULL DEFAULT 0,
+            source       TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('user','agent')),
+            created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+          );
+          INSERT INTO todos_new (${COLUMNS}) SELECT ${COLUMNS} FROM todos;
+          DROP TABLE todos;
+          ALTER TABLE todos_new RENAME TO todos;
+          CREATE INDEX IF NOT EXISTS idx_todos_date ON todos(date);
+          CREATE INDEX IF NOT EXISTS idx_todos_open ON todos(done, date);
+        `);
+        // Every child row must still resolve to a todo. If one does not, the
+        // rebuild lost rows and rolling back is the only safe outcome.
+        const orphans = db.pragma("foreign_key_check") as unknown[];
+        if (orphans.length > 0) {
+          throw new Error(
+            `todos rebuild left ${orphans.length} orphaned foreign key rows; rolled back`
+          );
+        }
+      })();
+    } finally {
+      db.pragma("foreign_keys = ON");
+    }
   }
 }

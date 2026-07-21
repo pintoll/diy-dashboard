@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from "react";
 import {
+  kstToday,
   requireTodosApi,
   todoErrorMessage,
   type Todo,
 } from "@/src/entities/todo";
 import { Button } from "@/src/shared/ui/button";
+import { Checkbox } from "@/src/shared/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -24,19 +26,21 @@ type Props = {
 function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
   const [title, setTitle] = useState(todo.title);
   const [note, setNote] = useState(todo.note ?? "");
-  const [date, setDate] = useState(todo.date);
+  // A parked todo has no date, but the input still needs a value to fall back
+  // to the moment the box is unchecked.
+  const [parked, setParked] = useState(todo.date === null);
+  const [date, setDate] = useState(todo.date ?? kstToday());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
+  const commit = async (nextDate: string | null) => {
     setBusy(true);
     setError(null);
     try {
       await requireTodosApi().update(todo.id, {
         title: title.trim(),
         note: note.trim().length > 0 ? note.trim() : null,
-        date,
+        date: nextDate,
       });
       onDone();
     } catch (err) {
@@ -44,6 +48,15 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
       setBusy(false);
     }
   };
+
+  const save = (event: FormEvent) => {
+    event.preventDefault();
+    void commit(parked ? null : date);
+  };
+
+  // The one-click form of the checkbox above: flip the bucket and save, so the
+  // common "this can wait indefinitely" move is a single action.
+  const moveBucket = () => void commit(parked ? kstToday() : null);
 
   const remove = async () => {
     setBusy(true);
@@ -79,12 +92,26 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
       </div>
       <div className="flex flex-col gap-2">
         <Label htmlFor="todo-date">Date</Label>
-        <Input
-          id="todo-date"
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-        />
+        <div className="flex items-center gap-3">
+          {/* Blank while parked, so the field cannot read as "there is a date
+              here, it is just greyed out". The state keeps the last value, so
+              unchecking restores it rather than leaving an empty input. */}
+          <Input
+            id="todo-date"
+            type="date"
+            value={parked ? "" : date}
+            disabled={parked}
+            onChange={(e) => setDate(e.target.value)}
+            className="flex-1"
+          />
+          <Label className="whitespace-nowrap font-normal text-muted-foreground">
+            <Checkbox
+              checked={parked}
+              onCheckedChange={(checked) => setParked(checked === true)}
+            />
+            No date (backlog)
+          </Label>
+        </div>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -99,9 +126,20 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
         >
           Delete
         </Button>
-        <Button type="submit" size="sm" disabled={busy || title.trim().length === 0}>
-          Save
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={moveBucket}
+            disabled={busy || title.trim().length === 0}
+          >
+            {parked ? "Move to today" : "Move to backlog"}
+          </Button>
+          <Button type="submit" size="sm" disabled={busy || title.trim().length === 0}>
+            Save
+          </Button>
+        </div>
       </div>
     </form>
   );

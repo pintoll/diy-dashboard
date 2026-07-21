@@ -2,12 +2,15 @@
 // (snake_case); the plain types are the DTOs that cross IPC / the agent HTTP
 // API to consumers (camelCase). Every other file in this folder imports from
 // here.
+//
+// A null `date` means the todo is in the backlog: wanted, but with no planned
+// day (docs/design/todo-backlog.md).
 
 export type TodoSource = "user" | "agent";
 
 export type TodoRow = {
   id: string;
-  date: string;
+  date: string | null;
   title: string;
   note: string | null;
   done: number;
@@ -21,7 +24,7 @@ export type TodoRow = {
 
 export type Todo = {
   id: string;
-  date: string;
+  date: string | null;
   title: string;
   note: string | null;
   done: boolean;
@@ -33,16 +36,19 @@ export type Todo = {
   updatedAt: string;
 };
 
+// `date` omitted means today; `date: null` means the backlog. The two are
+// deliberately distinct, so a caller that simply does not care about the day
+// still gets today rather than silently parking the todo.
 export type TodoCreateInput = {
   title: string;
-  date?: string;
+  date?: string | null;
   note?: string | null;
 };
 
 export type TodoPatch = {
   title?: string;
   note?: string | null;
-  date?: string;
+  date?: string | null;
   done?: boolean;
   sortOrder?: number;
 };

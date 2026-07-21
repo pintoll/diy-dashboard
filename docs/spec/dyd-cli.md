@@ -48,11 +48,13 @@ work 13:28 / 25:00  running   (25:5, #4)
 * 2 [ ] Write migration        50m
 * 3 [ ] Ship release
 ── overdue: 2 (dyd todo overdue)
+── backlog: 7 (dyd todo backlog)
 ```
 
 `*` marks **every** todo on the desk (there can be more than one — the desk is a
 set); the right column is accrued `workedSec` (minutes, omitted when 0). Pomodoro
-line when the bridge is not ready: `pomodoro: unavailable (no widget?)`.
+line when the bridge is not ready: `pomodoro: unavailable (no widget?)`. The
+overdue and backlog lines are omitted when their count is zero.
 
 ### `dyd pomo` — pomodoro status
 
@@ -91,13 +93,38 @@ review     pending — confirm in the app
 
 Same list block as the overview (without the pomodoro line). `dyd todo overdue` prints the overdue list (each with its original planned date).
 
+### `dyd todo backlog` — the backlog
+
+`GET /api/todos/backlog` — todos with no planned day
+([`todos-agent-api.md`](todos-agent-api.md), `docs/design/todo-backlog.md`).
+Positions are printed as `b<n>` so they cannot be confused with today's:
+
+```
+  b1 [ ] mdx 블로그 첫 글 만들기
+  b2 [ ] Read the Postgres locking chapter    35m
+```
+
 ### `dyd todo add "<title>" [-d <date>] [-n <note>]`
 
-`POST /api/todos`. `-d` accepts `YYYY-MM-DD` or `tomorrow`; default today. Prints the created todo with its list index.
+`POST /api/todos`. `-d` accepts `YYYY-MM-DD`, `today`, `tomorrow`, or `backlog`; default today. Prints the created todo with its list index. `-d backlog` sends `"date": null` and prints a `b<n>` index.
 
 ### `dyd todo done <n|id>`
 
-`PATCH /api/todos/:id { done: true }`.
+`PATCH /api/todos/:id { done: true }`. Completing a backlog todo un-parks it onto today.
+
+### `dyd todo move <n|id|b<n>> <target>`
+
+`PATCH /api/todos/:id { date }`. One verb for every re-plan: `backlog` parks the
+todo (sends `null`), `today` / `tomorrow` / `YYYY-MM-DD` place it on a day.
+
+```
+dyd todo move 2 backlog        # today's #2 → the backlog
+dyd todo move b1 today         # backlog #1 → today
+dyd todo move b1 2026-08-01
+```
+
+Prints `moved: [ ] <title>   -> <date|backlog>`. A moved todo lands at the end
+of its destination bucket.
 
 ### `dyd todo use <n|id>` · `dyd todo drop <n|id>`
 
@@ -110,11 +137,12 @@ member accrues; see [`todos-agent-api.md`](todos-agent-api.md#the-desk)).
 - `dyd todo drop <n|id>` → `DELETE /api/desk/:id` — removes one member.
 
 Each prints the resulting desk: `desk: Write migration, Ship release` (or
-`desk: (empty)`). Adding a completed todo errors (exit 1).
+`desk: (empty)`). Adding a completed todo errors (exit 1). Adding a **backlog**
+todo un-parks it onto today — it is about to accrue time.
 
 ### Index addressing
 
-`<n|id>` args: a small integer is a 1-based position in **today's list as `dyd todo` prints it** (API order: `sortOrder`, then creation). Resolved by refetching today's list at execution time — not from a cached view, so it's only racy against concurrent edits in the same second, acceptable single-user. Anything non-numeric is treated as a todo id. Positions do not address the overdue list; use ids there.
+`<n|id>` args: a small integer is a 1-based position in **today's list as `dyd todo` prints it** (API order: `sortOrder`, then creation). `b<n>` is the same, against **the backlog as `dyd todo backlog` prints it**. Both are resolved by refetching that list at execution time — not from a cached view, so it's only racy against concurrent edits in the same second, acceptable single-user. Anything else is treated as a todo id. Positions do not address the overdue list; use ids there.
 
 ### `dyd source` — data-source connectors
 

@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { Bot, CheckCircle2, Circle, Pencil, Play, Square, Timer } from "lucide-react";
+import {
+  Bot,
+  CalendarPlus,
+  CheckCircle2,
+  Circle,
+  Pencil,
+  Play,
+  Square,
+  Timer,
+} from "lucide-react";
 import {
   formatShortDate,
   requireTodosApi,
@@ -15,6 +24,9 @@ type Props = {
   todo: Todo;
   // Overdue rows show the day they were planned for.
   showDate?: boolean;
+  // Backlog rows only: the date the one-click pull button moves the todo to
+  // (the browsed day, not necessarily today).
+  pullTo?: string;
 };
 
 // Errors from row actions are not surfaced inline: the todos:changed push
@@ -23,7 +35,7 @@ function run(action: Promise<unknown>): void {
   action.catch((error) => console.warn("todo action failed:", error));
 }
 
-export function TodoRow({ todo, showDate = false }: Props) {
+export function TodoRow({ todo, showDate = false, pullTo }: Props) {
   // On the desk = receiving the running work clock. Several rows can be on the
   // desk at once (docs/design/multi-pomo-todo.md).
   const onDesk = useTodoStore((s) => s.desk.some((t) => t.id === todo.id));
@@ -35,6 +47,14 @@ export function TodoRow({ todo, showDate = false }: Props) {
     const api = requireTodosApi();
     run(onDesk ? api.desk.remove(todo.id) : api.desk.add(todo.id));
   };
+  // Parked todos leave the backlog in one click. Always visible rather than
+  // hover-revealed: it is the whole point of the section.
+  const pull = pullTo
+    ? {
+        label: `Move to ${formatShortDate(pullTo)}`,
+        run: () => run(requireTodosApi().update(todo.id, { date: pullTo })),
+      }
+    : null;
 
   return (
     <div
@@ -73,9 +93,9 @@ export function TodoRow({ todo, showDate = false }: Props) {
             <Bot className="size-3 shrink-0 text-muted-foreground" aria-label="Added by agent" />
           )}
         </div>
-        {(showDate || todo.workedSec > 0) && (
+        {((showDate && todo.date) || todo.workedSec > 0) && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            {showDate && <span>{formatShortDate(todo.date)}</span>}
+            {showDate && todo.date && <span>{formatShortDate(todo.date)}</span>}
             {todo.workedSec > 0 && (
               <span className="inline-flex items-center gap-0.5">
                 <Timer className="size-3" />
@@ -85,6 +105,19 @@ export function TodoRow({ todo, showDate = false }: Props) {
           </div>
         )}
       </div>
+
+      {pull && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={pull.run}
+          className="shrink-0"
+          aria-label={pull.label}
+          title={pull.label}
+        >
+          <CalendarPlus />
+        </Button>
+      )}
 
       {!todo.done && (
         <Button

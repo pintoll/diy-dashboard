@@ -115,13 +115,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
   todos: {
     list: (filter?: TodoListFilter) => ipcRenderer.invoke("todos:list", filter),
     overdue: (before?: string) => ipcRenderer.invoke("todos:overdue", before),
+    backlog: () => ipcRenderer.invoke("todos:backlog"),
     create: (input: TodoCreateInput) => ipcRenderer.invoke("todos:create", input),
     update: (id: string, patch: TodoPatch) =>
       ipcRenderer.invoke("todos:update", { id, patch }),
     remove: (id: string) => ipcRenderer.invoke("todos:delete", id),
     titlesByIds: (ids: string[]) =>
       ipcRenderer.invoke("todos:titles-by-ids", ids),
-    reorder: (date: string, ids: string[]) =>
+    reorder: (date: string | null, ids: string[]) =>
       ipcRenderer.invoke("todos:reorder", { date, ids }),
     active: {
       get: () => ipcRenderer.invoke("todos:active:get"),

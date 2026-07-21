@@ -6,10 +6,12 @@ import { Input } from "@/src/shared/ui/input";
 
 type Props = {
   // The day the new todo is planned for — the browsed date, not always today.
-  date: string;
+  // `null` writes straight into the backlog.
+  date: string | null;
+  placeholder?: string;
 };
 
-export function AddTodoForm({ date }: Props) {
+export function AddTodoForm({ date, placeholder = "Add a todo..." }: Props) {
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -38,7 +40,7 @@ export function AddTodoForm({ date }: Props) {
         <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Add a todo..."
+          placeholder={placeholder}
           className="h-8 text-sm"
           disabled={busy}
         />

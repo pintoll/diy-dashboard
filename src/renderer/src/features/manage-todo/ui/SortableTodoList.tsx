@@ -8,14 +8,17 @@ import { TodoRow } from "./TodoRow";
 
 type Props = {
   todos: Todo[];
-  // Reordering is scoped to a single day, so every todo here must share this
-  // date. Overdue lists span dates and must not use this component.
-  date: string;
+  // Reordering is scoped to one bucket — a single day, or the backlog (`null`)
+  // — so every todo here must share this date. Overdue lists span dates and
+  // must not use this component.
+  date: string | null;
+  // Backlog rows only; forwarded to each row's one-click pull button.
+  pullTo?: string;
 };
 
-// A day's todos, reorderable by dragging the grip handle. Renders rows only:
-// empty and loading states belong to the caller.
-export function SortableTodoList({ todos, date }: Props) {
+// One bucket's todos, reorderable by dragging the grip handle. Renders rows
+// only: empty and loading states belong to the caller.
+export function SortableTodoList({ todos, date, pullTo }: Props) {
   // The todo store is a read-through cache of SQLite, so a reorder only shows
   // up after the todos:changed round trip. `pending` holds the order the user
   // is looking at until the database catches up.
@@ -100,7 +103,7 @@ export function SortableTodoList({ todos, date }: Props) {
               <GripVertical className="size-4" />
             </button>
             <div className="min-w-0 flex-1">
-              <TodoRow todo={todo} />
+              <TodoRow todo={todo} pullTo={pullTo} />
             </div>
           </div>
         );

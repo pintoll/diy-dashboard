@@ -17,6 +17,10 @@ type DaySlice = {
 
 type TodoStore = DaySlice & {
   selectedDate: string;
+  // Todos with no planned day (docs/design/todo-backlog.md). Not part of
+  // DaySlice: the backlog does not depend on the browsed date, so changing the
+  // date must leave it alone.
+  backlog: Todo[];
   // The desk: todos currently receiving the running work clock, oldest member
   // first (docs/design/multi-pomo-todo.md). Empty when nothing is on the desk.
   desk: Todo[];
@@ -54,6 +58,7 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
   overdue: [],
 
   selectedDate: kstToday(),
+  backlog: [],
   desk: [],
   status: "idle",
   error: null,
@@ -72,11 +77,12 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
 
     if (get().status === "idle") set({ status: "loading" });
     try {
-      const [day, desk] = await Promise.all([
+      const [day, backlog, desk] = await Promise.all([
         fetchDay(api, get().selectedDate),
+        api.backlog(),
         api.desk.get(),
       ]);
-      set({ ...day, desk, status: "ready", error: null });
+      set({ ...day, backlog, desk, status: "ready", error: null });
     } catch (error) {
       set({ status: "error", error: todoErrorMessage(error) });
     }
