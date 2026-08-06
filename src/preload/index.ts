@@ -145,6 +145,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
       };
     },
   },
+  memos: {
+    load: (id: string) => ipcRenderer.invoke("memos:load", id),
+    commitEdit: (input: MemoCommitEditInput) =>
+      ipcRenderer.invoke("memos:commit-edit", input),
+    moveCursor: (input: MemoMoveCursorInput) =>
+      ipcRenderer.invoke("memos:move-cursor", input),
+    snapshot: {
+      create: (id: string, body: string) =>
+        ipcRenderer.invoke("memos:snapshot:create", { id, body }),
+      list: (id: string) => ipcRenderer.invoke("memos:snapshot:list", id),
+      remove: (id: string) => ipcRenderer.invoke("memos:snapshot:delete", id),
+    },
+  },
   finance: {
     accounts: {
       list: () => ipcRenderer.invoke("finance:accounts:list"),

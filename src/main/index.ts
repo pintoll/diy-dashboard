@@ -30,6 +30,7 @@ import { migrateSecretsToSafeStorage } from "./settings/store";
 import { startDailyNewsScheduler } from "./daily-news/scheduler";
 import { registerFinanceIpc } from "./finance/ipc";
 import { registerTodosIpc } from "./todos/ipc";
+import { registerMemosIpc } from "./memos/ipc";
 import { registerPomodoroIpc } from "./pomodoro/ipc";
 import { startAgentApi, stopAgentApi } from "./agent-api/server";
 import {
@@ -435,6 +436,7 @@ app.whenReady().then(async () => {
   registerSettingsIpc();
   registerFinanceIpc();
   registerTodosIpc();
+  registerMemosIpc();
   registerPomodoroIpc();
   registerPomodoroBridgeIpc();
   startAgentApi();

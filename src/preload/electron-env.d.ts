@@ -447,6 +447,68 @@ interface TodosAPI {
   onChanged: (callback: (payload: TodosChangedPayload) => void) => () => void;
 }
 
+// The dashboard's scratch memory: one memo per memo-pad widget instance, keyed
+// by that instanceId. The renderer owns the live buffer and its undo history
+// (@shared/text-history); this API is the durable mirror, which is why a write
+// carries the whole `body` next to the single `edit` that produced it.
+//
+// An edit is a splice — "at `start`, `removed` became `inserted`" — so 100
+// undo steps plus 100 redo steps persist without growing with the document.
+interface MemoEdit {
+  seq: number;
+  start: number;
+  removed: string;
+  inserted: string;
+}
+
+interface MemoSnapshotItem {
+  id: string;
+  body: string;
+  createdAt: string;
+}
+
+interface MemoStateDTO {
+  id: string;
+  body: string;
+  // seq of the last edit applied to `body`; entries above it are the redo tail.
+  cursor: number;
+  edits: MemoEdit[];
+  snapshots: MemoSnapshotItem[];
+  updatedAt: string;
+}
+
+// `edit.seq` is the new cursor, so it is not sent twice.
+interface MemoCommitEditInput {
+  id: string;
+  body: string;
+  edit: MemoEdit;
+}
+
+// Undo/redo: the body and cursor move, but no new edit is recorded.
+interface MemoMoveCursorInput {
+  id: string;
+  body: string;
+  cursor: number;
+}
+
+interface MemoWriteResult {
+  updatedAt: string;
+}
+
+interface MemosAPI {
+  // Creates the memo on first sight; there is no separate "new memo" call.
+  load: (id: string) => Promise<MemoStateDTO>;
+  commitEdit: (input: MemoCommitEditInput) => Promise<MemoWriteResult>;
+  moveCursor: (input: MemoMoveCursorInput) => Promise<MemoWriteResult>;
+  // Snapshots are never pruned automatically — taking one is deliberate, so
+  // losing one should be too.
+  snapshot: {
+    create: (id: string, body: string) => Promise<MemoSnapshotItem>;
+    list: (id: string) => Promise<MemoSnapshotItem[]>;
+    remove: (id: string) => Promise<void>;
+  };
+}
+
 // Pomodoro work-session log. Mirrors the renderer's `PomodoroSessionRecord`
 // (entities/pomodoro-session) as plain JSON over IPC; the store is the reactive
 // in-memory cache and this SQLite-backed API is the durable record.
@@ -548,6 +610,7 @@ interface ElectronAPI {
   settings: SettingsAPI;
   pomodoro: PomodoroAPI;
   todos: TodosAPI;
+  memos: MemosAPI;
   finance: FinanceAPI;
 }
 
