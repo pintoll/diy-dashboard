@@ -30,6 +30,7 @@ import { migrateSecretsToSafeStorage } from "./settings/store";
 import { startDailyNewsScheduler } from "./daily-news/scheduler";
 import { registerFinanceIpc } from "./finance/ipc";
 import { registerTodosIpc } from "./todos/ipc";
+import { registerMemosIpc } from "./memos/ipc";
 import { registerPomodoroIpc } from "./pomodoro/ipc";
 import { startAgentApi, stopAgentApi } from "./agent-api/server";
 import {
@@ -377,7 +378,42 @@ ipcMain.handle("quit-and-install-update", () => {
 
 let isQuitting = false;
 
-app.on("before-quit", () => {
+// Some renderer writes are debounced (the memo buffer is, by 400ms). Closing the
+// window only hides it, so React never unmounts and its flush-on-unmount never
+// runs: a quit is the one exit that can strand a pending write. Ask the renderer
+// to land them and wait — briefly, because a wedged renderer must not be able to
+// hold the app open.
+const FLUSH_TIMEOUT_MS = 500;
+let flushRequested = false;
+
+app.on("before-quit", (event) => {
+  if (
+    gotSingleInstanceLock &&
+    !flushRequested &&
+    mainWindow !== null &&
+    !mainWindow.isDestroyed() &&
+    !mainWindow.webContents.isCrashed()
+  ) {
+    flushRequested = true;
+    event.preventDefault();
+
+    let settled = false;
+    const resumeQuit = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      ipcMain.removeListener("app:flush-complete", resumeQuit);
+      // Re-enters this handler with flushRequested already set, so it falls
+      // through to the teardown below.
+      app.quit();
+    };
+    const timer = setTimeout(resumeQuit, FLUSH_TIMEOUT_MS);
+
+    ipcMain.once("app:flush-complete", resumeQuit);
+    mainWindow.webContents.send("app:flush-pending-writes");
+    return;
+  }
+
   isQuitting = true;
   // A rejected second instance quits through here too. It owns none of this
   // shared state, and stripping the hosts block would unblock sites for the
@@ -435,6 +471,7 @@ app.whenReady().then(async () => {
   registerSettingsIpc();
   registerFinanceIpc();
   registerTodosIpc();
+  registerMemosIpc();
   registerPomodoroIpc();
   registerPomodoroBridgeIpc();
   startAgentApi();

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { GripVertical, Settings, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
@@ -15,8 +16,22 @@ type WidgetWrapperProps = {
 };
 
 export function WidgetWrapper({ instance }: WidgetWrapperProps) {
-  const { isEditMode, removeWidget } = useDashboardStore();
+  const { isEditMode, removeWidget, widgets } = useDashboardStore();
   const definition = widgetRegistry.get(instance.widgetId);
+
+  // A widget cannot read the dashboard itself (that would be a sideways import
+  // between `widgets` slices), so the roster of its own live instances is passed
+  // down. Memoised on the joined ids: `widgets` is a new array on every layout
+  // drag, and this is an effect dependency downstream.
+  const widgetId = instance.widgetId;
+  const siblingIds = widgets
+    .filter((w) => w.widgetId === widgetId)
+    .map((w) => w.instanceId)
+    .join(",");
+  const liveInstanceIds = useMemo(
+    () => (siblingIds === "" ? [] : siblingIds.split(",")),
+    [siblingIds]
+  );
 
   if (!definition) {
     return (
@@ -67,6 +82,7 @@ export function WidgetWrapper({ instance }: WidgetWrapperProps) {
           instanceId={instance.instanceId}
           config={instance.config}
           isEditMode={isEditMode}
+          liveInstanceIds={liveInstanceIds}
         />
       </div>
     </div>
