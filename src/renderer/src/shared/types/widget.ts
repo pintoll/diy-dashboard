@@ -46,6 +46,10 @@ export type WidgetProps<TConfig = Record<string, unknown>> = {
   instanceId: string;
   config: TConfig;
   isEditMode: boolean;
+  // Every live instance of this same widget, this one included. A widget that
+  // keeps per-instance state outside the dashboard (memo-pad's SQLite rows) has
+  // no other way to tell its own rows from ones whose widget is gone.
+  liveInstanceIds: string[];
 };
 
 export type WidgetClientComponent<TConfig = Record<string, unknown>> =

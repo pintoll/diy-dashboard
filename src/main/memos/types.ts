@@ -57,4 +57,23 @@ export type MemoWriteResult = {
   updatedAt: string;
 };
 
+// A memo whose widget is gone. `memos.id` is a widget instanceId and that id
+// lives only in the renderer's localStorage, so removing the widget leaves the
+// row with nothing pointing at it. The body is not sent — one of these lists
+// can span every memo ever written — only enough to recognise it by.
+export type MemoOrphan = {
+  id: string;
+  preview: string;
+  charCount: number;
+  snapshotCount: number;
+  updatedAt: string;
+};
+
+// Hands an orphan's text, history and snapshots to a live widget's memo, which
+// is how a removed memo becomes reachable again.
+export type MemoAdoptInput = {
+  targetId: string;
+  sourceId: string;
+};
+
 export class MemoValidationError extends Error {}

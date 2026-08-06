@@ -1,15 +1,20 @@
 import { ipcMain } from "electron";
 import {
+  adoptMemo,
   commitEdit,
   createSnapshot,
+  deleteMemo,
   deleteSnapshot,
+  listOrphans,
   listSnapshots,
   loadMemo,
   moveCursor,
 } from "./crud";
 import type {
+  MemoAdoptInput,
   MemoCommitEditInput,
   MemoMoveCursorInput,
+  MemoOrphan,
   MemoSnapshot,
   MemoState,
   MemoWriteResult,
@@ -44,4 +49,18 @@ export function registerMemosIpc(): void {
   ipcMain.handle("memos:snapshot:delete", (_event, id: string): void =>
     deleteSnapshot(id)
   );
+
+  // Recovery. The renderer is the only side that knows which memos still have a
+  // widget, so it passes that set in.
+  ipcMain.handle(
+    "memos:list-orphans",
+    (_event, liveIds: string[]): MemoOrphan[] => listOrphans(liveIds)
+  );
+
+  ipcMain.handle(
+    "memos:adopt",
+    (_event, input: MemoAdoptInput): MemoState => adoptMemo(input)
+  );
+
+  ipcMain.handle("memos:delete", (_event, id: string): void => deleteMemo(id));
 }

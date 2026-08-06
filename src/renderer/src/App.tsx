@@ -7,6 +7,7 @@ import { FocusAnalyticsPage } from "@/src/pages/focus-analytics/client";
 import { FinancePage } from "@/src/pages/finance/client";
 import { TodosPage } from "@/src/pages/todos/client";
 import { FocusModeController } from "@/src/features/focus-mode/client";
+import { initFlushOnQuit } from "@/src/shared/lib/flush-on-quit";
 import {
   PomodoroBridgeController,
   DeskAttributionController,
@@ -52,6 +53,11 @@ function PomodoroControllers() {
 }
 
 export default function App() {
+  // Answers main's before-quit flush request for the whole renderer. Bound here,
+  // not in the stores that debounce writes, because main waits for a reply
+  // whether or not any of them happen to be mounted.
+  useEffect(initFlushOnQuit, []);
+
   return (
     <>
       <Routes>

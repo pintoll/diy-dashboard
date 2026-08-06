@@ -495,6 +495,21 @@ interface MemoWriteResult {
   updatedAt: string;
 }
 
+// A memo no widget is bound to any more. Carries enough to recognise it by, not
+// the body — the list can span every memo ever written.
+interface MemoOrphanItem {
+  id: string;
+  preview: string;
+  charCount: number;
+  snapshotCount: number;
+  updatedAt: string;
+}
+
+interface MemoAdoptInput {
+  targetId: string;
+  sourceId: string;
+}
+
 interface MemosAPI {
   // Creates the memo on first sight; there is no separate "new memo" call.
   load: (id: string) => Promise<MemoStateDTO>;
@@ -507,6 +522,13 @@ interface MemosAPI {
     list: (id: string) => Promise<MemoSnapshotItem[]>;
     remove: (id: string) => Promise<void>;
   };
+  // Recovery. A memo is keyed by its widget's instanceId, which only exists in
+  // localStorage, so a removed-and-re-added widget cannot reach its old text on
+  // its own. The renderer passes the ids still on the dashboard; everything else
+  // with content in it is orphaned, and `adopt` moves one onto an empty memo.
+  listOrphans: (liveIds: string[]) => Promise<MemoOrphanItem[]>;
+  adopt: (input: MemoAdoptInput) => Promise<MemoStateDTO>;
+  remove: (id: string) => Promise<void>;
 }
 
 // Pomodoro work-session log. Mirrors the renderer's `PomodoroSessionRecord`
@@ -596,6 +618,10 @@ interface ElectronAPI {
   onUpdateStatus: (callback: (payload: UpdateStatusPayload) => void) => () => void;
   checkForUpdates: () => Promise<void>;
   quitAndInstallUpdate: () => Promise<void>;
+  // Main is holding the quit open while this fires; call `flushComplete` when
+  // every debounced write has landed.
+  onFlushPendingWrites: (callback: () => void) => () => void;
+  flushComplete: () => void;
   getIdleTime: () => Promise<number>;
   flashFrame: () => Promise<void>;
   notifyPomodoroSessionStarted: () => Promise<void>;

@@ -38,6 +38,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
   quitAndInstallUpdate: () => ipcRenderer.invoke("quit-and-install-update"),
+  // Main holds the quit open until `flushComplete` comes back (or it times
+  // out), so whatever the renderer has debounced can reach disk first.
+  onFlushPendingWrites: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on("app:flush-pending-writes", listener);
+    return () => {
+      ipcRenderer.removeListener("app:flush-pending-writes", listener);
+    };
+  },
+  flushComplete: () => ipcRenderer.send("app:flush-complete"),
   getIdleTime: () => ipcRenderer.invoke("pomodoro:get-idle-time"),
   flashFrame: () => ipcRenderer.invoke("pomodoro:flash-frame"),
   notifyPomodoroSessionStarted: () =>
@@ -157,6 +167,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       list: (id: string) => ipcRenderer.invoke("memos:snapshot:list", id),
       remove: (id: string) => ipcRenderer.invoke("memos:snapshot:delete", id),
     },
+    listOrphans: (liveIds: string[]) =>
+      ipcRenderer.invoke("memos:list-orphans", liveIds),
+    adopt: (input: MemoAdoptInput) => ipcRenderer.invoke("memos:adopt", input),
+    remove: (id: string) => ipcRenderer.invoke("memos:delete", id),
   },
   finance: {
     accounts: {

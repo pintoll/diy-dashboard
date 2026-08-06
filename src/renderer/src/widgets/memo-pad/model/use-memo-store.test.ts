@@ -8,6 +8,7 @@ vi.mock("react", async (orig) => {
   return { ...actual, useMemo: (fn: () => unknown) => fn() };
 });
 
+import { MAX_MEMO_BODY_CHARS } from "@shared/memo";
 import { useMemoStore } from "./use-memo-store";
 
 // What the pure history module cannot cover: when a keystroke joins the open
@@ -37,6 +38,9 @@ let api: {
     list: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
   };
+  listOrphans: ReturnType<typeof vi.fn>;
+  adopt: ReturnType<typeof vi.fn>;
+  remove: ReturnType<typeof vi.fn>;
 };
 
 // createWidgetStore caches by instance id, so every test needs a fresh one.
@@ -78,6 +82,9 @@ beforeEach(() => {
       list: vi.fn(async () => []),
       remove: vi.fn(async () => undefined),
     },
+    listOrphans: vi.fn(async () => [] as MemoOrphanItem[]),
+    adopt: vi.fn(async () => loaded),
+    remove: vi.fn(async () => undefined),
   };
   window.electronAPI = { memos: api } as unknown as ElectronAPI;
 });
@@ -230,6 +237,146 @@ describe("snapshots", () => {
 
     store.getState().undo();
     expect(store.getState().body).toBe("original, then changed");
+  });
+});
+
+describe("the body cap", () => {
+  it("refuses an edit that crosses it and leaves the buffer where it was", async () => {
+    const store = await openStore();
+    store.getState().edit("keep");
+    await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS);
+    api.commitEdit.mockClear();
+
+    store.getState().edit("x".repeat(MAX_MEMO_BODY_CHARS + 1));
+    await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS);
+
+    // The point of refusing in the renderer: main would have rejected the write
+    // and every write after it, since each one carries the whole body.
+    expect(store.getState().body).toBe("keep");
+    expect(store.getState().error).toMatch(/full/i);
+    expect(api.commitEdit).not.toHaveBeenCalled();
+  });
+
+  it("still lets the memo shrink back under it", async () => {
+    const store = await openStore({ body: "x".repeat(MAX_MEMO_BODY_CHARS) });
+    store.getState().edit("x".repeat(MAX_MEMO_BODY_CHARS - 1));
+    expect(store.getState().body).toHaveLength(MAX_MEMO_BODY_CHARS - 1);
+  });
+});
+
+describe("flushing on the way out", () => {
+  it("resolves only once the pending write has landed", async () => {
+    const store = await openStore();
+    let land: (result: { updatedAt: string }) => void = () => {};
+    api.commitEdit.mockImplementation(
+      () =>
+        new Promise<{ updatedAt: string }>((resolve) => {
+          land = resolve;
+        })
+    );
+
+    store.getState().edit("last words");
+    let settled = false;
+    const flushed = store.getState().flush().then(() => {
+      settled = true;
+    });
+
+    // The debounce is skipped, but the promise waits for the write itself —
+    // main holds the quit open on exactly this.
+    expect(api.commitEdit).toHaveBeenCalledTimes(1);
+    expect(settled).toBe(false);
+
+    land({ updatedAt: SAVED_AT });
+    await flushed;
+    expect(settled).toBe(true);
+  });
+
+  it("does not let a late commit reply back-date the saved time", async () => {
+    const EARLIER = "2026-08-06T00:00:00.000Z";
+    const LATER = "2026-08-06T00:00:05.000Z";
+    const store = await openStore();
+    // The undo's commitEdit is stamped first in main but replies last.
+    api.commitEdit.mockImplementation(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(() => resolve({ updatedAt: EARLIER }), 50)
+        )
+    );
+    api.moveCursor.mockImplementation(async () => ({ updatedAt: LATER }));
+
+    store.getState().edit("draft");
+    store.getState().undo();
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(store.getState().updatedAt).toBe(LATER);
+  });
+});
+
+describe("recovering a memo whose widget is gone", () => {
+  it("takes over its body, history and snapshots", async () => {
+    const store = await openStore();
+    api.listOrphans.mockResolvedValue([
+      {
+        id: "gone",
+        preview: "recovered",
+        charCount: 9,
+        snapshotCount: 0,
+        updatedAt: SAVED_AT,
+      },
+    ]);
+    api.adopt.mockResolvedValue({
+      id: loaded.id,
+      body: "recovered",
+      cursor: 1,
+      edits: [{ seq: 1, start: 0, removed: "", inserted: "recovered" }],
+      snapshots: [],
+      updatedAt: SAVED_AT,
+    });
+
+    await store.getState().loadOrphans([loaded.id]);
+    expect(api.listOrphans).toHaveBeenCalledWith([loaded.id]);
+    await store.getState().adoptOrphan("gone");
+
+    expect(api.adopt).toHaveBeenCalledWith({
+      targetId: loaded.id,
+      sourceId: "gone",
+    });
+    expect(store.getState().body).toBe("recovered");
+    // The history came across, not just the text: reopening it is reopening it.
+    store.getState().undo();
+    expect(store.getState().body).toBe("");
+    // And it is no longer offered for recovery.
+    expect(store.getState().orphans).toHaveLength(0);
+  });
+
+  it("refuses to overwrite a memo that already has text", async () => {
+    const store = await openStore();
+    store.getState().edit("mine");
+
+    await store.getState().adoptOrphan("gone");
+
+    expect(api.adopt).not.toHaveBeenCalled();
+    expect(store.getState().body).toBe("mine");
+    expect(store.getState().error).toBeTruthy();
+  });
+
+  it("drops a discarded orphan from the list", async () => {
+    const store = await openStore();
+    api.listOrphans.mockResolvedValue([
+      {
+        id: "gone",
+        preview: "junk",
+        charCount: 4,
+        snapshotCount: 0,
+        updatedAt: SAVED_AT,
+      },
+    ]);
+
+    await store.getState().loadOrphans([]);
+    await store.getState().discardOrphan("gone");
+
+    expect(api.remove).toHaveBeenCalledWith("gone");
+    expect(store.getState().orphans).toHaveLength(0);
   });
 });
 

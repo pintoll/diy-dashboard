@@ -11,6 +11,7 @@ import {
   type History,
   type TextEdit,
 } from "@shared/text-history";
+import { MAX_MEMO_BODY_CHARS } from "@shared/memo";
 import { createWidgetStore } from "@/src/shared/lib/create-widget-store";
 
 // The live buffer and its undo history live here; memos.db is the durable
@@ -30,6 +31,8 @@ type MemoState = {
   body: string;
   history: History;
   snapshots: MemoSnapshotItem[];
+  // Memos whose widget is gone. Empty until the recovery panel asks for them.
+  orphans: MemoOrphanItem[];
   updatedAt: string | null;
   status: MemoStatus;
   error: string | null;
@@ -45,9 +48,14 @@ type MemoActions = {
   redo: () => void;
   // Closes the coalescing group and flushes the pending write (blur, unmount).
   endGroup: () => void;
+  // The same flush, awaitable: main waits on this before it lets a quit through.
+  flush: () => Promise<void>;
   saveSnapshot: () => Promise<void>;
   restoreSnapshot: (snapshotId: string) => void;
   removeSnapshot: (snapshotId: string) => Promise<void>;
+  loadOrphans: (liveIds: string[]) => Promise<void>;
+  adoptOrphan: (orphanId: string) => Promise<void>;
+  discardOrphan: (orphanId: string) => Promise<void>;
   caretApplied: () => void;
 };
 
@@ -67,6 +75,7 @@ export function useMemoStore(instanceId: string) {
       body: "",
       history: emptyHistory(),
       snapshots: [],
+      orphans: [],
       updatedAt: null,
       status: "loading",
       error: null,
@@ -77,9 +86,13 @@ export function useMemoStore(instanceId: string) {
       undo: () => {},
       redo: () => {},
       endGroup: () => {},
+      flush: async () => {},
       saveSnapshot: async () => {},
       restoreSnapshot: () => {},
       removeSnapshot: async () => {},
+      loadOrphans: async () => {},
+      adoptOrphan: async () => {},
+      discardOrphan: async () => {},
       caretApplied: () => {},
     };
 
@@ -96,18 +109,41 @@ export function useMemoStore(instanceId: string) {
         let writeTimer: ReturnType<typeof setTimeout> | null = null;
         let queued: { body: string; edit: TextEdit } | null = null;
 
-        const flushWrite = () => {
+        // An undo fires commitEdit and then moveCursor, and nothing makes the
+        // replies come back in that order. Only the newest write may report the
+        // time, or the label can drift backwards to the earlier stamp.
+        let writeToken = 0;
+        const reportSaved = (token: number, updatedAt: string) => {
+          if (token !== writeToken) return;
+          set({ updatedAt, error: null });
+        };
+
+        const flushWrite = (): Promise<void> => {
           if (writeTimer) {
             clearTimeout(writeTimer);
             writeTimer = null;
           }
           const pending = queued;
           queued = null;
-          if (!pending) return;
+          const api = memosApi();
+          if (!pending || !api) return Promise.resolve();
 
+          const token = ++writeToken;
+          return api
+            .commitEdit({ id: instanceId, body: pending.body, edit: pending.edit })
+            .then((result) => reportSaved(token, result.updatedAt))
+            .catch((error) =>
+              // Reported whatever its token: a failed write means this text is
+              // not on disk, and a newer one landing does not change that.
+              set({ error: message(error, "Failed to save the memo") })
+            );
+        };
+
+        const persistCursor = (body: string, cursor: number) => {
+          const token = ++writeToken;
           memosApi()
-            ?.commitEdit({ id: instanceId, body: pending.body, edit: pending.edit })
-            .then((result) => set({ updatedAt: result.updatedAt, error: null }))
+            ?.moveCursor({ id: instanceId, body, cursor })
+            .then((result) => reportSaved(token, result.updatedAt))
             .catch((error) =>
               set({ error: message(error, "Failed to save the memo") })
             );
@@ -145,6 +181,7 @@ export function useMemoStore(instanceId: string) {
                 updatedAt: state.updatedAt,
                 status: "ready",
                 error: null,
+                caret: null,
               });
             } catch (error) {
               set({
@@ -156,6 +193,15 @@ export function useMemoStore(instanceId: string) {
 
           edit: (next, options) => {
             const { body, history } = get();
+            // Refused here rather than left for main to reject: main rejecting
+            // it would leave the buffer holding text that no later write could
+            // save either, since every one of them carries the whole body.
+            if (next.length > MAX_MEMO_BODY_CHARS && next.length > body.length) {
+              set({
+                error: `Memo is full at ${MAX_MEMO_BODY_CHARS.toLocaleString()} characters — nothing was added`,
+              });
+              return;
+            }
             const splice = diffSplice(body, next);
             if (!splice) return;
 
@@ -179,38 +225,33 @@ export function useMemoStore(instanceId: string) {
             const step = undoHistory(get().history);
             if (!step) return;
             // The open step has to be on disk before the cursor moves off it.
-            flushWrite();
+            void flushWrite();
             groupOpen = false;
 
             const body = applySplice(get().body, step.splice);
             set({ body, history: step.history, caret: step.caret });
-            memosApi()
-              ?.moveCursor({ id: instanceId, body, cursor: step.history.cursor })
-              .then((result) => set({ updatedAt: result.updatedAt, error: null }))
-              .catch((error) =>
-                set({ error: message(error, "Failed to save the memo") })
-              );
+            persistCursor(body, step.history.cursor);
           },
 
           redo: () => {
             const step = redoHistory(get().history);
             if (!step) return;
-            flushWrite();
+            void flushWrite();
             groupOpen = false;
 
             const body = applySplice(get().body, step.splice);
             set({ body, history: step.history, caret: step.caret });
-            memosApi()
-              ?.moveCursor({ id: instanceId, body, cursor: step.history.cursor })
-              .then((result) => set({ updatedAt: result.updatedAt, error: null }))
-              .catch((error) =>
-                set({ error: message(error, "Failed to save the memo") })
-              );
+            persistCursor(body, step.history.cursor);
           },
 
           endGroup: () => {
             groupOpen = false;
-            flushWrite();
+            void flushWrite();
+          },
+
+          flush: () => {
+            groupOpen = false;
+            return flushWrite();
           },
 
           saveSnapshot: async () => {
@@ -218,7 +259,7 @@ export function useMemoStore(instanceId: string) {
             if (!api) return;
             // Snapshot and body should not disagree about what "now" was.
             groupOpen = false;
-            flushWrite();
+            void flushWrite();
             try {
               const snapshot = await api.snapshot.create(instanceId, get().body);
               set({ snapshots: [snapshot, ...get().snapshots], error: null });
@@ -246,6 +287,65 @@ export function useMemoStore(instanceId: string) {
               });
             } catch (error) {
               set({ error: message(error, "Failed to delete the snapshot") });
+            }
+          },
+
+          loadOrphans: async (liveIds) => {
+            const api = memosApi();
+            if (!api) return;
+            try {
+              set({ orphans: await api.listOrphans(liveIds), error: null });
+            } catch (error) {
+              set({ error: message(error, "Failed to look for lost memos") });
+            }
+          },
+
+          adoptOrphan: async (orphanId) => {
+            const api = memosApi();
+            if (!api) return;
+            // A keystroke still sitting in the debounce would make this memo
+            // non-empty on disk a moment after main checked that it was.
+            groupOpen = false;
+            await flushWrite();
+
+            const { body, history, snapshots } = get();
+            if (body !== "" || history.edits.length > 0 || snapshots.length > 0) {
+              set({
+                error: "Only an empty memo can take over a lost memo's text",
+              });
+              return;
+            }
+
+            try {
+              const state = await api.adopt({
+                targetId: instanceId,
+                sourceId: orphanId,
+              });
+              set({
+                body: state.body,
+                history: { edits: state.edits, cursor: state.cursor },
+                snapshots: state.snapshots,
+                orphans: get().orphans.filter((o) => o.id !== orphanId),
+                updatedAt: state.updatedAt,
+                error: null,
+                caret: state.body.length,
+              });
+            } catch (error) {
+              set({ error: message(error, "Failed to recover that memo") });
+            }
+          },
+
+          discardOrphan: async (orphanId) => {
+            const api = memosApi();
+            if (!api) return;
+            try {
+              await api.remove(orphanId);
+              set({
+                orphans: get().orphans.filter((o) => o.id !== orphanId),
+                error: null,
+              });
+            } catch (error) {
+              set({ error: message(error, "Failed to delete that memo") });
             }
           },
 

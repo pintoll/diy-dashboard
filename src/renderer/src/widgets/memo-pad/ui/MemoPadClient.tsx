@@ -4,9 +4,10 @@ import { canRedo, canUndo } from "@shared/text-history";
 import { Button } from "@/src/shared/ui/button";
 import { cn } from "@/src/shared/lib/utils";
 import { formatTimeAgo } from "@/src/shared/lib/format-time-ago";
+import { registerFlushOnQuit } from "@/src/shared/lib/flush-on-quit";
 import type { WidgetProps } from "@/src/shared/types";
 import { useMemoStore } from "../model/use-memo-store";
-import { SnapshotPanel } from "./SnapshotPanel";
+import { MemoPanel } from "./MemoPanel";
 
 export type MemoPadConfig = Record<string, never>;
 
@@ -23,13 +24,17 @@ const ISOLATED_INPUT_TYPES = new Set([
 // keystroke landed.
 const CLOCK_TICK_MS = 60_000;
 
-export function MemoPadClient({ instanceId }: WidgetProps<MemoPadConfig>) {
+export function MemoPadClient({
+  instanceId,
+  liveInstanceIds,
+}: WidgetProps<MemoPadConfig>) {
   const store = useMemoStore(instanceId);
   const state = store();
   const {
     body,
     history,
     snapshots,
+    orphans,
     updatedAt,
     status,
     error,
@@ -39,13 +44,21 @@ export function MemoPadClient({ instanceId }: WidgetProps<MemoPadConfig>) {
     undo,
     redo,
     endGroup,
+    flush,
     saveSnapshot,
     restoreSnapshot,
     removeSnapshot,
+    loadOrphans,
+    adoptOrphan,
+    discardOrphan,
     caretApplied,
   } = state;
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Where the caret belongs in the current buffer. The native-undo fallback in
+  // handleChange rewrites the DOM value, which drops the caret at the end unless
+  // it is put back.
+  const caretRef = useRef(0);
   const [panelOpen, setPanelOpen] = useState(false);
   const [, setTick] = useState(0);
 
@@ -55,6 +68,10 @@ export function MemoPadClient({ instanceId }: WidgetProps<MemoPadConfig>) {
 
   // Whatever is still being typed when the widget goes away has to reach disk.
   useEffect(() => endGroup, [endGroup]);
+
+  // Closing the window only hides it to the tray, so that unmount never happens
+  // on the way out of the app. Quitting asks for the same flush instead.
+  useEffect(() => registerFlushOnQuit(flush), [flush]);
 
   useEffect(() => {
     const timer = setInterval(() => setTick((n) => n + 1), CLOCK_TICK_MS);
@@ -84,6 +101,7 @@ export function MemoPadClient({ instanceId }: WidgetProps<MemoPadConfig>) {
   // would otherwise drop it at the end of the new value.
   useLayoutEffect(() => {
     if (caret === null) return;
+    caretRef.current = caret;
     const textarea = textareaRef.current;
     if (textarea) {
       textarea.focus();
@@ -103,12 +121,16 @@ export function MemoPadClient({ instanceId }: WidgetProps<MemoPadConfig>) {
   const undoAvailable = canUndo(history);
   const redoAvailable = canRedo(history);
 
+  // A memo the user has never typed into still has an `updatedAt` — the row is
+  // stamped when it is created on first sight — so "Saved just now" over an
+  // empty textarea is what a naive read of it would say. The buffer knows better.
+  const untouched = body === "" && history.edits.length === 0;
   const savedLabel =
     status === "loading"
       ? "Opening..."
-      : updatedAt
-        ? `Saved ${formatTimeAgo(updatedAt)}`
-        : "Empty";
+      : untouched || updatedAt === null
+        ? "Empty"
+        : `Saved ${formatTimeAgo(updatedAt)}`;
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!event.ctrlKey && !event.metaKey) return;
@@ -128,12 +150,25 @@ export function MemoPadClient({ instanceId }: WidgetProps<MemoPadConfig>) {
     if (inputType === "historyUndo" || inputType === "historyRedo") {
       // A native undo got through anyway (an uncancelled menu accelerator would
       // do it). The keydown handler has already run this widget's own undo, so
-      // the buffer is right and only the DOM needs putting back.
+      // the buffer is right and only the DOM needs putting back — caret
+      // included, since assigning `value` collapses the selection to the end.
       event.target.value = body;
+      const at = Math.min(caretRef.current, body.length);
+      event.target.setSelectionRange(at, at);
       return;
     }
+    caretRef.current = event.target.selectionStart;
     edit(event.target.value, {
       isolate: inputType !== undefined && ISOLATED_INPUT_TYPES.has(inputType),
+    });
+  };
+
+  const togglePanel = () => {
+    setPanelOpen((open) => {
+      // Which memos are orphaned depends on what is on the dashboard right now,
+      // so the list is asked for on open rather than held.
+      if (!open) void loadOrphans(liveInstanceIds);
+      return !open;
     });
   };
 
@@ -178,13 +213,22 @@ export function MemoPadClient({ instanceId }: WidgetProps<MemoPadConfig>) {
             // so "panel is open" does not just read as "cursor is here".
             panelOpen && "bg-muted text-foreground"
           )}
-          onClick={() => setPanelOpen((open) => !open)}
+          onClick={togglePanel}
+          title="Snapshots and lost memos"
         >
           <History />
           {snapshots.length}
         </Button>
 
-        <span className="ml-auto truncate text-[10px] text-muted-foreground">
+        {/* Narrow widget, so this truncates. `title` is what makes a long
+            message (a save failure) readable at all. */}
+        <span
+          className={cn(
+            "ml-auto truncate text-[10px]",
+            error === null ? "text-muted-foreground" : "text-destructive"
+          )}
+          title={error ?? undefined}
+        >
           {error ?? savedLabel}
         </span>
       </div>
@@ -205,13 +249,19 @@ export function MemoPadClient({ instanceId }: WidgetProps<MemoPadConfig>) {
         />
 
         {panelOpen && (
-          <SnapshotPanel
+          <MemoPanel
             snapshots={snapshots}
+            orphans={orphans}
+            canAdopt={untouched && snapshots.length === 0}
             onRestore={(snapshotId) => {
               restoreSnapshot(snapshotId);
               setPanelOpen(false);
             }}
             onDelete={(snapshotId) => void removeSnapshot(snapshotId)}
+            onAdopt={(orphanId) => {
+              void adoptOrphan(orphanId).then(() => setPanelOpen(false));
+            }}
+            onDiscard={(orphanId) => void discardOrphan(orphanId)}
             onClose={() => setPanelOpen(false)}
           />
         )}

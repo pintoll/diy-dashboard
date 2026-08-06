@@ -5,7 +5,11 @@
 //
 // `memos.id` is the memo-pad widget's instanceId. Removing the widget from the
 // dashboard does not delete the row — a scratch memory store should not lose
-// text to a mis-click on the widget menu.
+// text to a mis-click on the widget menu. That id lives only in the renderer's
+// localStorage, though, so a re-added widget is a different instanceId and a
+// blank memo: keeping the row is not enough on its own. `listOrphans` and
+// `adoptMemo` in crud.ts are the way back to it, and the only way; without them
+// the row survives but nothing can ever open it.
 //
 // `memo_edits` is the undo history as splices ("at `start`, `removed` became
 // `inserted`"), keyed by a per-memo `seq`. `memos.history_cursor` points at the
