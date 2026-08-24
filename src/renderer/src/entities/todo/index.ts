@@ -16,7 +16,6 @@ export {
 } from "./model/todo.types";
 
 export {
-  kstToday,
   addDays,
   weekOf,
   formatShortDate,

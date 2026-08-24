@@ -1,6 +1,6 @@
+import { today } from "@shared/day";
 import {
   dayOfMonth,
-  kstToday,
   useTodoStore,
   weekOf,
   weekdayShort,
@@ -11,7 +11,7 @@ export function WeekStrip() {
   const selectedDate = useTodoStore((s) => s.selectedDate);
   const weekTodos = useTodoStore((s) => s.weekTodos);
   const setDate = useTodoStore((s) => s.setDate);
-  const today = kstToday();
+  const currentDay = today();
 
   return (
     <div className="grid grid-cols-7 gap-1">
@@ -31,14 +31,14 @@ export function WeekStrip() {
               isSelected
                 ? "border-primary bg-primary/10"
                 : "border-transparent hover:bg-accent/50",
-              date === today && !isSelected && "border-border"
+              date === currentDay && !isSelected && "border-border"
             )}
           >
             <span className="text-muted-foreground">{weekdayShort(date)}</span>
             <span
               className={cn(
                 "text-sm font-medium",
-                date === today && "text-primary"
+                date === currentDay && "text-primary"
               )}
             >
               {dayOfMonth(date)}

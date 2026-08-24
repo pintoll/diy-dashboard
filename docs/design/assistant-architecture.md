@@ -4,7 +4,7 @@ Architecture decisions for the in-app assistant, fixed 2026-08-24. Companion to
 `assistant-behavior.md` (the behavior contract). Results only, deliberation
 omitted.
 
-Status: **designed, nothing implemented.**
+Status: **designed; phase 1 (the 05:00 day boundary) implemented.**
 
 ## Data layer
 
@@ -37,13 +37,29 @@ Status: **designed, nothing implemented.**
 ## Day boundary: 05:00 app-wide
 
 The contract's 05:00–05:00 day is adopted by the **whole app**, not just the
-assistant: `kstToday()` gains a 05:00 cutoff (times before 05:00 belong to the
-previous day). One definition of "today" everywhere; late-night work no longer
-flips the widget list, lands `completed_on` on the next day, or pushes open
-todos into Overdue at midnight. Affects: todo dates, completed_on stamping,
-backlog un-park target, Overdue query, analytics day drill-down. daily-news
-has its own kst helper and is unaffected. No data migration — only boundary
-behavior changes.
+assistant. One definition of "today" everywhere; late-night work no longer flips
+the widget list, lands `completed_on` on the next day, or pushes open todos into
+Overdue at midnight. No data migration — only boundary behavior changes.
+
+Implemented as `src/shared/day.ts` (`dayOf(now)` / `today()`), imported by both
+processes. The two hand-copied `kstToday()` helpers it replaces are gone: main
+and the renderer could otherwise drift apart on which day the app is on, the
+same duplication `@shared/pomodoro-time` exists to prevent. Reached: todo
+dates, `completed_on` stamping, backlog un-park target (crud and desk), the
+Overdue query, `todos:list` defaults, the agent API's date defaults, and every
+renderer "is this today" check.
+
+Two neighbours deliberately keep calendar days. daily-news has its own kst
+helper (news is published against calendar dates). finance's `currentYm` is
+month-grained, where a 04:00 timestamp on the 1st belongs to the new month.
+
+**Not** reached: pomodoro analytics. `entities/pomodoro-session/model/aggregations.ts`
+never used the KST helper — `toDateKey`, `startOfLocalDay`, `startOfIsoWeek`,
+and the hour buckets all read machine-local midnight — so the cutoff does not
+propagate there. Until that is redone, a todo finished at 02:00 stamps
+`completed_on` on the previous day while the same instant's pomodoro session
+lands on the next one in the heatmap and streak. Accepted interim state;
+scheduled before the day sheet puts the day model on screen (see below).
 
 ## Schema (todos.db)
 
@@ -156,6 +172,28 @@ day_folds (
   sketch).
 - The fold snapshot is essentially this block's end-of-day state — the widget
   is the visible face of the day record.
+
+## Implementation order
+
+1. **05:00 day boundary** — `@shared/day`, app-wide. *(done)*
+2. **Journal** — `reasons` + `ops` tables, written inside crud transactions.
+   Needs `todos.source` rebuilt to admit `'assistant'` (SQLite cannot ALTER a
+   CHECK), and `createTodo`/`deleteTodo` wrapped in transactions — today only
+   `updateTodo` has one.
+3. **`plan_entries` + `day_folds`** — the day record's plan and fold services.
+4. **Log view** — `ops` + `reasons` rendered to natural language at read time.
+5. **Analytics day boundary** — fold `aggregations.ts` onto the same day
+   definition (see above), before the day model becomes visible in step 6.
+6. **Day-sheet widget** — today's plan as one block, with the shallow edits.
+7. **Assistant shell** — second window, route, assistant-scoped key and base
+   URL, and the provider gate below.
+8. **Agent loop** — LangGraph, the three tools, injected context.
+9. **Rewind** — inverse replay of a session's ops.
+
+Steps 1–6 carry no model code: the day record, its journal, and the sheet that
+renders it are ordinary app features, usable on their own. The model arrives in
+step 7 on top of a journal that has already been exercised by hand, so a bad
+plan line is never ambiguous between a tool bug and a graph bug.
 
 ## Open at design time
 

@@ -1,14 +1,9 @@
 import { ValidationError } from "./types";
 
-// Todos standardize on Asia/Seoul (like daily-news) so main and renderer can
-// never disagree on "today" even if the machine timezone drifts. Own copy of
-// the KST helper: main and renderer are bundled separately.
-const KST_TIME_ZONE = "Asia/Seoul";
-
-/** Current date in Asia/Seoul as yyyy-MM-dd. */
-export function kstToday(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: KST_TIME_ZONE });
-}
+// "Today" lives in @shared/day now — one 05:00-boundary definition both
+// processes import, so main and the renderer cannot disagree about which day a
+// todo belongs to. What stays here is validation of the yyyy-MM-dd strings that
+// cross IPC and the agent HTTP API.
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 

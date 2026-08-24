@@ -1,7 +1,8 @@
 import type Database from "better-sqlite3";
 import { nanoid } from "nanoid";
+import { today } from "@shared/day";
 import { getTodosDb } from "./db";
-import { assertDate, kstToday } from "./date";
+import { assertDate } from "./date";
 import { emitTodosChanged } from "./events";
 import {
   NotFoundError,
@@ -143,7 +144,7 @@ export function createTodo(input: TodoCreateInput, source: TodoSource): Todo {
   const db = getTodosDb();
   const title = normalizeTitle(input.title);
   const note = normalizeNote(input.note);
-  const date = input.date !== undefined ? normalizeDate(input.date) : kstToday();
+  const date = input.date !== undefined ? normalizeDate(input.date) : today();
   const id = nanoid();
 
   db.prepare(
@@ -176,14 +177,14 @@ export function updateTodo(id: string, patch: TodoPatch): Todo {
     // completed_on tracks the day the todo was actually finished, independent
     // of its planned date; re-opening clears it.
     let completedOn = row.completed_on;
-    if (done && !wasDone) completedOn = kstToday();
+    if (done && !wasDone) completedOn = today();
     if (!done) completedOn = null;
 
     // Un-park: finishing a backlog todo means the work happened, and work
     // belongs to a day. An explicit date in the same patch wins, so a caller
     // can still park a completed todo deliberately.
     if (done && !wasDone && date === null && patch.date === undefined) {
-      date = kstToday();
+      date = today();
     }
 
     // A todo that changes bucket appends to the end of its destination. Keeping

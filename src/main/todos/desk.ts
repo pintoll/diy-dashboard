@@ -1,6 +1,6 @@
+import { today } from "@shared/day";
 import { nextSortOrder } from "./crud";
 import { getTodosDb } from "./db";
-import { kstToday } from "./date";
 import { emitTodosChanged } from "./events";
 import {
   NotFoundError,
@@ -47,13 +47,13 @@ export function addToDesk(id: string): Todo {
     // time, and time belongs to a day. Left dateless it would bank workedSec
     // while appearing in neither today's list, the today widget, nor `dyd`.
     if (row.date === null) {
-      const today = kstToday();
-      const next = nextSortOrder(db, today);
+      const day = today();
+      const next = nextSortOrder(db, day);
       db.prepare(
         `UPDATE todos SET date = ?, sort_order = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`
-      ).run(today, next, id);
-      row.date = today;
+      ).run(day, next, id);
+      row.date = day;
       row.sort_order = next;
       changed = true;
     }

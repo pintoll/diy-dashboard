@@ -1,13 +1,7 @@
-// Todos standardize on Asia/Seoul (like daily-news) so main and renderer can
-// never disagree on "today" even if the machine timezone drifts. Own copy of
-// the KST helper: main and renderer are bundled separately.
-const KST_TIME_ZONE = "Asia/Seoul";
-
-/** Current date in Asia/Seoul as yyyy-MM-dd. */
-export function kstToday(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: KST_TIME_ZONE });
-}
-
+// Calendar arithmetic and labels for todo dates. Which day the app is *on* is
+// deliberately not here: it lives in @shared/day, imported by both processes so
+// main and the renderer cannot disagree about it.
+//
 // All arithmetic below treats yyyy-MM-dd as a pure calendar date pinned to
 // UTC, so shifting days can never cross a DST or timezone boundary.
 function toUtc(date: string): Date {

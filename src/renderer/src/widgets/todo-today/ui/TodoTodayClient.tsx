@@ -1,8 +1,9 @@
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
+import { today } from "@shared/day";
 import { useFocusModeStore } from "@/src/entities/focus-mode";
-import { kstToday, useTodoStore } from "@/src/entities/todo";
+import { useTodoStore } from "@/src/entities/todo";
 import { AddTodoForm, SortableTodoList, TodoRow } from "@/src/features/manage-todo/client";
 import { cn } from "@/src/shared/lib/utils";
 
@@ -29,8 +30,8 @@ export function TodoTodayClient() {
   // and again when the day rolls over, so this widget is always "today".
   useEffect(() => {
     const syncToday = () => {
-      const today = kstToday();
-      if (useTodoStore.getState().selectedDate !== today) void setDate(today);
+      const day = today();
+      if (useTodoStore.getState().selectedDate !== day) void setDate(day);
     };
     syncToday();
     void useTodoStore.getState().ensureLoaded();

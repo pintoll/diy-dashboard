@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { addDays, kstToday, weekOf } from "./todo-date";
+import { today } from "@shared/day";
+import { addDays, weekOf } from "./todo-date";
 import {
   NO_BRIDGE_MESSAGE,
   todoErrorMessage,
@@ -39,7 +40,7 @@ async function fetchDay(api: TodosApi, date: string): Promise<DaySlice> {
     api.list({ from: week[0], to: week[6] }),
     // Overdue is always relative to today, not the browsed date: it is only
     // rendered on the today view.
-    api.overdue(kstToday()),
+    api.overdue(today()),
   ]);
   return { todos, weekTodos, overdue };
 }
@@ -57,7 +58,7 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
   weekTodos: [],
   overdue: [],
 
-  selectedDate: kstToday(),
+  selectedDate: today(),
   backlog: [],
   desk: [],
   status: "idle",

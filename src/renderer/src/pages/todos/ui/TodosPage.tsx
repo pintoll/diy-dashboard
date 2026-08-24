@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import { kstToday, useTodoStore } from "@/src/entities/todo";
+import { today } from "@shared/day";
+import { useTodoStore } from "@/src/entities/todo";
 import { Card, CardContent } from "@/src/shared/ui/card";
 import { BacklogSection } from "./BacklogSection";
 import { DateNav } from "./DateNav";
@@ -14,7 +15,7 @@ export function TodosPage() {
   const status = useTodoStore((s) => s.status);
   const error = useTodoStore((s) => s.error);
   const selectedDate = useTodoStore((s) => s.selectedDate);
-  const isToday = selectedDate === kstToday();
+  const isToday = selectedDate === today();
 
   useEffect(() => {
     void ensureLoaded();

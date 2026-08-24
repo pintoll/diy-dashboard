@@ -1,3 +1,4 @@
+import { today } from "@shared/day";
 import { getActiveTodo, setActiveTodo } from "../todos/active";
 import { addToDesk, clearDesk, getDesk, removeFromDesk } from "../todos/desk";
 import {
@@ -8,7 +9,6 @@ import {
   listTodos,
   updateTodo,
 } from "../todos/crud";
-import { kstToday } from "../todos/date";
 import { ValidationError } from "../todos/types";
 import type { TodoCreateInput, TodoPatch } from "../todos/types";
 import { readJsonBody, sendJson, type Route } from "./router";
@@ -35,7 +35,7 @@ export const todosRoutes: Route[] = [
       const filter =
         from !== null && to !== null
           ? { from, to }
-          : { date: date ?? kstToday() };
+          : { date: date ?? today() };
       sendJson(res, 200, { todos: listTodos(filter) });
     },
   },
@@ -43,7 +43,7 @@ export const todosRoutes: Route[] = [
     method: "GET",
     pattern: "/api/todos/overdue",
     handler: (_req, res) => {
-      sendJson(res, 200, { todos: listOverdue(kstToday()) });
+      sendJson(res, 200, { todos: listOverdue(today()) });
     },
   },
   // The backlog: todos with `"date": null`. They are excluded from every dated

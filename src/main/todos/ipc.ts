@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import { today } from "@shared/day";
 import { getActiveTodo, setActiveTodo } from "./active";
 import { addToDesk, clearDesk, getDesk, removeFromDesk } from "./desk";
 import {
@@ -11,7 +12,6 @@ import {
   reorderTodos,
   updateTodo,
 } from "./crud";
-import { kstToday } from "./date";
 import { recordWork } from "./sessions";
 import type {
   RecordWorkInput,
@@ -26,12 +26,12 @@ export function registerTodosIpc(): void {
     const resolved =
       filter && (filter.date !== undefined || filter.from !== undefined)
         ? filter
-        : { date: kstToday() };
+        : { date: today() };
     return listTodos(resolved);
   });
 
   ipcMain.handle("todos:overdue", (_event, before?: string): Todo[] =>
-    listOverdue(before ?? kstToday())
+    listOverdue(before ?? today())
   );
 
   // The backlog: todos with no planned day. Not reachable through todos:list,
