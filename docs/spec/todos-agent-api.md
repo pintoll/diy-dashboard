@@ -53,7 +53,7 @@ AUTH="Authorization: Bearer $TOKEN"
   "completedOn": null,            // the day it was FINISHED; independent of `date`
   "sortOrder": 0,                 // manual order within its date
   "workedSec": 1500,              // pomodoro time accrued onto this todo
-  "source": "agent",              // "user" | "agent"
+  "source": "agent",              // "user" | "agent" | "assistant"
   "createdAt": "2026-07-09 12:41:14",
   "updatedAt": "2026-07-09 12:41:14"
 }
@@ -216,6 +216,132 @@ first desk member (`{ "todo": {...} | null }`); `POST { "id" }` **collapses** th
 desk to just that todo, `POST { "id": null }` clears it. New clients use the desk
 routes above; these will be removed once no un-updated `dyd` install remains.
 
+## The day record
+
+Each day has a record (`docs/design/assistant-behavior.md`): a **plan** — todos
+penciled onto clock-time ranges — and, once the day is closed, a **fold**. (The
+third part, the log, is the ops journal; it has no HTTP surface yet.) Plans are
+pencil sketches: they are expected to break, and re-planning is the normal
+path, not a failure state.
+
+### The PlanEntry object
+
+```jsonc
+{
+  "id": "9IKAgHE_gOid6k6FE4rzn",     // nanoid
+  "day": "2026-08-24",               // the 05:00-bounded day it belongs to
+  "todoId": "IMK0rtfj133dfQtUFcxxg", // the todo this block schedules
+  "start": "10:00",                  // strict two-digit "HH:MM"
+  "end": "14:00"
+}
+```
+
+Times live on the 05:00 day: a time below `"05:00"` means the small hours of
+the **next** calendar day, still belonging to `day`. The rules:
+
+- An entry lies within one day: `end` strictly after `start` in lived order.
+  The midnight wrap is fine (`23:00`–`01:00`); crossing the boundary is not
+  (`04:00`–`06:00` → `400`); zero-length is not. As an `end` — and only as an
+  end — `"05:00"` means end-of-day, so `03:00`–`05:00` is valid.
+- **Overlaps are deliberately not validated**, and there is no sort field:
+  listing order is derived from `start`, 05:00 first, the small hours last.
+- An entry references a real todo at creation (unknown `todoId` → `404`).
+  Deleting a todo deletes its plan entries with it, journaled under the same
+  reason as the todo delete.
+
+### `GET /api/plan`
+
+```
+GET /api/plan                 → today (the app's day)
+GET /api/plan?date=2026-08-24 → one day
+→ 200 { "entries": [ ...PlanEntry ] }
+```
+
+### `POST /api/plan`
+
+```
+POST /api/plan
+{ "todoId": "abc123", "start": "10:00", "end": "14:00", "day": "2026-08-24" }
+→ 201 { "entry": {...} }
+```
+
+`day` omitted means today — planning tomorrow in the evening passes tomorrow
+explicitly (ask `GET /api/today` first, never your own clock). Accepts the same
+optional `"reason"` field as the todo writes; plan writes are journaled
+identically.
+
+### `PATCH /api/plan/:id`
+
+```
+PATCH /api/plan/abc123
+{ "start": "11:00", "end": "15:00" }
+→ 200 { "entry": {...} }
+```
+
+Retiming only — `start` and/or `end`. Re-pointing a block at another todo or
+moving it across days is a delete + create, which reads honestly in the log.
+Accepts `"reason"`.
+
+### `DELETE /api/plan/:id`
+
+```
+DELETE /api/plan/abc123
+→ 204
+```
+
+The optional reason travels as a query param, as with todo deletes:
+`?reason=cancelled%20late%20block`.
+
+### `GET /api/yesterday`
+
+```
+GET /api/yesterday
+→ 200 { "date": "2026-08-22" }   // or null
+```
+
+"Yesterday" in the assistant's sense: the last day **before today with
+records** (plan entries or journal ops) after the last folded day — not the
+calendar yesterday. Gap days skip for free; `null` means history is fully
+folded (or empty). Use it to find which day a morning fold should close.
+
+### `GET /api/days/:day`
+
+```
+GET /api/days/2026-08-24
+→ 200 { "day": "2026-08-24", "plan": [ ...PlanEntry ], "fold": {...} | null }
+```
+
+The whole day record in one read. `fold` is `null` until the day is folded.
+
+### `POST /api/days/:day/fold`
+
+```
+POST /api/days/2026-08-24/fold
+{ "remarks": "good first day" }
+→ 200 { "fold": { "day", "snapshot", "remarks", "foldedAt" } }
+```
+
+Folding closes a day: the **snapshot** — the final plan plus each involved
+todo's outcome (`{ id, title, done, completedOn, workedSec }`) — is computed
+app-side, deterministically; only `remarks` comes from the caller. Involved
+means planned into, dated on, completed on, or worked on that day. `workedSec`
+in the snapshot is the seconds accrued **on that day** (sessions starting
+within it), not the todo's lifetime rollup.
+
+Semantics worth internalizing:
+
+- **Re-folding is the normal path**, not an error: fold at night, then let the
+  next morning's conversation fold again — the snapshot is recomputed and
+  `foldedAt` restamped. A fold is a record, not a lock: later writes to the day
+  simply leave it stale until the next fold.
+- `remarks` follows patch semantics: omitted (or an empty body) **keeps** the
+  existing remarks, `null` clears them, a string replaces them. A blank string
+  is a `400` — pass `null` to clear.
+- Folding a future day is a `400`. Folding a day with no records at all (no
+  plan, no involved todos, no journal ops) is a `400` — empty days stay empty.
+- Folds take no `"reason"` and are not journaled; the snapshot is derived
+  state, and `remarks` is the natural-language payload.
+
 ## Pomodoro linkage
 
 While a pomodoro **work** phase runs, every todo on the desk accrues the elapsed
@@ -243,15 +369,17 @@ deciding that todo's time gets recorded.
 
 | Code | Meaning |
 |---|---|
-| `400` | Bad input — malformed date, empty title, non-JSON body, empty or non-string `reason` (`null` counts as absent), activating a completed todo |
+| `400` | Bad input — malformed date, empty title, non-JSON body, empty or non-string `reason` (`null` counts as absent), activating a completed todo, a plan time that is not strict "HH:MM", an entry whose end does not come after its start within the 05:00 day, folding a future or empty day, blank remarks |
 | `401` | Missing or invalid bearer token |
-| `404` | Unknown todo id, or unknown route |
+| `404` | Unknown todo or plan-entry id, or unknown route |
 | `405` | Route exists, wrong method |
 | `500` | Internal error (details are logged app-side, not returned) |
 
 ## Live UI updates
 
-Every write — from the app or from this API — broadcasts a `todos:changed` event to the renderer, which reloads after a short debounce (50 ms). An open dashboard picks up an agent's change without user interaction. Nothing extra to call.
+Every **todo** write — from the app or from this API — broadcasts a `todos:changed` event to the renderer, which reloads after a short debounce (50 ms). An open dashboard picks up an agent's change without user interaction. Nothing extra to call.
+
+Plan and fold writes do **not** broadcast yet: the renderer has no reader for them until the day-sheet widget lands (`docs/design/assistant-architecture.md`, step 6), which brings its change event with it.
 
 ## Example: plan tomorrow
 

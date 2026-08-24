@@ -18,7 +18,7 @@ import { readJsonBody, sendJson, type Route } from "./router";
 // HTTP <-> the same domain functions the IPC layer calls, so validation,
 // semantics, and todos:changed pushes are identical no matter who writes.
 
-function asObject(body: unknown, what: string): Record<string, unknown> {
+export function asObject(body: unknown, what: string): Record<string, unknown> {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     throw new ValidationError(`${what} must be a JSON object`);
   }
@@ -32,7 +32,9 @@ function asObject(body: unknown, what: string): Record<string, unknown> {
 // JSON `null` is treated as absent, not rejected: the DELETE query param has
 // no way to distinguish the two (URLSearchParams.get returns null), and some
 // client serializers emit null for omitted optionals (docs/spec/todos-agent-api.md).
-function agentReason(reason: unknown): ReasonInput | undefined {
+// Exported for every routes file that journals (day-routes.ts) — the
+// null-vs-blank semantics must not fork per surface.
+export function agentReason(reason: unknown): ReasonInput | undefined {
   if (reason === undefined || reason === null) return undefined;
   if (typeof reason !== "string" || reason.trim().length === 0) {
     throw new ValidationError("reason must be a non-empty string");

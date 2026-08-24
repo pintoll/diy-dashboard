@@ -7,6 +7,7 @@ import { getSettings, setSettings } from "../settings/store";
 import { NotFoundError, ValidationError } from "../todos/types";
 import { BodyError, matchRoute, sendError, type Route } from "./router";
 import { todosRoutes } from "./todos-routes";
+import { dayRoutes } from "./day-routes";
 import { pomodoroRoutes } from "./pomodoro-routes";
 import { connectorsRoutes } from "./connectors-routes";
 
@@ -116,7 +117,7 @@ export function startAgentApi(): void {
   if (server !== null) return;
   const token = ensureToken();
   const instance = buildServer(
-    [...todosRoutes, ...pomodoroRoutes, ...connectorsRoutes],
+    [...todosRoutes, ...dayRoutes, ...pomodoroRoutes, ...connectorsRoutes],
     token
   );
   server = instance;

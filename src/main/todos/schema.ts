@@ -22,13 +22,20 @@ import type Database from "better-sqlite3";
 // excludes it for free — NULL matches neither `= ?` nor `BETWEEN` nor `< ?` —
 // so a parked todo can never leak into a day list or into Overdue.
 //
-// `ops` is the append-only journal of intent-level todo (later also plan)
-// changes — full before/after row snapshots, written inside the same
-// transaction as the change (see journal.ts). `reasons` groups ops under one
-// natural-language intent line (docs/design/assistant-architecture.md).
-// `ops.entity_id` deliberately has no FK so history survives deletion, and
-// `seq` is AUTOINCREMENT so it stays monotonic even if rows are ever pruned —
-// rewind anchors must not be reusable.
+// `ops` is the append-only journal of intent-level todo and plan changes —
+// full before/after row snapshots, written inside the same transaction as the
+// change (see journal.ts). `reasons` groups ops under one natural-language
+// intent line (docs/design/assistant-architecture.md). `ops.entity_id`
+// deliberately has no FK so history survives deletion, and `seq` is
+// AUTOINCREMENT so it stays monotonic even if rows are ever pruned — rewind
+// anchors must not be reusable.
+//
+// `plan_entries` pencils todos onto clock-time ranges within one 05:00 day; a
+// time below "05:00" means the small hours of the next calendar day
+// (@shared/plan-time). `todo_id` deliberately has no FK: deleting a todo
+// sweeps its entries in the service layer (crud.ts deleteTodo) so each removal
+// lands in `ops` — a cascade would erase them silently. `day_folds` closes a
+// day: a snapshot computed by code plus conversational remarks (fold.ts).
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS todos (
   id           TEXT PRIMARY KEY,
@@ -83,6 +90,24 @@ CREATE INDEX IF NOT EXISTS idx_todo_sessions_session ON todo_sessions(session_id
 CREATE TABLE IF NOT EXISTS desk (
   todo_id   TEXT PRIMARY KEY REFERENCES todos(id) ON DELETE CASCADE,
   joined_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS plan_entries (
+  id      TEXT PRIMARY KEY,
+  day     TEXT NOT NULL,
+  todo_id TEXT NOT NULL,
+  start   TEXT NOT NULL,
+  end     TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_plan_entries_day  ON plan_entries(day);
+CREATE INDEX IF NOT EXISTS idx_plan_entries_todo ON plan_entries(todo_id);
+
+CREATE TABLE IF NOT EXISTS day_folds (
+  day       TEXT PRIMARY KEY,
+  snapshot  TEXT NOT NULL,
+  remarks   TEXT,
+  folded_at TEXT NOT NULL
 );
 `;
 

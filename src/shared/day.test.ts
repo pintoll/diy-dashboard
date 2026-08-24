@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DAY_START_HOUR, dayOf, today } from "./day";
+import { DAY_START_HOUR, dayOf, dayStartMs, today } from "./day";
 
 // This module is the single definition of "which day is it" for both processes,
 // so the 05:00-to-05:00 rule from docs/design/assistant-behavior.md is pinned
@@ -39,6 +39,21 @@ describe("dayOf", () => {
     const boundary = at("2026-08-23T20:00:00Z");
     expect(dayOf(boundary - 1)).toBe("2026-08-23");
     expect(dayOf(boundary - DAY_START_HOUR * 60 * 60 * 1000)).toBe("2026-08-23");
+  });
+});
+
+describe("dayStartMs", () => {
+  it("is the inverse of dayOf at the boundary", () => {
+    expect(dayStartMs("2026-08-24")).toBe(at("2026-08-23T20:00:00Z")); // 08-24 05:00 KST
+    expect(dayOf(dayStartMs("2026-08-24"))).toBe("2026-08-24");
+  });
+
+  it("puts the millisecond before the start on the previous day", () => {
+    expect(dayOf(dayStartMs("2026-08-24") - 1)).toBe("2026-08-23");
+  });
+
+  it("spans exactly 24 hours to the next day's start", () => {
+    expect(dayStartMs("2026-08-25") - dayStartMs("2026-08-24")).toBe(24 * 60 * 60 * 1000);
   });
 });
 

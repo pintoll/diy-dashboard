@@ -89,6 +89,77 @@ export type RecordWorkInput = {
   workedSec: number;
 };
 
+// --- The day record: plan entries + folds (docs/design/assistant-architecture.md) ---
+
+// `start`/`end` are "HH:MM" on the 05:00 day (@shared/plan-time): a time below
+// "05:00" means the small hours of the next calendar day.
+export type PlanEntryRow = {
+  id: string;
+  day: string;
+  todo_id: string;
+  start: string;
+  end: string;
+};
+
+export type PlanEntry = {
+  id: string;
+  day: string;
+  todoId: string;
+  start: string;
+  end: string;
+};
+
+// `day` omitted means today (mirrors TodoCreateInput). There is no null: a
+// plan entry is by definition penciled onto a day.
+export type PlanEntryCreateInput = {
+  todoId: string;
+  day?: string;
+  start: string;
+  end: string;
+};
+
+// Retiming is the only in-place edit. Re-pointing an entry at another todo or
+// moving it across days is delete+create — two ops that read honestly in the
+// rendered log.
+export type PlanEntryPatch = {
+  start?: string;
+  end?: string;
+};
+
+// The fold's frozen record of a day: the final plan plus each involved todo's
+// outcome. Computed deterministically by code (day-snapshot.ts); versioned so
+// later readers can still render old folds if the shape ever grows.
+export type DaySnapshot = {
+  v: 1;
+  day: string;
+  // The final plan, in lived order (planMinutes(start); insertion breaks ties).
+  entries: { todoId: string; start: string; end: string }[];
+  // One row per involved todo. `workedSec` is the seconds accrued on THIS day
+  // (todo_sessions intervals starting within it), not the lifetime rollup;
+  // `title` is denormalized so the snapshot outlives todo deletion.
+  todos: {
+    id: string;
+    title: string;
+    done: boolean;
+    completedOn: string | null;
+    workedSec: number;
+  }[];
+};
+
+export type DayFoldRow = {
+  day: string;
+  snapshot: string;
+  remarks: string | null;
+  folded_at: string;
+};
+
+export type DayFold = {
+  day: string;
+  snapshot: DaySnapshot;
+  remarks: string | null;
+  foldedAt: string;
+};
+
 export type TodosChangedReason =
   | "create"
   | "update"
@@ -120,5 +191,24 @@ export function rowToTodo(row: TodoRow): Todo {
     source: row.source,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+export function rowToPlanEntry(row: PlanEntryRow): PlanEntry {
+  return {
+    id: row.id,
+    day: row.day,
+    todoId: row.todo_id,
+    start: row.start,
+    end: row.end,
+  };
+}
+
+export function rowToDayFold(row: DayFoldRow): DayFold {
+  return {
+    day: row.day,
+    snapshot: JSON.parse(row.snapshot) as DaySnapshot,
+    remarks: row.remarks,
+    foldedAt: row.folded_at,
   };
 }

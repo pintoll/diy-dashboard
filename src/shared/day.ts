@@ -40,3 +40,13 @@ export function dayOf(now: number): string {
 export function today(): string {
   return dayOf(Date.now());
 }
+
+/**
+ * The instant (epoch ms) day `day` begins — 05:00 on its calendar date in
+ * Asia/Seoul. The inverse of dayOf, exact for the same reason: KST's offset is
+ * a constant +09:00. `day` must already be a valid yyyy-MM-dd string.
+ */
+export function dayStartMs(day: string): number {
+  const hour = String(DAY_START_HOUR).padStart(2, "0");
+  return Date.parse(`${day}T${hour}:00:00+09:00`);
+}

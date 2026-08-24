@@ -5,6 +5,7 @@ import { getTodosDb } from "./db";
 import { assertDate } from "./date";
 import { emitTodosChanged } from "./events";
 import { recordOp, resolveReasonId, rowChanged } from "./journal";
+import { removePlanEntriesForTodo } from "./plan";
 import {
   NotFoundError,
   ValidationError,
@@ -267,7 +268,11 @@ export function deleteTodo(id: string, ctx: WriteContext): void {
   const db = getTodosDb();
   db.transaction(() => {
     const row = getRow(id);
-    // todo_sessions and desk rows both cascade (ON DELETE CASCADE).
+    // Plan entries are swept by hand — and journaled — before the todo row
+    // goes: ops append in that order, so rewind's reverse replay recreates the
+    // todo before its entries. todo_sessions and desk rows cascade
+    // (ON DELETE CASCADE) instead; they are accrual and membership, not intent.
+    removePlanEntriesForTodo(db, id, ctx);
     db.prepare("DELETE FROM todos WHERE id = ?").run(id);
     recordOp(db, {
       entity: "todo",

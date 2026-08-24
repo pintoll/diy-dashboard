@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { nanoid } from "nanoid";
 import type { TodoSource, WriteContext } from "./types";
 
-// The ops journal: every intent-level todo (later also plan) change appends
+// The ops journal: every intent-level todo and plan change appends
 // one row with full before/after snapshots; a `reasons` row groups the ops of
 // one natural-language intent (docs/design/assistant-architecture.md). Like
 // schema.ts this file takes the connection as an argument and carries no
