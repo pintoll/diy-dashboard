@@ -161,34 +161,44 @@ urlenc() { # group names are free-form and may contain spaces
   printf '%s' "$1" | python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read(), safe=""))'
 }
 
+# app_today -> the app's current day (yyyy-MM-dd) on stdout. The app's day
+# runs 05:00->05:00 Asia/Seoul (src/shared/day.ts), so this machine's calendar
+# date is one day ahead of it between midnight and 05:00 — "today" is the
+# server's call, never computed locally. Callers run this in $(...), so an
+# error exits only the subshell; propagate with `|| exit`.
+app_today() {
+  api GET /api/today; api_ok_or_die
+  jget "$BODY" 'd["date"]'
+}
+
 # date_json <today|tomorrow|backlog|YYYY-MM-DD> -> the JSON value for a body's
-# "date" field. `backlog` is null on the wire, not a magic string; an unknown
-# spec is passed through verbatim so the API rejects it with a useful message.
+# "date" field. `backlog` is null on the wire, not a magic string; `today` and
+# `tomorrow` are the app's 05:00-bounded day (via app_today), not this
+# machine's; an unknown spec is passed through verbatim so the API rejects it
+# with a useful message. Same subshell caveat as app_today: `|| exit`.
 date_json() {
-  SPEC="$1" python3 -c '
+  local spec today
+  spec=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$spec" in
+    backlog)
+      printf 'null\n' ;;
+    today|tomorrow)
+      today=$(app_today) || exit
+      SPEC="$spec" TODAY="$today" python3 -c '
 import json, os
-from datetime import datetime, timedelta
-def kst_now():
-    try:
-        from zoneinfo import ZoneInfo
-        return datetime.now(ZoneInfo("Asia/Seoul"))
-    except Exception:
-        return datetime.now()
-spec = os.environ["SPEC"].strip().lower()
-if spec == "backlog":
-    print("null")
-elif spec == "tomorrow":
-    print(json.dumps(str((kst_now() + timedelta(days=1)).date())))
-elif spec == "today":
-    print(json.dumps(str(kst_now().date())))
-else:
-    print(json.dumps(os.environ["SPEC"]))'
+from datetime import date, timedelta
+d = date.fromisoformat(os.environ["TODAY"])
+if os.environ["SPEC"] == "tomorrow":
+    d += timedelta(days=1)
+print(json.dumps(str(d)))' ;;
+    *)
+      SPEC="$1" python3 -c 'import json, os; print(json.dumps(os.environ["SPEC"]))' ;;
+  esac
 }
 
 # --- formatter (all human output) -----------------------------------------
 FORMATTER=$(cat <<'PY'
 import json, sys
-from datetime import datetime, timedelta
 
 def load(s):
     s = (s or "").strip()
@@ -229,13 +239,6 @@ def compact(s):
     st = status_word(s)
     sym = {"running": "▶", "paused": "⏸", "idle": "■"}.get(st, "■")
     return f"{sym} {ph} {mmss(s['remainingSec'])} {st}"
-
-def kst_today():
-    try:
-        from zoneinfo import ZoneInfo
-        return datetime.now(ZoneInfo("Asia/Seoul")).date()
-    except Exception:
-        return datetime.now().date()
 
 # Connector definitions name a credential; they never carry the secret, so there
 # is nothing to redact here.
@@ -285,13 +288,15 @@ def today_block(todos, active_ids, date):
 
 mode = sys.argv[1]
 
+# The "today" printed in headers is the app's day (GET /api/today, 05:00
+# boundary), passed in by the caller — this formatter never reads a clock.
 if mode == "overview":
     p = load(sys.argv[2]); todos = load(sys.argv[3]); overdue = load(sys.argv[4]); desk = load(sys.argv[5])
-    backlog = load(sys.argv[6])
+    backlog = load(sys.argv[6]); app_day = sys.argv[7]
     ids = desk_ids(desk)
     print(pomo_line(p))
     tlist = (todos or {}).get("todos", [])
-    today_block(tlist, ids, str(kst_today()))
+    today_block(tlist, ids, app_day)
     n = len((overdue or {}).get("todos", []))
     if n:
         print(f"── overdue: {n} (dyd todo overdue)")
@@ -301,7 +306,7 @@ if mode == "overview":
 
 elif mode == "todo":
     todos = load(sys.argv[2]); desk = load(sys.argv[3])
-    today_block((todos or {}).get("todos", []), desk_ids(desk), str(kst_today()))
+    today_block((todos or {}).get("todos", []), desk_ids(desk), sys.argv[4])
 
 elif mode == "overdue":
     overdue = load(sys.argv[2])
@@ -496,19 +501,23 @@ resolve_conn
 
 # --- commands --------------------------------------------------------------
 cmd_overview() {
-  # Five independent reads for one screen: issued concurrently, since serially
-  # they are five round trips of latency before anything prints.
-  api_get_all /api/pomodoro /api/todos /api/todos/overdue /api/desk /api/todos/backlog
+  # Six independent reads for one screen: issued concurrently, since serially
+  # they are six round trips of latency before anything prints. /api/today is
+  # among them because the header's date is the app's 05:00-bounded day, not
+  # this machine's calendar date.
+  api_get_all /api/pomodoro /api/todos /api/todos/overdue /api/desk /api/todos/backlog /api/today
   # The pomodoro read is the one allowed to fail (no session yet): a non-2xx
   # there prints an idle timer rather than killing the whole overview.
   local pomo_body=""
   [ "${PAR_STATUS[0]:0:1}" = "2" ] && pomo_body="${PAR_BODY[0]}"
   local i
-  for i in 1 2 3 4; do
+  for i in 1 2 3 4 5; do
     HTTP_STATUS="${PAR_STATUS[$i]}"; BODY="${PAR_BODY[$i]}"; api_ok_or_die
   done
   local todos_body="${PAR_BODY[1]}" overdue_body="${PAR_BODY[2]}"
   local desk_body="${PAR_BODY[3]}" backlog_body="${PAR_BODY[4]}"
+  local app_day
+  app_day=$(jget "${PAR_BODY[5]}" 'd["date"]')
   if [ "$JSON_OUT" = 1 ]; then
     python3 -c '
 import json, sys
@@ -520,10 +529,11 @@ print(json.dumps({
   "overdue": load(sys.argv[3]),
   "desk": load(sys.argv[4]),
   "backlog": load(sys.argv[5]),
-}))' "$pomo_body" "$todos_body" "$overdue_body" "$desk_body" "$backlog_body"
+  "today": load(sys.argv[6]),
+}))' "$pomo_body" "$todos_body" "$overdue_body" "$desk_body" "$backlog_body" "${PAR_BODY[5]}"
     return
   fi
-  fmt overview "$pomo_body" "$todos_body" "$overdue_body" "$desk_body" "$backlog_body"
+  fmt overview "$pomo_body" "$todos_body" "$overdue_body" "$desk_body" "$backlog_body" "$app_day"
 }
 
 cmd_pomo() {
@@ -563,11 +573,17 @@ cmd_pomo() {
 
 cmd_todo() {
   if [ $# -eq 0 ]; then
-    api GET /api/todos
-    if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
-    api_ok_or_die; local todos_body="$BODY"
-    api GET /api/desk; api_ok_or_die
-    fmt todo "$todos_body" "$BODY"
+    if [ "$JSON_OUT" = 1 ]; then
+      api GET /api/todos
+      printf '%s\n' "$BODY"; api_ok_or_die; return
+    fi
+    # /api/today rides along for the header date (the app's 05:00-bounded day).
+    api_get_all /api/todos /api/desk /api/today
+    local i
+    for i in 0 1 2; do
+      HTTP_STATUS="${PAR_STATUS[$i]}"; BODY="${PAR_BODY[$i]}"; api_ok_or_die
+    done
+    fmt todo "${PAR_BODY[0]}" "${PAR_BODY[1]}" "$(jget "${PAR_BODY[2]}" 'd["date"]')"
     return
   fi
   local sub="$1"; shift
@@ -594,7 +610,9 @@ cmd_todo() {
       # No -d at all leaves "date" out of the body entirely, which the API reads
       # as today. That is not the same as -d backlog, which sends null.
       local datejson=""
-      [ -n "$date" ] && datejson=$(date_json "$date")
+      if [ -n "$date" ]; then
+        datejson=$(date_json "$date") || exit
+      fi
       local body
       body=$(TITLE="$title" DATEJSON="$datejson" NOTE="$note" python3 -c '
 import json, os
@@ -621,7 +639,9 @@ print(json.dumps(out))')
       # Re-plan a todo: onto a day, or into the backlog (no day at all).
       [ $# -eq 2 ] || die_usage
       resolve_id "$1" || exit 1
-      api PATCH "/api/todos/$RESOLVED_ID" "$(printf '{"date":%s}' "$(date_json "$2")")"
+      local datejson
+      datejson=$(date_json "$2") || exit
+      api PATCH "/api/todos/$RESOLVED_ID" "$(printf '{"date":%s}' "$datejson")"
       if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
       api_ok_or_die; fmt moved "$BODY" ;;
     done)

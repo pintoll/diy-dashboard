@@ -25,6 +25,18 @@ function asObject(body: unknown, what: string): Record<string, unknown> {
 }
 
 export const todosRoutes: Route[] = [
+  // The app's day (05:00 to 05:00 Asia/Seoul, src/shared/day.ts). Clients must
+  // ask for it rather than read their own clock: between midnight and 05:00
+  // the calendar date is one day ahead of the day every other route means by
+  // "today", and a client-side copy of the boundary is exactly the drift the
+  // shared module exists to prevent.
+  {
+    method: "GET",
+    pattern: "/api/today",
+    handler: (_req, res) => {
+      sendJson(res, 200, { date: today() });
+    },
+  },
   {
     method: "GET",
     pattern: "/api/todos",

@@ -174,17 +174,21 @@ export function updateTodo(id: string, patch: TodoPatch): Todo {
 
     const wasDone = row.done === 1;
     const done = patch.done ?? wasDone;
+    // One clock read for the whole patch: completed_on and the un-park date
+    // below describe the same completion event, so they must name the same day
+    // even when the call straddles the 05:00 boundary.
+    const day = today();
     // completed_on tracks the day the todo was actually finished, independent
     // of its planned date; re-opening clears it.
     let completedOn = row.completed_on;
-    if (done && !wasDone) completedOn = today();
+    if (done && !wasDone) completedOn = day;
     if (!done) completedOn = null;
 
     // Un-park: finishing a backlog todo means the work happened, and work
     // belongs to a day. An explicit date in the same patch wins, so a caller
     // can still park a completed todo deliberately.
     if (done && !wasDone && date === null && patch.date === undefined) {
-      date = today();
+      date = day;
     }
 
     // A todo that changes bucket appends to the end of its destination. Keeping

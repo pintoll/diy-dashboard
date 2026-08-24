@@ -1,4 +1,3 @@
-import { today } from "@shared/day";
 import {
   dayOfMonth,
   useTodoStore,
@@ -11,7 +10,7 @@ export function WeekStrip() {
   const selectedDate = useTodoStore((s) => s.selectedDate);
   const weekTodos = useTodoStore((s) => s.weekTodos);
   const setDate = useTodoStore((s) => s.setDate);
-  const currentDay = today();
+  const currentDay = useTodoStore((s) => s.currentDay);
 
   return (
     <div className="grid grid-cols-7 gap-1">

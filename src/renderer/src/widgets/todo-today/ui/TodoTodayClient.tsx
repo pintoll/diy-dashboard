@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
-import { today } from "@shared/day";
 import { useFocusModeStore } from "@/src/entities/focus-mode";
 import { useTodoStore } from "@/src/entities/todo";
 import { AddTodoForm, SortableTodoList, TodoRow } from "@/src/features/manage-todo/client";
@@ -21,23 +20,21 @@ export function TodoTodayClient() {
   const todos = useTodoStore((s) => s.todos);
   const overdue = useTodoStore((s) => s.overdue);
   const selectedDate = useTodoStore((s) => s.selectedDate);
+  const currentDay = useTodoStore((s) => s.currentDay);
   const desk = useTodoStore((s) => s.desk);
   const setDate = useTodoStore((s) => s.setDate);
   const sessionActive = useFocusModeStore((s) => s.sessionActive);
 
   // The store's selectedDate is shared with the /todos page (routes are
   // exclusive, so the two never render at once). Snap back to today on mount
-  // and again when the day rolls over, so this widget is always "today".
+  // and again when the store's day rolls over, so this widget is always
+  // "today". The rollover clock itself lives in the store, not here.
   useEffect(() => {
-    const syncToday = () => {
-      const day = today();
-      if (useTodoStore.getState().selectedDate !== day) void setDate(day);
-    };
-    syncToday();
+    if (useTodoStore.getState().selectedDate !== currentDay) {
+      void setDate(currentDay);
+    }
     void useTodoStore.getState().ensureLoaded();
-    const timer = setInterval(syncToday, 60_000);
-    return () => clearInterval(timer);
-  }, [setDate]);
+  }, [currentDay, setDate]);
 
   if (status === "error") {
     return (

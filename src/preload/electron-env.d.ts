@@ -351,9 +351,11 @@ interface FinanceAPI {
   };
 }
 
-// Date-based todos. `date` is the planned day (yyyy-MM-dd, Asia/Seoul) and is
-// never mutated by overdue carry-over; `completedOn` is the day it was
-// actually finished. `workedSec` is pomodoro time accrued via recordWork.
+// Date-based todos. `date` is the planned day (yyyy-MM-dd; a day runs 05:00
+// to 05:00 Asia/Seoul — src/shared/day.ts, never a locally derived calendar
+// date) and is never mutated by overdue carry-over; `completedOn` is the day
+// it was actually finished. `workedSec` is pomodoro time accrued via
+// recordWork.
 //
 // `date: null` means the todo is in the backlog — wanted, but with no planned
 // day (docs/design/todo-backlog.md). Backlog todos appear in no date query,

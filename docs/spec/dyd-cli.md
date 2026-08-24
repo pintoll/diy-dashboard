@@ -21,7 +21,7 @@ In order:
 
 Read `port` + `token` per request (cheap, and survives app restarts that change the port). JSON bodies are built with `python3` (correct escaping of titles/notes) and passed inline via `-d`; never via temp files (`curl.exe` cannot read WSL paths).
 
-A view built from several independent reads issues them **concurrently** (`api_get_all`), so its latency is one round trip rather than N — the overview needs five. Responses land in a scratch directory, which does not violate the rule above: the redirect is bash's, so `curl.exe` is never handed a WSL path. Each caller still validates every response itself, because tolerance differs per endpoint (a failed `/api/pomodoro` prints an unavailable line; a failed todo read is fatal).
+A view built from several independent reads issues them **concurrently** (`api_get_all`), so its latency is one round trip rather than N — the overview needs six. Responses land in a scratch directory, which does not violate the rule above: the redirect is bash's, so `curl.exe` is never handed a WSL path. Each caller still validates every response itself, because tolerance differs per endpoint (a failed `/api/pomodoro` prints an unavailable line; a failed todo read is fatal).
 
 No discovery file, or connection refused → print `diy-dashboard is not running` and exit `2`. No daemon to wait for; do not retry.
 
@@ -36,6 +36,16 @@ No discovery file, or connection refused → print `diy-dashboard is not running
 ## Global flags
 
 - `--json` — print the raw API response body instead of formatted output (read commands and command responses alike). For scripting and the future tmux status-line integration.
+
+## "Today" is the server's call
+
+The app's day runs **05:00 → 05:00 Asia/Seoul** (`src/shared/day.ts`), so
+between midnight and 05:00 the machine's calendar date is one day ahead of the
+day every API route means by "today". The CLI therefore never computes a date
+from its own clock: `today`/`tomorrow` date specs and the `── today` header
+all come from `GET /api/today` (`{ "date": "YYYY-MM-DD" }`). Re-deriving the
+boundary client-side would be a second copy of the rule — the drift the shared
+module exists to prevent.
 
 ## Commands
 
@@ -108,7 +118,7 @@ Positions are printed as `b<n>` so they cannot be confused with today's:
 
 ### `dyd todo add "<title>" [-d <date>] [-n <note>]`
 
-`POST /api/todos`. `-d` accepts `YYYY-MM-DD`, `today`, `tomorrow`, or `backlog`; default today. Prints the created todo with its list index. `-d backlog` sends `"date": null` and prints a `b<n>` index.
+`POST /api/todos`. `-d` accepts `YYYY-MM-DD`, `today`, `tomorrow`, or `backlog`; `today`/`tomorrow` resolve against `GET /api/today` (the app's 05:00-bounded day, see above). No `-d` omits `date` from the body, which the API itself reads as today. Prints the created todo with its list index. `-d backlog` sends `"date": null` and prints a `b<n>` index.
 
 ### `dyd todo done <n|id>`
 
@@ -117,7 +127,8 @@ Positions are printed as `b<n>` so they cannot be confused with today's:
 ### `dyd todo move <n|id|b<n>> <target>`
 
 `PATCH /api/todos/:id { date }`. One verb for every re-plan: `backlog` parks the
-todo (sends `null`), `today` / `tomorrow` / `YYYY-MM-DD` place it on a day.
+todo (sends `null`), `today` / `tomorrow` / `YYYY-MM-DD` place it on a day
+(`today`/`tomorrow` via `GET /api/today`, as in `add`).
 
 ```
 dyd todo move 2 backlog        # today's #2 → the backlog

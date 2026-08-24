@@ -46,7 +46,7 @@ AUTH="Authorization: Bearer $TOKEN"
 ```jsonc
 {
   "id": "wpHNyyWea7kRuNwVm_xCv",  // nanoid
-  "date": "2026-07-09",           // the day it is PLANNED for (Asia/Seoul); null = backlog
+  "date": "2026-07-09",           // the day it is PLANNED for; null = backlog
   "title": "Design the API",
   "note": null,
   "done": false,
@@ -58,6 +58,11 @@ AUTH="Authorization: Bearer $TOKEN"
   "updatedAt": "2026-07-09 12:41:14"
 }
 ```
+
+Days are `YYYY-MM-DD`, and a day runs **05:00 → 05:00 Asia/Seoul**
+(`src/shared/day.ts`) — between midnight and 05:00 the calendar date is one day
+ahead of the day this API means by "today". Never compute "today" from your own
+clock; ask `GET /api/today`, or just omit `date` where the route defaults to it.
 
 Three rules worth internalizing:
 
@@ -83,10 +88,21 @@ GET /api/health
 
 Use it to check the app is up before anything else.
 
+### `GET /api/today`
+
+```
+GET /api/today
+→ 200 { "date": "2026-07-09" }
+```
+
+The app's current day (05:00-bounded, see above). The source of truth for any
+client that needs to name "today" or "tomorrow" explicitly — e.g. `dyd todo
+move <n> tomorrow`.
+
 ### `GET /api/todos`
 
 ```
-GET /api/todos                                → today (Asia/Seoul)
+GET /api/todos                                → today (the app's day)
 GET /api/todos?date=2026-07-09                → one day
 GET /api/todos?from=2026-07-06&to=2026-07-12  → inclusive range
 → 200 { "todos": [ ...Todo ] }
