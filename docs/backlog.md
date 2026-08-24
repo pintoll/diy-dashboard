@@ -52,6 +52,20 @@ High-level direction and headline tasks per widget. Concrete work notes live und
 
 ---
 
+## In-App Assistant
+
+**Direction**: a thought-organizing secretary living inside the app. Behavior
+contract is fixed in [`design/assistant-behavior.md`](design/assistant-behavior.md);
+architecture and implementation not started.
+
+- Day-record layer (plan / log / result) + disposable planning sessions: phase 1, next up
+- PARA layer: AI-managed PARA docs above the day layer, linked to todos via
+  project tags (split todos inherit tags). Only after the day layer ships.
+- Widget access expansion: widen the assistant's reach beyond todos/pomodoro
+  widget by widget, keeping widgets isolated from each other.
+
+---
+
 ## Cross-cutting
 
 Not on deck. Promote to a real task when needed.
