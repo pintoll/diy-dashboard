@@ -599,12 +599,12 @@ cmd_todo() {
     add)
       [ $# -ge 1 ] || die_usage
       local title="$1"; shift
-      local date="" note="" reason=""
+      local date="" note="" reason="" reason_set=0
       while [ $# -gt 0 ]; do
         case "$1" in
           -d) date="${2:-}"; shift 2 || die_usage ;;
           -n) note="${2:-}"; shift 2 || die_usage ;;
-          --reason) reason="${2:-}"; shift 2 || die_usage ;;
+          --reason) reason="${2:-}"; reason_set=1; shift 2 || die_usage ;;
           *) die_usage ;;
         esac
       done
@@ -615,14 +615,16 @@ cmd_todo() {
         datejson=$(date_json "$date") || exit
       fi
       local body
-      body=$(TITLE="$title" DATEJSON="$datejson" NOTE="$note" REASON="$reason" python3 -c '
+      body=$(TITLE="$title" DATEJSON="$datejson" NOTE="$note" REASON="$reason" REASON_SET="$reason_set" python3 -c '
 import json, os
 out = {"title": os.environ["TITLE"]}
 if os.environ["DATEJSON"]:
     out["date"] = json.loads(os.environ["DATEJSON"])
 if os.environ["NOTE"]:
     out["note"] = os.environ["NOTE"]
-if os.environ["REASON"]:
+# Key presence follows the flag, not truthiness: an empty --reason must reach
+# the API (which 400s) rather than silently become an unjournaled write.
+if os.environ["REASON_SET"] == "1":
     out["reason"] = os.environ["REASON"]
 print(json.dumps(out))')
       api POST /api/todos "$body"
@@ -642,10 +644,10 @@ print(json.dumps(out))')
       # Re-plan a todo: onto a day, or into the backlog (no day at all).
       [ $# -ge 2 ] || die_usage
       local ref="$1" target="$2"; shift 2
-      local reason=""
+      local reason="" reason_set=0
       while [ $# -gt 0 ]; do
         case "$1" in
-          --reason) reason="${2:-}"; shift 2 || die_usage ;;
+          --reason) reason="${2:-}"; reason_set=1; shift 2 || die_usage ;;
           *) die_usage ;;
         esac
       done
@@ -653,10 +655,10 @@ print(json.dumps(out))')
       local datejson
       datejson=$(date_json "$target") || exit
       local body
-      body=$(DATEJSON="$datejson" REASON="$reason" python3 -c '
+      body=$(DATEJSON="$datejson" REASON="$reason" REASON_SET="$reason_set" python3 -c '
 import json, os
 out = {"date": json.loads(os.environ["DATEJSON"])}
-if os.environ["REASON"]:
+if os.environ["REASON_SET"] == "1":
     out["reason"] = os.environ["REASON"]
 print(json.dumps(out))')
       api PATCH "/api/todos/$RESOLVED_ID" "$body"
@@ -665,19 +667,19 @@ print(json.dumps(out))')
     done)
       [ $# -ge 1 ] || die_usage
       local ref="$1"; shift
-      local reason=""
+      local reason="" reason_set=0
       while [ $# -gt 0 ]; do
         case "$1" in
-          --reason) reason="${2:-}"; shift 2 || die_usage ;;
+          --reason) reason="${2:-}"; reason_set=1; shift 2 || die_usage ;;
           *) die_usage ;;
         esac
       done
       resolve_id "$ref" || exit 1
       local body
-      body=$(REASON="$reason" python3 -c '
+      body=$(REASON="$reason" REASON_SET="$reason_set" python3 -c '
 import json, os
 out = {"done": True}
-if os.environ["REASON"]:
+if os.environ["REASON_SET"] == "1":
     out["reason"] = os.environ["REASON"]
 print(json.dumps(out))')
       api PATCH "/api/todos/$RESOLVED_ID" "$body"

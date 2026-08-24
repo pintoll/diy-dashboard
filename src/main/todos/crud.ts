@@ -4,7 +4,7 @@ import { today } from "@shared/day";
 import { getTodosDb } from "./db";
 import { assertDate } from "./date";
 import { emitTodosChanged } from "./events";
-import { recordOp, rowChanged } from "./journal";
+import { recordOp, resolveReasonId, rowChanged } from "./journal";
 import {
   NotFoundError,
   ValidationError,
@@ -164,7 +164,7 @@ export function createTodo(input: TodoCreateInput, ctx: WriteContext): Todo {
       before: null,
       after: created,
       source: ctx.source,
-      reasonId: ctx.reasonId,
+      reasonId: resolveReasonId(db, ctx),
     });
     return created;
   })();
@@ -173,7 +173,15 @@ export function createTodo(input: TodoCreateInput, ctx: WriteContext): Todo {
   return rowToTodo(row);
 }
 
-export function updateTodo(id: string, patch: TodoPatch, ctx: WriteContext): Todo {
+// `emit: false` is for internal callers that fold this update into a larger
+// operation with its own single todos:changed event (desk.ts un-park); every
+// external entry point emits.
+export function updateTodo(
+  id: string,
+  patch: TodoPatch,
+  ctx: WriteContext,
+  opts: { emit?: boolean } = {}
+): Todo {
   const db = getTodosDb();
 
   const updated = db.transaction((): TodoRow => {
@@ -245,13 +253,13 @@ export function updateTodo(id: string, patch: TodoPatch, ctx: WriteContext): Tod
         before: row,
         after,
         source: ctx.source,
-        reasonId: ctx.reasonId,
+        reasonId: resolveReasonId(db, ctx),
       });
     }
     return after;
   })();
 
-  emitTodosChanged({ reason: "update", id });
+  if (opts.emit !== false) emitTodosChanged({ reason: "update", id });
   return rowToTodo(updated);
 }
 
@@ -268,7 +276,7 @@ export function deleteTodo(id: string, ctx: WriteContext): void {
       before: row,
       after: null,
       source: ctx.source,
-      reasonId: ctx.reasonId,
+      reasonId: resolveReasonId(db, ctx),
     });
   })();
   emitTodosChanged({ reason: "delete", id });

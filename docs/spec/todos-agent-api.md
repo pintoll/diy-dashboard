@@ -138,7 +138,7 @@ POST /api/todos
 
 Omitting `date` means today; `"date": null` puts the todo straight into the backlog. The two are deliberately different, so a caller that simply does not care about the day still gets today. `source` is forced to `"agent"` — you cannot impersonate a user-created todo.
 
-An optional `"reason"` field (one natural-language line, non-empty) records *why* this write happened. It is journal metadata, not part of the todo: it is stripped before the write, stored atomically with it, and later surfaces in the in-app assistant's log (`docs/design/assistant-architecture.md`). An empty or non-string `reason` is a `400`.
+An optional `"reason"` field (one natural-language line, non-empty) records *why* this write happened. It is journal metadata, not part of the todo: it is stripped before the write, stored atomically with it, and later surfaces in the in-app assistant's log (`docs/design/assistant-architecture.md`). A JSON `null` counts as absent, not as an error — some serializers emit `null` for omitted optionals, and the DELETE query-param form cannot distinguish the two; any other empty or non-string `reason` is a `400`. A reason attached to a write that ends up changing nothing (say, re-completing an already-done todo) is not journaled: no op row, no reason row.
 
 ### `PATCH /api/todos/:id`
 
@@ -243,7 +243,7 @@ deciding that todo's time gets recorded.
 
 | Code | Meaning |
 |---|---|
-| `400` | Bad input — malformed date, empty title, non-JSON body, empty or non-string `reason`, activating a completed todo |
+| `400` | Bad input — malformed date, empty title, non-JSON body, empty or non-string `reason` (`null` counts as absent), activating a completed todo |
 | `401` | Missing or invalid bearer token |
 | `404` | Unknown todo id, or unknown route |
 | `405` | Route exists, wrong method |

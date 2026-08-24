@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { nanoid } from "nanoid";
-import type { TodoSource } from "./types";
+import type { TodoSource, WriteContext } from "./types";
 
 // The ops journal: every intent-level todo (later also plan) change appends
 // one row with full before/after snapshots; a `reasons` row groups the ops of
@@ -41,6 +41,23 @@ export function createReason(db: Database.Database, input: ReasonInput): string 
      VALUES (?, ?, ?, ?, ?)`
   ).run(id, input.source, input.sessionId ?? null, input.text, new Date().toISOString());
   return id;
+}
+
+/**
+ * The reason id for a write context, minting the row on first use. Called at
+ * the point an op is actually recorded — inside the caller's open transaction —
+ * so a write that journals nothing (failed validation, no-change patch) never
+ * creates a reasons row, and one that rolls back takes the row with it. The id
+ * is cached on the context, so every op of one intent shares one row.
+ */
+export function resolveReasonId(
+  db: Database.Database,
+  ctx: WriteContext
+): string | undefined {
+  if (ctx.reasonId === undefined && ctx.reason !== undefined) {
+    ctx.reasonId = createReason(db, ctx.reason);
+  }
+  return ctx.reasonId;
 }
 
 /**

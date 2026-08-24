@@ -1,8 +1,7 @@
 import { today } from "@shared/day";
-import { nextSortOrder } from "./crud";
+import { updateTodo } from "./crud";
 import { getTodosDb } from "./db";
 import { emitTodosChanged } from "./events";
-import { recordOp } from "./journal";
 import {
   NotFoundError,
   ValidationError,
@@ -42,34 +41,19 @@ function loadOpenTodo(id: string): TodoRow {
 export function addToDesk(id: string, ctx: WriteContext): Todo {
   const db = getTodosDb();
   const row = loadOpenTodo(id);
-  let current = row;
+  let current = rowToTodo(row);
   let changed = false;
 
   db.transaction(() => {
     // Un-park: a backlog todo joining the desk is about to accrue pomodoro
     // time, and time belongs to a day. Left dateless it would bank workedSec
     // while appearing in neither today's list, the today widget, nor `dyd`.
+    // Delegated to updateTodo so the un-park IS a date move — same sort_order,
+    // journaling, and whatever rules the date path grows later — with its emit
+    // suppressed to keep this function's single event. The desk INSERT below
+    // is membership, not todo data, and is not journaled.
     if (row.date === null) {
-      const day = today();
-      const next = nextSortOrder(db, day);
-      db.prepare(
-        `UPDATE todos SET date = ?, sort_order = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`
-      ).run(day, next, id);
-      // Re-read rather than patching `row` in place: `row` is the journal's
-      // before snapshot, and only the stored row carries the new updated_at.
-      // The un-park changes the todo's planned day, so it is journaled; the
-      // desk INSERT below is membership, not todo data, and is not.
-      current = loadOpenTodo(id);
-      recordOp(db, {
-        entity: "todo",
-        entityId: id,
-        op: "update",
-        before: row,
-        after: current,
-        source: ctx.source,
-        reasonId: ctx.reasonId,
-      });
+      current = updateTodo(id, { date: today() }, ctx, { emit: false });
       changed = true;
     }
     const info = db
@@ -80,7 +64,7 @@ export function addToDesk(id: string, ctx: WriteContext): Todo {
 
   // Already on the desk and already dated: nothing changed — don't emit.
   if (changed) emitTodosChanged({ reason: "active", id });
-  return rowToTodo(current);
+  return current;
 }
 
 export function removeFromDesk(id: string): void {

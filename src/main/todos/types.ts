@@ -6,6 +6,8 @@
 // A null `date` means the todo is in the backlog: wanted, but with no planned
 // day (docs/design/todo-backlog.md).
 
+import type { ReasonInput } from "./journal";
+
 export type TodoSource = "user" | "agent" | "assistant";
 
 // Who is writing, and under which journal reason (if any). Attached in the
@@ -13,7 +15,14 @@ export type TodoSource = "user" | "agent" | "assistant";
 // assistant) — never supplied by the renderer.
 export type WriteContext = {
   source: TodoSource;
+  // A reason row already minted by the caller (the assistant loop groups a
+  // whole batch of ops under one row it creates up front).
   reasonId?: string;
+  // A reason not yet minted: resolveReasonId (journal.ts) creates the row
+  // inside the first journaling transaction and caches its id in `reasonId`
+  // above, so a write that journals nothing — failed validation, no-change
+  // patch — never leaves an orphan reasons row.
+  reason?: ReasonInput;
 };
 
 export type TodoRow = {

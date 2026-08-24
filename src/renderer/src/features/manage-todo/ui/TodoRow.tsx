@@ -89,8 +89,11 @@ export function TodoRow({ todo, showDate = false, pullTo }: Props) {
           >
             {todo.title}
           </button>
-          {todo.source === "agent" && (
-            <Bot className="size-3 shrink-0 text-muted-foreground" aria-label="Added by agent" />
+          {todo.source !== "user" && (
+            <Bot
+              className="size-3 shrink-0 text-muted-foreground"
+              aria-label={`Added by ${todo.source}`}
+            />
           )}
         </div>
         {((showDate && todo.date) || todo.workedSec > 0) && (
