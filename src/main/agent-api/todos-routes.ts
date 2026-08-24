@@ -25,6 +25,24 @@ export function asObject(body: unknown, what: string): Record<string, unknown> {
   return body as Record<string, unknown>;
 }
 
+// Rejects body keys outside `allowed`. The callers are agents that trust
+// status codes, so a misnamed field must 400 loudly: dropping it silently
+// turns "planned tomorrow" into "planned today" (POST /api/plan with "date"
+// for "day") or returns 200 for a patch that applied nothing (PATCH
+// /api/plan/:id with keys the route deliberately ignores).
+export function assertOnlyKeys(
+  body: Record<string, unknown>,
+  allowed: string[],
+  what: string
+): void {
+  const unknown = Object.keys(body).filter((key) => !allowed.includes(key));
+  if (unknown.length > 0) {
+    throw new ValidationError(
+      `${what} has unknown key(s): ${unknown.join(", ")}; allowed: ${allowed.join(", ")}`
+    );
+  }
+}
+
 // Validates an optional caller-supplied reason ("--reason" in dyd) for the
 // write context. The row itself is minted lazily by resolveReasonId inside the
 // write's transaction (journal.ts), so a write that journals nothing — failed

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isPlanTime, planEndMinutes, planMinutes } from "./plan-time";
+import { comparePlanStart, isPlanTime, planEndMinutes, planMinutes } from "./plan-time";
 
 describe("isPlanTime", () => {
   it("accepts strict two-digit HH:MM across the clock", () => {
@@ -54,9 +54,31 @@ describe("planEndMinutes and the end-after-start rule", () => {
 
   it("rejects zero-length entries", () => {
     expect(valid("10:00", "10:00")).toBe(false);
+    expect(valid("00:00", "00:00")).toBe(false);
   });
 
   it("rejects reversed ranges within the day", () => {
     expect(valid("14:00", "10:00")).toBe(false);
+  });
+
+  it('accepts "05:00"-"05:00", the whole-day block, as the only start==end pair', () => {
+    expect(valid("05:00", "05:00")).toBe(true);
+  });
+});
+
+describe("comparePlanStart", () => {
+  it("sorts in lived order, keeping input order on equal starts", () => {
+    const entries = [
+      { id: "small-hours", start: "01:00" },
+      { id: "first-ten", start: "10:00" },
+      { id: "second-ten", start: "10:00" },
+      { id: "day-start", start: "05:00" },
+    ];
+    expect([...entries].sort(comparePlanStart).map((e) => e.id)).toEqual([
+      "day-start",
+      "first-ten",
+      "second-ten",
+      "small-hours",
+    ]);
   });
 });

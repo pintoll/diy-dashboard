@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DAY_START_HOUR, dayOf, dayStartMs, today } from "./day";
+import { DAY_START_HOUR, dayEndMs, dayOf, dayStartMs, today } from "./day";
 
 // This module is the single definition of "which day is it" for both processes,
 // so the 05:00-to-05:00 rule from docs/design/assistant-behavior.md is pinned
@@ -54,6 +54,18 @@ describe("dayStartMs", () => {
 
   it("spans exactly 24 hours to the next day's start", () => {
     expect(dayStartMs("2026-08-25") - dayStartMs("2026-08-24")).toBe(24 * 60 * 60 * 1000);
+  });
+});
+
+describe("dayEndMs", () => {
+  it("is the next day's start, across month ends too", () => {
+    expect(dayEndMs("2026-08-24")).toBe(dayStartMs("2026-08-25"));
+    expect(dayEndMs("2026-07-31")).toBe(dayStartMs("2026-08-01"));
+  });
+
+  it("bounds the day half-open: the end instant already belongs to the next day", () => {
+    expect(dayOf(dayEndMs("2026-08-24") - 1)).toBe("2026-08-24");
+    expect(dayOf(dayEndMs("2026-08-24"))).toBe("2026-08-25");
   });
 });
 

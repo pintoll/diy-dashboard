@@ -242,7 +242,9 @@ the **next** calendar day, still belonging to `day`. The rules:
 - An entry lies within one day: `end` strictly after `start` in lived order.
   The midnight wrap is fine (`23:00`–`01:00`); crossing the boundary is not
   (`04:00`–`06:00` → `400`); zero-length is not. As an `end` — and only as an
-  end — `"05:00"` means end-of-day, so `03:00`–`05:00` is valid.
+  end — `"05:00"` means end-of-day, so `03:00`–`05:00` is valid. Corollary:
+  `05:00`–`05:00` is the one valid `start == end` pair and means the whole
+  day, start-of-day to end-of-day.
 - **Overlaps are deliberately not validated**, and there is no sort field:
   listing order is derived from `start`, 05:00 first, the small hours last.
 - An entry references a real todo at creation (unknown `todoId` → `404`).
@@ -268,7 +270,9 @@ POST /api/plan
 `day` omitted means today — planning tomorrow in the evening passes tomorrow
 explicitly (ask `GET /api/today` first, never your own clock). Accepts the same
 optional `"reason"` field as the todo writes; plan writes are journaled
-identically.
+identically. Keys outside `todoId`/`day`/`start`/`end`/`reason` are a `400` —
+in particular `"date"` (the name the todo routes use): the field here is
+`"day"`, and silently dropping it would plan the wrong day.
 
 ### `PATCH /api/plan/:id`
 
@@ -280,7 +284,8 @@ PATCH /api/plan/abc123
 
 Retiming only — `start` and/or `end`. Re-pointing a block at another todo or
 moving it across days is a delete + create, which reads honestly in the log.
-Accepts `"reason"`.
+Accepts `"reason"`; any other key (`"todoId"`, `"day"`, ...) is a `400`, never
+a silently ignored no-op.
 
 ### `DELETE /api/plan/:id`
 
@@ -300,9 +305,10 @@ GET /api/yesterday
 ```
 
 "Yesterday" in the assistant's sense: the last day **before today with
-records** (plan entries or journal ops) after the last folded day — not the
-calendar yesterday. Gap days skip for free; `null` means history is fully
-folded (or empty). Use it to find which day a morning fold should close.
+records** (plan entries, journal ops, or pomodoro sessions) after the last
+folded day — not the calendar yesterday. Gap days skip for free; `null` means
+history is fully folded (or empty). Use it to find which day a morning fold
+should close.
 
 ### `GET /api/days/:day`
 

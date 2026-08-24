@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { dayOf, dayStartMs, today } from "@shared/day";
+import { dayEndMs, dayOf, dayStartMs, today } from "@shared/day";
 import { getTodosDb } from "./db";
 import { assertDate } from "./date";
 import { buildDaySnapshot } from "./day-snapshot";
@@ -18,8 +18,6 @@ import {
 // leave the fold stale until someone folds again, which recomputes the
 // snapshot (upsert). Folds are not journaled — ops record intents, and the
 // snapshot is derived state rewind never inverts.
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export type FoldInput = {
   /** undefined keeps the existing remarks, null clears, a string replaces. */
@@ -41,13 +39,12 @@ function normalizeRemarks(remarks: unknown): string | null | undefined {
 
 /** Seconds accrued per todo on `day` — sessions whose start instant falls in it. */
 function workedSecByTodo(db: Database.Database, day: string): Map<string, number> {
-  const startMs = dayStartMs(day);
   const rows = db
     .prepare(
       `SELECT todo_id, SUM(worked_sec) AS sec FROM todo_sessions
        WHERE started_at >= ? AND started_at < ? GROUP BY todo_id`
     )
-    .all(startMs, startMs + MS_PER_DAY) as { todo_id: string; sec: number }[];
+    .all(dayStartMs(day), dayEndMs(day)) as { todo_id: string; sec: number }[];
   return new Map(rows.map((row) => [row.todo_id, row.sec]));
 }
 
@@ -80,10 +77,9 @@ function involvedTodos(
 }
 
 function hasOpsOnDay(db: Database.Database, day: string): boolean {
-  const startMs = dayStartMs(day);
   return !!db
     .prepare("SELECT 1 FROM ops WHERE at >= ? AND at < ? LIMIT 1")
-    .get(new Date(startMs).toISOString(), new Date(startMs + MS_PER_DAY).toISOString());
+    .get(new Date(dayStartMs(day)).toISOString(), new Date(dayEndMs(day)).toISOString());
 }
 
 export function foldDay(day: string, input: FoldInput = {}): DayFold {
@@ -102,9 +98,11 @@ export function foldDay(day: string, input: FoldInput = {}): DayFold {
     const todos = involvedTodos(db, day, entries, worked);
 
     // "Days with no plan and no activity stay empty" (assistant-behavior.md) —
-    // but any day the yesterday resolver can name (it has ops or plan entries)
-    // must stay foldable, or the morning conversation dead-ends on a day whose
-    // only trace is in the journal.
+    // but any day the yesterday resolver can name (it has plan entries, ops,
+    // or sessions) must stay foldable, or the morning conversation dead-ends
+    // on a day whose only trace is in the journal. Sessions pass this guard
+    // through `todos` (a worked todo is involved), matching the resolver's
+    // session leg.
     if (entries.length === 0 && todos.length === 0 && !hasOpsOnDay(db, day)) {
       throw new ValidationError(`nothing to fold: "${day}" has no records`);
     }
@@ -146,9 +144,10 @@ export function getDayFold(day: string): DayFold | null {
 
 /**
  * "Yesterday" in the assistant's sense: the last day before today with
- * records — plan entries or ops — after the last fold. Gap days skip for
- * free; a fully folded (or empty) history returns null
- * (docs/design/assistant-architecture.md).
+ * records — plan entries, ops, or pomodoro sessions — after the last fold.
+ * Gap days skip for free; a fully folded (or empty) history returns null
+ * (docs/design/assistant-architecture.md). Every record kind foldDay accepts
+ * must have a leg here, or the morning conversation skips a foldable day.
  */
 export function resolveYesterday(): string | null {
   const db = getTodosDb();
@@ -167,7 +166,8 @@ export function resolveYesterday(): string | null {
   // Ops don't carry a day; the latest `at` before today's start (and after the
   // end of the last folded day) names the last ops-day. String comparison is
   // safe — every `at` is toISOString() (journal.ts).
-  const cutoff = last === null ? null : new Date(dayStartMs(last) + MS_PER_DAY).toISOString();
+  const cutoffMs = last === null ? null : dayEndMs(last);
+  const cutoff = cutoffMs === null ? null : new Date(cutoffMs).toISOString();
   const { at } = db
     .prepare(
       `SELECT MAX(at) AS at FROM ops
@@ -176,8 +176,17 @@ export function resolveYesterday(): string | null {
     .get(new Date(dayStartMs(cur)).toISOString(), cutoff, cutoff) as { at: string | null };
   const opDay = at === null ? null : dayOf(Date.parse(at));
 
-  if (planDay === null && opDay === null) return null;
-  if (planDay === null) return opDay;
-  if (opDay === null) return planDay;
-  return planDay > opDay ? planDay : opDay;
+  // Sessions journal no ops (sessions.ts recordWork), so a day spent only
+  // running pomodoros against already-created todos leaves its sole trace
+  // here. Same day-attribution rule as workedSecByTodo: the start instant.
+  const { ms } = db
+    .prepare(
+      `SELECT MAX(started_at) AS ms FROM todo_sessions
+       WHERE started_at < ? AND (? IS NULL OR started_at >= ?)`
+    )
+    .get(dayStartMs(cur), cutoffMs, cutoffMs) as { ms: number | null };
+  const sessionDay = ms === null ? null : dayOf(ms);
+
+  const days = [planDay, opDay, sessionDay].filter((d): d is string => d !== null);
+  return days.length === 0 ? null : days.reduce((a, b) => (a > b ? a : b));
 }

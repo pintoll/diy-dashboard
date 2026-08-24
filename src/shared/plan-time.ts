@@ -40,9 +40,23 @@ export function planMinutes(time: string): number {
  * boundary would be unrepresentable. The single validity rule
  * `planEndMinutes(end) > planMinutes(start)` then rejects zero-length entries
  * and entries crossing the 05:00 boundary while accepting the midnight wrap
- * (23:00-01:00).
+ * (23:00-01:00). One corollary is deliberate: "05:00"-"05:00" (0 < 1440) is
+ * the only valid start==end pair and encodes the whole-day block —
+ * start-of-day to end-of-day.
  */
 export function planEndMinutes(time: string): number {
   const minutes = planMinutes(time);
   return minutes === 0 ? MINUTES_PER_DAY : minutes;
+}
+
+/**
+ * Lived-order comparator for plan entries: earliest `start` on the 05:00 day
+ * first. The one ordering rule for every surface that lists a plan — main's
+ * list/snapshot code and the day-sheet widget must sort with this, not a
+ * local copy, or the same plan can render in different orders. Equal starts
+ * compare 0, so a stable sort keeps the caller's input order: feed rows in
+ * insertion (rowid) order to make that the tie-break.
+ */
+export function comparePlanStart(a: { start: string }, b: { start: string }): number {
+  return planMinutes(a.start) - planMinutes(b.start);
 }

@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { nanoid } from "nanoid";
 import { today } from "@shared/day";
-import { isPlanTime, planEndMinutes, planMinutes } from "@shared/plan-time";
+import { comparePlanStart, isPlanTime, planEndMinutes, planMinutes } from "@shared/plan-time";
 import { getTodosDb } from "./db";
 import { assertDate } from "./date";
 import { recordOp, resolveReasonId, rowChanged } from "./journal";
@@ -37,7 +37,9 @@ function assertPlanTime(value: unknown, field: string): string {
 
 // An entry lies within one 05:00 day: end strictly after start in lived order,
 // where an end of "05:00" means end-of-day. Rejects zero-length and
-// boundary-crossing ranges, accepts the midnight wrap (23:00-01:00).
+// boundary-crossing ranges, accepts the midnight wrap (23:00-01:00) — and
+// "05:00"-"05:00", the one valid start==end pair, meaning the whole day
+// (@shared/plan-time planEndMinutes).
 function assertRange(start: string, end: string): void {
   if (planEndMinutes(end) <= planMinutes(start)) {
     throw new ValidationError(
@@ -61,9 +63,7 @@ export function listPlanEntries(day: string): PlanEntry[] {
     .all(day) as PlanEntryRow[];
   // Lived order, 05:00 first. The SQL ORDER BY pins what the stable JS sort
   // falls back to on equal starts: insertion order.
-  return rows
-    .sort((a, b) => planMinutes(a.start) - planMinutes(b.start))
-    .map(rowToPlanEntry);
+  return rows.sort(comparePlanStart).map(rowToPlanEntry);
 }
 
 export function createPlanEntry(input: PlanEntryCreateInput, ctx: WriteContext): PlanEntry {
@@ -140,20 +140,26 @@ export function updatePlanEntry(
   return rowToPlanEntry(updated);
 }
 
+// The one journaled-delete shape for a plan entry row. Both the direct delete
+// and the delete-todo sweep go through here so the two can never journal
+// differently — log rendering and rewind must see one delete op shape.
+function deleteEntryRow(db: Database.Database, row: PlanEntryRow, ctx: WriteContext): void {
+  db.prepare("DELETE FROM plan_entries WHERE id = ?").run(row.id);
+  recordOp(db, {
+    entity: "plan",
+    entityId: row.id,
+    op: "delete",
+    before: row,
+    after: null,
+    source: ctx.source,
+    reasonId: resolveReasonId(db, ctx),
+  });
+}
+
 export function deletePlanEntry(id: string, ctx: WriteContext): void {
   const db = getTodosDb();
   db.transaction(() => {
-    const row = getEntryRow(db, id);
-    db.prepare("DELETE FROM plan_entries WHERE id = ?").run(id);
-    recordOp(db, {
-      entity: "plan",
-      entityId: id,
-      op: "delete",
-      before: row,
-      after: null,
-      source: ctx.source,
-      reasonId: resolveReasonId(db, ctx),
-    });
+    deleteEntryRow(db, getEntryRow(db, id), ctx);
   })();
 }
 
@@ -171,18 +177,5 @@ export function removePlanEntriesForTodo(
   const rows = db
     .prepare("SELECT * FROM plan_entries WHERE todo_id = ? ORDER BY rowid")
     .all(todoId) as PlanEntryRow[];
-  if (rows.length === 0) return;
-  const del = db.prepare("DELETE FROM plan_entries WHERE id = ?");
-  for (const row of rows) {
-    del.run(row.id);
-    recordOp(db, {
-      entity: "plan",
-      entityId: row.id,
-      op: "delete",
-      before: row,
-      after: null,
-      source: ctx.source,
-      reasonId: resolveReasonId(db, ctx),
-    });
-  }
+  for (const row of rows) deleteEntryRow(db, row, ctx);
 }

@@ -1,4 +1,4 @@
-import { planMinutes } from "@shared/plan-time";
+import { comparePlanStart } from "@shared/plan-time";
 import type { DaySnapshot, PlanEntryRow, TodoRow } from "./types";
 
 // Builds the fold's snapshot — "log applied onto plan": the plan as it finally
@@ -18,7 +18,7 @@ export type DaySnapshotInput = {
 
 export function buildDaySnapshot(input: DaySnapshotInput): DaySnapshot {
   const entries = [...input.entries]
-    .sort((a, b) => planMinutes(a.start) - planMinutes(b.start))
+    .sort(comparePlanStart)
     .map((row) => ({ todoId: row.todo_id, start: row.start, end: row.end }));
 
   // Plain < / > comparison, not localeCompare: the snapshot must be

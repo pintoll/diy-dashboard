@@ -74,6 +74,8 @@ CREATE TABLE IF NOT EXISTS ops (
   at         TEXT NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_ops_at ON ops(at);
+
 CREATE TABLE IF NOT EXISTS todo_sessions (
   attribution_id TEXT PRIMARY KEY,
   session_id     TEXT NOT NULL,
@@ -86,6 +88,7 @@ CREATE TABLE IF NOT EXISTS todo_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_todo_sessions_todo ON todo_sessions(todo_id);
 CREATE INDEX IF NOT EXISTS idx_todo_sessions_session ON todo_sessions(session_id);
+CREATE INDEX IF NOT EXISTS idx_todo_sessions_started ON todo_sessions(started_at);
 
 CREATE TABLE IF NOT EXISTS desk (
   todo_id   TEXT PRIMARY KEY REFERENCES todos(id) ON DELETE CASCADE,

@@ -9,7 +9,7 @@ import {
 } from "../todos/plan";
 import type { PlanEntryCreateInput, PlanEntryPatch } from "../todos/types";
 import { readJsonBody, sendJson, type Route } from "./router";
-import { agentReason, asObject } from "./todos-routes";
+import { agentReason, asObject, assertOnlyKeys } from "./todos-routes";
 
 // The day-record surface of the agent API: the plan (todos penciled onto
 // clock-time ranges) and the fold (the day's closed record). Same discipline
@@ -32,8 +32,12 @@ export const dayRoutes: Route[] = [
   {
     method: "POST",
     pattern: "/api/plan",
+    // Strict keys: "date" (the name GET /api/plan and the todo routes use)
+    // must 400 here, not silently fall back to planning today under the
+    // spec's name "day".
     handler: async (req, res) => {
       const body = asObject(await readJsonBody(req), "body");
+      assertOnlyKeys(body, ["todoId", "day", "start", "end", "reason"], "body");
       const reason = agentReason(body.reason);
       delete body.reason;
       const entry = createPlanEntry(body as PlanEntryCreateInput, {
@@ -46,8 +50,12 @@ export const dayRoutes: Route[] = [
   {
     method: "PATCH",
     pattern: "/api/plan/:id",
+    // Retiming only: re-pointing ("todoId") or moving days ("day") is
+    // delete+create per the spec, so those keys must 400, not no-op into a
+    // 200 the caller reads as a successful move.
     handler: async (req, res, params) => {
       const body = asObject(await readJsonBody(req), "body");
+      assertOnlyKeys(body, ["start", "end", "reason"], "body");
       const reason = agentReason(body.reason);
       delete body.reason;
       const entry = updatePlanEntry(params.id, body as PlanEntryPatch, {
@@ -68,8 +76,9 @@ export const dayRoutes: Route[] = [
     },
   },
   // "Yesterday" in the assistant's sense: the last day before today with
-  // records (plan entries or ops) after the last fold — null when history is
-  // fully folded. Its own route so fold calls always name a literal day.
+  // records (plan entries, ops, or pomodoro sessions) after the last fold —
+  // null when history is fully folded. Its own route so fold calls always
+  // name a literal day.
   {
     method: "GET",
     pattern: "/api/yesterday",

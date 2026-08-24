@@ -18,6 +18,8 @@ const TIME_ZONE = "Asia/Seoul";
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 
+const MS_PER_DAY = 24 * MS_PER_HOUR;
+
 /** The hour a day begins. Setting this to 0 puts the app back on calendar days. */
 export const DAY_START_HOUR = 5;
 
@@ -49,4 +51,15 @@ export function today(): string {
 export function dayStartMs(day: string): number {
   const hour = String(DAY_START_HOUR).padStart(2, "0");
   return Date.parse(`${day}T${hour}:00:00+09:00`);
+}
+
+/**
+ * The instant day `day` ends, exclusive: the next day's dayStartMs.
+ * `[dayStartMs(day), dayEndMs(day))` is *the* day window — every consumer that
+ * buckets instants into days (fold queries, the yesterday resolver, analytics)
+ * must build it from this pair, never from a local `+ 24h`. Adding a constant
+ * 24h is exact only because KST has no DST; that assumption lives here, once.
+ */
+export function dayEndMs(day: string): number {
+  return dayStartMs(day) + MS_PER_DAY;
 }
