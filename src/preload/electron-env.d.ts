@@ -360,7 +360,7 @@ interface FinanceAPI {
 // `date: null` means the todo is in the backlog — wanted, but with no planned
 // day (docs/design/todo-backlog.md). Backlog todos appear in no date query,
 // including Overdue; `todos.backlog()` is the only way to list them.
-type TodoSource = "user" | "agent";
+type TodoSource = "user" | "agent" | "assistant";
 
 interface TodoItem {
   id: string;

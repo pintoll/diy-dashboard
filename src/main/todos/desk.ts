@@ -2,12 +2,14 @@ import { today } from "@shared/day";
 import { nextSortOrder } from "./crud";
 import { getTodosDb } from "./db";
 import { emitTodosChanged } from "./events";
+import { recordOp } from "./journal";
 import {
   NotFoundError,
   ValidationError,
   rowToTodo,
   type Todo,
   type TodoRow,
+  type WriteContext,
 } from "./types";
 
 // The "desk" is the set of todos currently receiving the running work clock
@@ -37,9 +39,10 @@ function loadOpenTodo(id: string): TodoRow {
   return row;
 }
 
-export function addToDesk(id: string): Todo {
+export function addToDesk(id: string, ctx: WriteContext): Todo {
   const db = getTodosDb();
   const row = loadOpenTodo(id);
+  let current = row;
   let changed = false;
 
   db.transaction(() => {
@@ -53,8 +56,20 @@ export function addToDesk(id: string): Todo {
         `UPDATE todos SET date = ?, sort_order = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`
       ).run(day, next, id);
-      row.date = day;
-      row.sort_order = next;
+      // Re-read rather than patching `row` in place: `row` is the journal's
+      // before snapshot, and only the stored row carries the new updated_at.
+      // The un-park changes the todo's planned day, so it is journaled; the
+      // desk INSERT below is membership, not todo data, and is not.
+      current = loadOpenTodo(id);
+      recordOp(db, {
+        entity: "todo",
+        entityId: id,
+        op: "update",
+        before: row,
+        after: current,
+        source: ctx.source,
+        reasonId: ctx.reasonId,
+      });
       changed = true;
     }
     const info = db
@@ -65,7 +80,7 @@ export function addToDesk(id: string): Todo {
 
   // Already on the desk and already dated: nothing changed — don't emit.
   if (changed) emitTodosChanged({ reason: "active", id });
-  return rowToTodo(row);
+  return rowToTodo(current);
 }
 
 export function removeFromDesk(id: string): void {
@@ -95,7 +110,7 @@ export function getActiveTodo(): Todo | null {
   return getDesk()[0] ?? null;
 }
 
-export function setActiveTodo(id: string | null): Todo | null {
+export function setActiveTodo(id: string | null, ctx: WriteContext): Todo | null {
   const db = getTodosDb();
 
   if (id === null) {
@@ -111,6 +126,6 @@ export function setActiveTodo(id: string | null): Todo | null {
   loadOpenTodo(id);
   return db.transaction((): Todo => {
     db.prepare("DELETE FROM desk").run();
-    return addToDesk(id);
+    return addToDesk(id, ctx);
   })();
 }

@@ -39,16 +39,18 @@ export function registerTodosIpc(): void {
   ipcMain.handle("todos:backlog", (): Todo[] => listBacklog());
 
   ipcMain.handle("todos:create", (_event, input: TodoCreateInput): Todo =>
-    createTodo(input, "user")
+    createTodo(input, { source: "user" })
   );
 
   ipcMain.handle(
     "todos:update",
     (_event, payload: { id: string; patch: TodoPatch }): Todo =>
-      updateTodo(payload.id, payload.patch)
+      updateTodo(payload.id, payload.patch, { source: "user" })
   );
 
-  ipcMain.handle("todos:delete", (_event, id: string): void => deleteTodo(id));
+  ipcMain.handle("todos:delete", (_event, id: string): void =>
+    deleteTodo(id, { source: "user" })
+  );
 
   // Batch id -> title resolve for the analytics drill-down; deleted ids drop out.
   ipcMain.handle(
@@ -68,14 +70,16 @@ export function registerTodosIpc(): void {
   ipcMain.handle("todos:active:get", (): Todo | null => getActiveTodo());
 
   ipcMain.handle("todos:active:set", (_event, id: string | null): Todo | null =>
-    setActiveTodo(id)
+    setActiveTodo(id, { source: "user" })
   );
 
   // The desk: the set of todos receiving the running work clock. Membership,
   // not ownership, routes pomodoro time (docs/design/multi-pomo-todo.md).
   ipcMain.handle("todos:desk:get", (): Todo[] => getDesk());
 
-  ipcMain.handle("todos:desk:add", (_event, id: string): Todo => addToDesk(id));
+  ipcMain.handle("todos:desk:add", (_event, id: string): Todo =>
+    addToDesk(id, { source: "user" })
+  );
 
   ipcMain.handle("todos:desk:remove", (_event, id: string): void =>
     removeFromDesk(id)

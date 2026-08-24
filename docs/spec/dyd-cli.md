@@ -116,15 +116,17 @@ Positions are printed as `b<n>` so they cannot be confused with today's:
   b2 [ ] Read the Postgres locking chapter    35m
 ```
 
-### `dyd todo add "<title>" [-d <date>] [-n <note>]`
+### `dyd todo add "<title>" [-d <date>] [-n <note>] [--reason <text>]`
 
 `POST /api/todos`. `-d` accepts `YYYY-MM-DD`, `today`, `tomorrow`, or `backlog`; `today`/`tomorrow` resolve against `GET /api/today` (the app's 05:00-bounded day, see above). No `-d` omits `date` from the body, which the API itself reads as today. Prints the created todo with its list index. `-d backlog` sends `"date": null` and prints a `b<n>` index.
 
-### `dyd todo done <n|id>`
+`--reason` forwards one natural-language line as the API's `reason` — why this write happened. It is journaled with the change and surfaces in the in-app assistant's log; `done` and `move` take the same flag.
+
+### `dyd todo done <n|id> [--reason <text>]`
 
 `PATCH /api/todos/:id { done: true }`. Completing a backlog todo un-parks it onto today.
 
-### `dyd todo move <n|id|b<n>> <target>`
+### `dyd todo move <n|id|b<n>> <target> [--reason <text>]`
 
 `PATCH /api/todos/:id { date }`. One verb for every re-plan: `backlog` parks the
 todo (sends `null`), `today` / `tomorrow` / `YYYY-MM-DD` place it on a day

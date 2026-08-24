@@ -4,7 +4,8 @@ Architecture decisions for the in-app assistant, fixed 2026-08-24. Companion to
 `assistant-behavior.md` (the behavior contract). Results only, deliberation
 omitted.
 
-Status: **designed; phase 1 (the 05:00 day boundary) implemented.**
+Status: **designed; phases 1 (the 05:00 day boundary) and 2 (the journal)
+implemented.**
 
 ## Data layer
 
@@ -113,6 +114,11 @@ day_folds (
   session's later ops in reverse order (before-snapshots are the inverse data).
   Modes per the contract: conversation only, state only, or both. No separate
   undo stack.
+- Inverting an op must apply only the fields where before and after differ,
+  never restore the whole before snapshot: `worked_sec` accrues via
+  `recordWork` outside the journal (a mechanical rollup of `todo_sessions`,
+  not an intent), so a whole-row restore would clobber time banked since the
+  op.
 
 ## Inner agent
 
@@ -179,7 +185,9 @@ day_folds (
 2. **Journal** — `reasons` + `ops` tables, written inside crud transactions.
    Needs `todos.source` rebuilt to admit `'assistant'` (SQLite cannot ALTER a
    CHECK), and `createTodo`/`deleteTodo` wrapped in transactions — today only
-   `updateTodo` has one.
+   `updateTodo` has one. *(done — src/main/todos/journal.ts; also journals the
+   desk un-park, skips no-change updates, and adds `--reason` to dyd and the
+   agent API)*
 3. **`plan_entries` + `day_folds`** — the day record's plan and fold services.
 4. **Log view** — `ops` + `reasons` rendered to natural language at read time.
 5. **Analytics day boundary** — fold `aggregations.ts` onto the same day

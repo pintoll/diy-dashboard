@@ -6,7 +6,15 @@
 // A null `date` means the todo is in the backlog: wanted, but with no planned
 // day (docs/design/todo-backlog.md).
 
-export type TodoSource = "user" | "agent";
+export type TodoSource = "user" | "agent" | "assistant";
+
+// Who is writing, and under which journal reason (if any). Attached in the
+// main process at each entry point (IPC = user, HTTP = agent, assistant loop =
+// assistant) — never supplied by the renderer.
+export type WriteContext = {
+  source: TodoSource;
+  reasonId?: string;
+};
 
 export type TodoRow = {
   id: string;

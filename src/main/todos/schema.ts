@@ -21,6 +21,14 @@ import type Database from "better-sqlite3";
 // planned day (see docs/design/todo-backlog.md). Every date query already
 // excludes it for free — NULL matches neither `= ?` nor `BETWEEN` nor `< ?` —
 // so a parked todo can never leak into a day list or into Overdue.
+//
+// `ops` is the append-only journal of intent-level todo (later also plan)
+// changes — full before/after row snapshots, written inside the same
+// transaction as the change (see journal.ts). `reasons` groups ops under one
+// natural-language intent line (docs/design/assistant-architecture.md).
+// `ops.entity_id` deliberately has no FK so history survives deletion, and
+// `seq` is AUTOINCREMENT so it stays monotonic even if rows are ever pruned —
+// rewind anchors must not be reusable.
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS todos (
   id           TEXT PRIMARY KEY,
@@ -31,13 +39,33 @@ CREATE TABLE IF NOT EXISTS todos (
   completed_on TEXT,
   sort_order   INTEGER NOT NULL DEFAULT 0,
   worked_sec   INTEGER NOT NULL DEFAULT 0,
-  source       TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('user','agent')),
+  source       TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('user','agent','assistant')),
   created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_todos_date ON todos(date);
 CREATE INDEX IF NOT EXISTS idx_todos_open ON todos(done, date);
+
+CREATE TABLE IF NOT EXISTS reasons (
+  id         TEXT PRIMARY KEY,
+  source     TEXT NOT NULL CHECK (source IN ('assistant','agent')),
+  session_id TEXT,
+  text       TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ops (
+  seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity     TEXT NOT NULL CHECK (entity IN ('todo','plan')),
+  entity_id  TEXT NOT NULL,
+  op         TEXT NOT NULL CHECK (op IN ('create','update','delete')),
+  before     TEXT,
+  after      TEXT,
+  source     TEXT NOT NULL CHECK (source IN ('user','agent','assistant')),
+  reason_id  TEXT,
+  at         TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS todo_sessions (
   attribution_id TEXT PRIMARY KEY,
@@ -163,6 +191,59 @@ export function migrateSchema(db: Database.Database): void {
         `);
         // Every child row must still resolve to a todo. If one does not, the
         // rebuild lost rows and rolling back is the only safe outcome.
+        const orphans = db.pragma("foreign_key_check") as unknown[];
+        if (orphans.length > 0) {
+          throw new Error(
+            `todos rebuild left ${orphans.length} orphaned foreign key rows; rolled back`
+          );
+        }
+      })();
+    } finally {
+      db.pragma("foreign_keys = ON");
+    }
+  }
+
+  // 4. todos.source CHECK: admit 'assistant'. SQLite cannot alter a CHECK in
+  //    place, so rebuild — the same parent-table pragma dance as migration 3.
+  //    Guard on the stored table SQL: a fresh DB is created by the SCHEMA
+  //    constant above, whose CHECK already names 'assistant', so this only
+  //    fires on DBs built before the assistant existed. A very old DB runs
+  //    migrations 3 and 4 as two consecutive rebuilds; accepted, because
+  //    shipped migrations stay immutable.
+  const todosSql =
+    (
+      db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'todos'")
+        .get() as { sql: string } | undefined
+    )?.sql ?? "";
+  if (!todosSql.includes("'assistant'")) {
+    const COLUMNS =
+      "id, date, title, note, done, completed_on, sort_order, worked_sec, source, created_at, updated_at";
+    db.pragma("foreign_keys = OFF");
+    try {
+      db.transaction(() => {
+        db.exec(`
+          CREATE TABLE todos_new (
+            id           TEXT PRIMARY KEY,
+            date         TEXT,
+            title        TEXT NOT NULL,
+            note         TEXT,
+            done         INTEGER NOT NULL DEFAULT 0,
+            completed_on TEXT,
+            sort_order   INTEGER NOT NULL DEFAULT 0,
+            worked_sec   INTEGER NOT NULL DEFAULT 0,
+            source       TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('user','agent','assistant')),
+            created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+          );
+          INSERT INTO todos_new (${COLUMNS}) SELECT ${COLUMNS} FROM todos;
+          DROP TABLE todos;
+          ALTER TABLE todos_new RENAME TO todos;
+          CREATE INDEX IF NOT EXISTS idx_todos_date ON todos(date);
+          CREATE INDEX IF NOT EXISTS idx_todos_open ON todos(done, date);
+        `);
+        // Same invariant as migration 3: no child row may be orphaned by the
+        // rebuild.
         const orphans = db.pragma("foreign_key_check") as unknown[];
         if (orphans.length > 0) {
           throw new Error(

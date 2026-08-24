@@ -138,6 +138,8 @@ POST /api/todos
 
 Omitting `date` means today; `"date": null` puts the todo straight into the backlog. The two are deliberately different, so a caller that simply does not care about the day still gets today. `source` is forced to `"agent"` — you cannot impersonate a user-created todo.
 
+An optional `"reason"` field (one natural-language line, non-empty) records *why* this write happened. It is journal metadata, not part of the todo: it is stripped before the write, stored atomically with it, and later surfaces in the in-app assistant's log (`docs/design/assistant-architecture.md`). An empty or non-string `reason` is a `400`.
+
 ### `PATCH /api/todos/:id`
 
 ```
@@ -150,6 +152,8 @@ All fields optional. Setting `done: true` stamps `completedOn` and steps the tod
 
 `"date": null` parks the todo in the backlog; a date pulls it back out. Either way, unless the patch also sets `sortOrder`, a todo that changes bucket is appended to the end of its destination rather than keeping an order number that would drop it into the middle of the other list.
 
+Accepts the same optional `"reason"` field as `POST /api/todos`.
+
 ### `DELETE /api/todos/:id`
 
 ```
@@ -158,6 +162,8 @@ DELETE /api/todos/abc123
 ```
 
 Cascades its pomodoro session links and drops it from the desk if it was a member.
+
+DELETE reads no body, so the optional reason travels as a query param: `DELETE /api/todos/abc123?reason=duplicate%20of%20xyz` (URL-encoded; same semantics as the `"reason"` body field).
 
 ### The desk
 
@@ -237,7 +243,7 @@ deciding that todo's time gets recorded.
 
 | Code | Meaning |
 |---|---|
-| `400` | Bad input — malformed date, empty title, non-JSON body, activating a completed todo |
+| `400` | Bad input — malformed date, empty title, non-JSON body, empty or non-string `reason`, activating a completed todo |
 | `401` | Missing or invalid bearer token |
 | `404` | Unknown todo id, or unknown route |
 | `405` | Route exists, wrong method |

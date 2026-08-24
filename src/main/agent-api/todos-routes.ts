@@ -1,5 +1,6 @@
 import { today } from "@shared/day";
 import { getActiveTodo, setActiveTodo } from "../todos/active";
+import { getTodosDb } from "../todos/db";
 import { addToDesk, clearDesk, getDesk, removeFromDesk } from "../todos/desk";
 import {
   createTodo,
@@ -9,6 +10,7 @@ import {
   listTodos,
   updateTodo,
 } from "../todos/crud";
+import { createReason } from "../todos/journal";
 import { ValidationError } from "../todos/types";
 import type { TodoCreateInput, TodoPatch } from "../todos/types";
 import { readJsonBody, sendJson, type Route } from "./router";
@@ -22,6 +24,19 @@ function asObject(body: unknown, what: string): Record<string, unknown> {
     throw new ValidationError(`${what} must be a JSON object`);
   }
   return body as Record<string, unknown>;
+}
+
+// Validates an optional caller-supplied reason ("--reason" in dyd) and mints
+// its journal row. The row is created before the write it explains — if the
+// write then fails validation, the orphaned reason is never rendered (the log
+// joins from ops), so it is left behind rather than complicating the crud
+// transaction contract.
+function agentReasonId(reason: unknown): string | undefined {
+  if (reason === undefined || reason === null) return undefined;
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    throw new ValidationError("reason must be a non-empty string");
+  }
+  return createReason(getTodosDb(), { source: "agent", text: reason.trim() });
 }
 
 export const todosRoutes: Route[] = [
@@ -72,8 +87,12 @@ export const todosRoutes: Route[] = [
     pattern: "/api/todos",
     handler: async (req, res) => {
       const body = asObject(await readJsonBody(req), "body");
+      // `reason` rides in the body but is journal metadata, not todo input —
+      // strip it so the cast below stays honest.
+      const reasonId = agentReasonId(body.reason);
+      delete body.reason;
       // Anything created through this API is agent-authored by definition.
-      const todo = createTodo(body as TodoCreateInput, "agent");
+      const todo = createTodo(body as TodoCreateInput, { source: "agent", reasonId });
       sendJson(res, 201, { todo });
     },
   },
@@ -82,15 +101,19 @@ export const todosRoutes: Route[] = [
     pattern: "/api/todos/:id",
     handler: async (req, res, params) => {
       const body = asObject(await readJsonBody(req), "body");
-      const todo = updateTodo(params.id, body as TodoPatch);
+      const reasonId = agentReasonId(body.reason);
+      delete body.reason;
+      const todo = updateTodo(params.id, body as TodoPatch, { source: "agent", reasonId });
       sendJson(res, 200, { todo });
     },
   },
   {
     method: "DELETE",
     pattern: "/api/todos/:id",
-    handler: (_req, res, params) => {
-      deleteTodo(params.id);
+    // DELETE reads no body, so the reason travels as a query param.
+    handler: (_req, res, params, query) => {
+      const reasonId = agentReasonId(query.get("reason"));
+      deleteTodo(params.id, { source: "agent", reasonId });
       sendJson(res, 204, undefined);
     },
   },
@@ -115,7 +138,7 @@ export const todosRoutes: Route[] = [
       if (typeof id !== "string") {
         throw new ValidationError("id must be a todo id string");
       }
-      addToDesk(id);
+      addToDesk(id, { source: "agent" });
       sendJson(res, 200, { todos: getDesk() });
     },
   },
@@ -154,7 +177,7 @@ export const todosRoutes: Route[] = [
       if (id !== null && typeof id !== "string") {
         throw new ValidationError("id must be a todo id string or null");
       }
-      sendJson(res, 200, { todo: setActiveTodo(id) });
+      sendJson(res, 200, { todo: setActiveTodo(id, { source: "agent" }) });
     },
   },
 ];

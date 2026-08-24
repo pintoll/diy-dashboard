@@ -4,6 +4,7 @@ import { today } from "@shared/day";
 import { getTodosDb } from "./db";
 import { assertDate } from "./date";
 import { emitTodosChanged } from "./events";
+import { recordOp, rowChanged } from "./journal";
 import {
   NotFoundError,
   ValidationError,
@@ -13,7 +14,7 @@ import {
   type TodoListFilter,
   type TodoPatch,
   type TodoRow,
-  type TodoSource,
+  type WriteContext,
 } from "./types";
 
 const MAX_TITLE_LENGTH = 500;
@@ -140,26 +141,42 @@ export function listOverdue(before: string): Todo[] {
   return rows.map(rowToTodo);
 }
 
-export function createTodo(input: TodoCreateInput, source: TodoSource): Todo {
+export function createTodo(input: TodoCreateInput, ctx: WriteContext): Todo {
   const db = getTodosDb();
   const title = normalizeTitle(input.title);
   const note = normalizeNote(input.note);
   const date = input.date !== undefined ? normalizeDate(input.date) : today();
   const id = nanoid();
 
-  db.prepare(
-    `INSERT INTO todos (id, date, title, note, sort_order, source)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(id, date, title, note, nextSortOrder(db, date), source);
+  const row = db.transaction((): TodoRow => {
+    db.prepare(
+      `INSERT INTO todos (id, date, title, note, sort_order, source)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(id, date, title, note, nextSortOrder(db, date), ctx.source);
+
+    // Re-read: done, created_at and updated_at come from SQL defaults, and the
+    // journal snapshot must be the row as stored.
+    const created = getRow(id);
+    recordOp(db, {
+      entity: "todo",
+      entityId: id,
+      op: "create",
+      before: null,
+      after: created,
+      source: ctx.source,
+      reasonId: ctx.reasonId,
+    });
+    return created;
+  })();
 
   emitTodosChanged({ reason: "create", id });
-  return getTodo(id);
+  return rowToTodo(row);
 }
 
-export function updateTodo(id: string, patch: TodoPatch): Todo {
+export function updateTodo(id: string, patch: TodoPatch, ctx: WriteContext): Todo {
   const db = getTodosDb();
 
-  db.transaction(() => {
+  const updated = db.transaction((): TodoRow => {
     const row = getRow(id);
 
     const title = patch.title !== undefined ? normalizeTitle(patch.title) : row.title;
@@ -214,16 +231,46 @@ export function updateTodo(id: string, patch: TodoPatch): Todo {
     if ((done && !wasDone) || date === null) {
       db.prepare("DELETE FROM desk WHERE todo_id = ?").run(id);
     }
+
+    // Journal last, after every write of the mutation has succeeded. The
+    // re-read is required — updated_at is stamped in SQL — and a patch that
+    // changed nothing is not an op (an empty diff would render as a lie in the
+    // log).
+    const after = getRow(id);
+    if (rowChanged(row, after)) {
+      recordOp(db, {
+        entity: "todo",
+        entityId: id,
+        op: "update",
+        before: row,
+        after,
+        source: ctx.source,
+        reasonId: ctx.reasonId,
+      });
+    }
+    return after;
   })();
 
   emitTodosChanged({ reason: "update", id });
-  return getTodo(id);
+  return rowToTodo(updated);
 }
 
-export function deleteTodo(id: string): void {
-  getRow(id);
-  // todo_sessions and desk rows both cascade (ON DELETE CASCADE).
-  getTodosDb().prepare("DELETE FROM todos WHERE id = ?").run(id);
+export function deleteTodo(id: string, ctx: WriteContext): void {
+  const db = getTodosDb();
+  db.transaction(() => {
+    const row = getRow(id);
+    // todo_sessions and desk rows both cascade (ON DELETE CASCADE).
+    db.prepare("DELETE FROM todos WHERE id = ?").run(id);
+    recordOp(db, {
+      entity: "todo",
+      entityId: id,
+      op: "delete",
+      before: row,
+      after: null,
+      source: ctx.source,
+      reasonId: ctx.reasonId,
+    });
+  })();
   emitTodosChanged({ reason: "delete", id });
 }
 

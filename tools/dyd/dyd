@@ -16,9 +16,9 @@ usage:
   dyd todo                    today's list
   dyd todo overdue            overdue list
   dyd todo backlog            backlog (todos with no planned day)
-  dyd todo add "<title>" [-d <date|today|tomorrow|backlog>] [-n <note>]
-  dyd todo done <n|id>
-  dyd todo move <n|id|b<n>> <date|today|tomorrow|backlog>
+  dyd todo add "<title>" [-d <date|today|tomorrow|backlog>] [-n <note>] [--reason <text>]
+  dyd todo done <n|id> [--reason <text>]
+  dyd todo move <n|id|b<n>> <date|today|tomorrow|backlog> [--reason <text>]
   dyd todo use <n|id|->       add a todo to the desk (- clears the desk)
   dyd todo drop <n|id>        remove a todo from the desk
   dyd source                  list data-source connectors
@@ -599,11 +599,12 @@ cmd_todo() {
     add)
       [ $# -ge 1 ] || die_usage
       local title="$1"; shift
-      local date="" note=""
+      local date="" note="" reason=""
       while [ $# -gt 0 ]; do
         case "$1" in
-          -d) date="${2:-}"; shift 2 ;;
-          -n) note="${2:-}"; shift 2 ;;
+          -d) date="${2:-}"; shift 2 || die_usage ;;
+          -n) note="${2:-}"; shift 2 || die_usage ;;
+          --reason) reason="${2:-}"; shift 2 || die_usage ;;
           *) die_usage ;;
         esac
       done
@@ -614,13 +615,15 @@ cmd_todo() {
         datejson=$(date_json "$date") || exit
       fi
       local body
-      body=$(TITLE="$title" DATEJSON="$datejson" NOTE="$note" python3 -c '
+      body=$(TITLE="$title" DATEJSON="$datejson" NOTE="$note" REASON="$reason" python3 -c '
 import json, os
 out = {"title": os.environ["TITLE"]}
 if os.environ["DATEJSON"]:
     out["date"] = json.loads(os.environ["DATEJSON"])
 if os.environ["NOTE"]:
     out["note"] = os.environ["NOTE"]
+if os.environ["REASON"]:
+    out["reason"] = os.environ["REASON"]
 print(json.dumps(out))')
       api POST /api/todos "$body"
       if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
@@ -637,17 +640,47 @@ print(json.dumps(out))')
       fi ;;
     move)
       # Re-plan a todo: onto a day, or into the backlog (no day at all).
-      [ $# -eq 2 ] || die_usage
-      resolve_id "$1" || exit 1
+      [ $# -ge 2 ] || die_usage
+      local ref="$1" target="$2"; shift 2
+      local reason=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --reason) reason="${2:-}"; shift 2 || die_usage ;;
+          *) die_usage ;;
+        esac
+      done
+      resolve_id "$ref" || exit 1
       local datejson
-      datejson=$(date_json "$2") || exit
-      api PATCH "/api/todos/$RESOLVED_ID" "$(printf '{"date":%s}' "$datejson")"
+      datejson=$(date_json "$target") || exit
+      local body
+      body=$(DATEJSON="$datejson" REASON="$reason" python3 -c '
+import json, os
+out = {"date": json.loads(os.environ["DATEJSON"])}
+if os.environ["REASON"]:
+    out["reason"] = os.environ["REASON"]
+print(json.dumps(out))')
+      api PATCH "/api/todos/$RESOLVED_ID" "$body"
       if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
       api_ok_or_die; fmt moved "$BODY" ;;
     done)
-      [ $# -eq 1 ] || die_usage
-      resolve_id "$1" || exit 1
-      api PATCH "/api/todos/$RESOLVED_ID" '{"done":true}'
+      [ $# -ge 1 ] || die_usage
+      local ref="$1"; shift
+      local reason=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --reason) reason="${2:-}"; shift 2 || die_usage ;;
+          *) die_usage ;;
+        esac
+      done
+      resolve_id "$ref" || exit 1
+      local body
+      body=$(REASON="$reason" python3 -c '
+import json, os
+out = {"done": True}
+if os.environ["REASON"]:
+    out["reason"] = os.environ["REASON"]
+print(json.dumps(out))')
+      api PATCH "/api/todos/$RESOLVED_ID" "$body"
       if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
       api_ok_or_die; fmt todo_line "$BODY" "done:" ;;
     use)
