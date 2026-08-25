@@ -23,6 +23,20 @@ const MS_PER_DAY = 24 * MS_PER_HOUR;
 /** The hour a day begins. Setting this to 0 puts the app back on calendar days. */
 export const DAY_START_HOUR = 5;
 
+// One formatter per shape, built once. Constructing an `Intl.DateTimeFormat` is
+// the expensive part, and `toLocaleDateString`/`toLocaleTimeString` construct a
+// fresh one on every call — roughly 20x the cost of reusing one here. Analytics
+// runs `dayOf` over every session in six separate aggregations, so a per-call
+// construction turns into whole seconds of blocking work on a multi-year log.
+const DAY_FORMAT = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE });
+
+const HM_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: TIME_ZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
 /**
  * The day `now` (epoch ms) belongs to, as yyyy-MM-dd.
  *
@@ -33,9 +47,7 @@ export const DAY_START_HOUR = 5;
  * timezone, which is the reason todos moved off local time in the first place.
  */
 export function dayOf(now: number): string {
-  return new Date(now - DAY_START_HOUR * MS_PER_HOUR).toLocaleDateString("en-CA", {
-    timeZone: TIME_ZONE,
-  });
+  return DAY_FORMAT.format(now - DAY_START_HOUR * MS_PER_HOUR);
 }
 
 /** The day happening right now. */
@@ -108,16 +120,11 @@ export function weekStartOf(day: string): string {
 /**
  * Wall-clock "HH:MM" in Asia/Seoul for an instant (epoch ms) — how the log
  * view timestamps its lines. Lives here so the zone name stays private to this
- * module. `hourCycle: "h23"`, not `hour12: false`: the latter may render
- * midnight as "24:00".
+ * module. HM_FORMAT sets `hourCycle: "h23"`, not `hour12: false`: the latter
+ * may render midnight as "24:00".
  */
 export function clockHm(ms: number): string {
-  return new Date(ms).toLocaleTimeString("en-GB", {
-    timeZone: TIME_ZONE,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
+  return HM_FORMAT.format(ms);
 }
 
 /**

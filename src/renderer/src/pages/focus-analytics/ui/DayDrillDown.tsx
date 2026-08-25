@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { clockHm } from "@shared/day";
 import {
   POMODORO_PRESETS,
   sessionsOnDate,
@@ -26,15 +27,11 @@ function presetLabel(id: PomodoroPresetId): string {
   return POMODORO_PRESETS.find((p) => p.id === id)?.label ?? id;
 }
 
-function formatTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 function formatDayHeading(date: string): string {
-  // `date` is a local `YYYY-MM-DD` key; parse as local, not UTC.
+  // `date` is an app day key: a KST calendar date, not a local one. Parsing it
+  // at local midnight (rather than letting `new Date(date)` read it as UTC)
+  // renders exactly that date, since a calendar date's weekday is the same in
+  // every timezone.
   const [y, m, d] = date.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString([], {
     weekday: "long",
@@ -175,7 +172,7 @@ function SessionRow({
     <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/20 p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="text-sm font-medium tabular-nums">
-          {formatTime(session.startedAt)} – {formatTime(session.endedAt)}
+          {clockHm(session.startedAt)} – {clockHm(session.endedAt)}
         </div>
         <div className="text-xs text-muted-foreground">
           {presetLabel(session.presetId)}
