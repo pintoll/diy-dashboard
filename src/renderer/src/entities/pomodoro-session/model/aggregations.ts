@@ -1,3 +1,4 @@
+import { addDays, dayOf, dayStartMs, hourOf, today, weekStartOf } from "@shared/day";
 import type {
   AttentionVerdict,
   PomodoroSessionRecord,
@@ -11,38 +12,13 @@ export type HeatmapCell = {
   level: HeatmapLevel;
 };
 
-function toDateKey(timestamp: number): string {
-  const d = new Date(timestamp);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function startOfLocalDay(timestamp: number): number {
-  const d = new Date(timestamp);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
-function daysBetween(earlier: number, later: number): number {
-  const MS_PER_DAY = 24 * 60 * 60 * 1000;
-  return Math.round((startOfLocalDay(later) - startOfLocalDay(earlier)) / MS_PER_DAY);
-}
-
-function startOfIsoWeek(timestamp: number): number {
-  const d = new Date(timestamp);
-  d.setHours(0, 0, 0, 0);
-  const day = d.getDay();
-  const diff = day === 0 ? 6 : day - 1;
-  d.setDate(d.getDate() - diff);
-  return d.getTime();
-}
-
+// Every day bucket below is the app day (05:00 Asia/Seoul boundary, @shared/day),
+// keyed by `endedAt` — the same day a todo finished in that session stamps
+// `completed_on`, so the heatmap and the todo layer can never disagree.
 function countByDate(sessions: PomodoroSessionRecord[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const s of sessions) {
-    const key = toDateKey(s.endedAt);
+    const key = dayOf(s.endedAt);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   return counts;
@@ -60,10 +36,10 @@ export function countToday(
   sessions: PomodoroSessionRecord[],
   now: number = Date.now()
 ): number {
-  const today = toDateKey(now);
+  const todayKey = dayOf(now);
   let n = 0;
   for (const s of sessions) {
-    if (toDateKey(s.endedAt) === today) n++;
+    if (dayOf(s.endedAt) === todayKey) n++;
   }
   return n;
 }
@@ -72,10 +48,12 @@ export function countThisWeek(
   sessions: PomodoroSessionRecord[],
   now: number = Date.now()
 ): number {
-  const weekStart = startOfIsoWeek(now);
+  // App week: Monday 05:00 KST, half-open — a session ending Monday 03:00
+  // still belongs to the previous week.
+  const weekStartsAt = dayStartMs(weekStartOf(dayOf(now)));
   let n = 0;
   for (const s of sessions) {
-    if (s.endedAt >= weekStart) n++;
+    if (s.endedAt >= weekStartsAt) n++;
   }
   return n;
 }
@@ -87,20 +65,16 @@ export function computeCurrentStreak(
   if (sessions.length === 0) return 0;
 
   const dateKeys = new Set<string>();
-  for (const s of sessions) dateKeys.add(toDateKey(s.endedAt));
+  for (const s of sessions) dateKeys.add(dayOf(s.endedAt));
 
-  const todayKey = toDateKey(now);
-  const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-  let cursor = startOfLocalDay(now);
-  if (!dateKeys.has(todayKey)) {
-    cursor -= MS_PER_DAY;
-  }
+  // No session yet today doesn't break the streak; start counting yesterday.
+  const todayKey = dayOf(now);
+  let cursor = dateKeys.has(todayKey) ? todayKey : addDays(todayKey, -1);
 
   let streak = 0;
-  while (dateKeys.has(toDateKey(cursor))) {
+  while (dateKeys.has(cursor)) {
     streak++;
-    cursor -= MS_PER_DAY;
+    cursor = addDays(cursor, -1);
   }
   return streak;
 }
@@ -146,9 +120,11 @@ export function weeklyActiveHours(
   sessions: PomodoroSessionRecord[],
   now: number = Date.now()
 ): WeeklyHoursComparison {
-  const MS_PER_DAY = 24 * 60 * 60 * 1000;
-  const thisWeekStart = startOfIsoWeek(now);
-  const lastWeekStart = thisWeekStart - 7 * MS_PER_DAY;
+  // Week windows derive from day keys, never from a local `+ 7 * 24h` — the
+  // fixed-width-day assumption lives in @shared/day, once.
+  const thisWeekStartDay = weekStartOf(dayOf(now));
+  const thisWeekStart = dayStartMs(thisWeekStartDay);
+  const lastWeekStart = dayStartMs(addDays(thisWeekStartDay, -7));
 
   const thisWeekSessions: PomodoroSessionRecord[] = [];
   const lastWeekSessions: PomodoroSessionRecord[] = [];
@@ -247,14 +223,14 @@ export function intentOutcomeMatrix(
 }
 
 export type HourBucket = {
-  hour: number; // 0-23, local
+  hour: number; // 0-23, Asia/Seoul wall clock
   focusCount: number;
   leisureCount: number;
   collapseCount: number; // intended focus, ended leisure
 };
 
-// 24 local-hour buckets keyed by session start, so leisure/collapse clustering
-// ("this hour is where I weaken") is visible.
+// 24 KST wall-hour buckets keyed by session start, so leisure/collapse
+// clustering ("this hour is where I weaken") is visible.
 export function timeOfDayPattern(
   sessions: PomodoroSessionRecord[]
 ): HourBucket[] {
@@ -266,7 +242,7 @@ export function timeOfDayPattern(
   }));
 
   for (const s of sessions) {
-    const bucket = buckets[new Date(s.startedAt).getHours()];
+    const bucket = buckets[hourOf(s.startedAt)];
     const outcome = bucketOf(s.attention);
     if (outcome === "focus") bucket.focusCount++;
     else bucket.leisureCount++;
@@ -279,32 +255,30 @@ export function timeOfDayPattern(
 }
 
 export type DailyHours = {
-  date: string; // local YYYY-MM-DD
+  date: string; // app day key (05:00 Asia/Seoul boundary)
   focusHours: number;
   leisureHours: number;
   sessionCount: number;
 };
 
 // Per-day focus/leisure hours for a sliding window of `days` ending on the
-// local day of `endTimestamp` (inclusive), oldest first. Buckets by `endedAt`
-// to match the heatmap and day drill-down; active time = planned + overtime.
-// Days with no sessions are emitted as zero rows so the window is always
-// `days` long and navigation never collapses.
+// day `endDay` (inclusive), oldest first. Buckets by `endedAt` to match the
+// heatmap and day drill-down; active time = planned + overtime. Days with no
+// sessions are emitted as zero rows so the window is always `days` long and
+// navigation never collapses.
 export function dailyActiveHours(
   sessions: PomodoroSessionRecord[],
   days: number,
-  endTimestamp: number = Date.now()
+  endDay: string = today()
 ): DailyHours[] {
-  const MS_PER_DAY = 24 * 60 * 60 * 1000;
-  const endDay = startOfLocalDay(endTimestamp);
-  const startDay = endDay - (days - 1) * MS_PER_DAY;
+  // Fixed-width keys, so lexicographic order is date order.
+  const startDay = addDays(endDay, -(days - 1));
 
   type Acc = { focusSec: number; leisureSec: number; count: number };
   const byDate = new Map<string, Acc>();
   for (const s of sessions) {
-    if (s.endedAt < startDay) continue;
-    if (startOfLocalDay(s.endedAt) > endDay) continue;
-    const key = toDateKey(s.endedAt);
+    const key = dayOf(s.endedAt);
+    if (key < startDay || key > endDay) continue;
     const acc = byDate.get(key) ?? { focusSec: 0, leisureSec: 0, count: 0 };
     if (bucketOf(s.attention) === "focus") acc.focusSec += sessionActiveSec(s);
     else acc.leisureSec += sessionActiveSec(s);
@@ -314,7 +288,7 @@ export function dailyActiveHours(
 
   const out: DailyHours[] = [];
   for (let i = 0; i < days; i++) {
-    const key = toDateKey(startDay + i * MS_PER_DAY);
+    const key = addDays(startDay, i);
     const acc = byDate.get(key);
     out.push({
       date: key,
@@ -347,14 +321,14 @@ export function appBreakdown(
     .slice(0, topN);
 }
 
-// All sessions that ended on the given local day (`YYYY-MM-DD`), ordered by
+// All sessions that ended on the given app day (`YYYY-MM-DD`), ordered by
 // start time. Keyed by `endedAt` to match the heatmap's per-day counts.
 export function sessionsOnDate(
   sessions: PomodoroSessionRecord[],
   date: string
 ): PomodoroSessionRecord[] {
   return sessions
-    .filter((s) => toDateKey(s.endedAt) === date)
+    .filter((s) => dayOf(s.endedAt) === date)
     .sort((a, b) => a.startedAt - b.startedAt);
 }
 
@@ -364,18 +338,14 @@ export function buildHeatmapCells(
   now: number = Date.now()
 ): HeatmapCell[] {
   const counts = countByDate(sessions);
-  const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-  const currentWeekStart = startOfIsoWeek(now);
-  const firstWeekStart = currentWeekStart - (weeks - 1) * 7 * MS_PER_DAY;
-  const today = startOfLocalDay(now);
+  const todayKey = dayOf(now);
+  const firstWeekStart = addDays(weekStartOf(todayKey), -(weeks - 1) * 7);
 
   const cells: HeatmapCell[] = [];
   for (let w = 0; w < weeks; w++) {
     for (let d = 0; d < 7; d++) {
-      const cellTs = firstWeekStart + (w * 7 + d) * MS_PER_DAY;
-      const key = toDateKey(cellTs);
-      const isFuture = daysBetween(today, cellTs) > 0;
+      const key = addDays(firstWeekStart, w * 7 + d);
+      const isFuture = key > todayKey;
       const count = isFuture ? 0 : counts.get(key) ?? 0;
       cells.push({ date: key, count, level: levelForCount(count) });
     }

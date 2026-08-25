@@ -81,6 +81,31 @@ export function dayEndIso(day: string): string {
 }
 
 /**
+ * `day` shifted by `n` calendar days. Pure key arithmetic: the key is parsed
+ * at UTC midnight and moved with setUTCDate, so the result can never cross a
+ * DST or machine-timezone seam.
+ */
+export function addDays(day: string, n: number): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Whole days from `earlier` to `later` (both day keys); negative if reversed. */
+export function daysBetween(earlier: string, later: string): number {
+  return (Date.parse(`${later}T00:00:00Z`) - Date.parse(`${earlier}T00:00:00Z`)) / MS_PER_DAY;
+}
+
+/**
+ * The Monday key of the ISO week containing `day`. Composed with dayStartMs,
+ * the app week runs Monday 05:00 KST to the next Monday 05:00 KST.
+ */
+export function weekStartOf(day: string): string {
+  const weekday = new Date(`${day}T00:00:00Z`).getUTCDay(); // 0 = Sunday
+  return addDays(day, weekday === 0 ? -6 : 1 - weekday);
+}
+
+/**
  * Wall-clock "HH:MM" in Asia/Seoul for an instant (epoch ms) — how the log
  * view timestamps its lines. Lives here so the zone name stays private to this
  * module. `hourCycle: "h23"`, not `hour12: false`: the latter may render
@@ -93,4 +118,12 @@ export function clockHm(ms: number): string {
     minute: "2-digit",
     hourCycle: "h23",
   });
+}
+
+/**
+ * Wall-clock hour 0-23 in Asia/Seoul for an instant (epoch ms). Goes through
+ * clockHm so the h23 guarantee (midnight is 0, never 24) is inherited.
+ */
+export function hourOf(ms: number): number {
+  return Number(clockHm(ms).slice(0, 2));
 }

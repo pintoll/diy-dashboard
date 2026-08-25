@@ -1,13 +1,17 @@
 import { describe, it, expect } from "vitest";
 import {
   DAY_START_HOUR,
+  addDays,
   clockHm,
   dayEndIso,
   dayEndMs,
   dayOf,
   dayStartIso,
   dayStartMs,
+  daysBetween,
+  hourOf,
   today,
+  weekStartOf,
 } from "./day";
 
 // This module is the single definition of "which day is it" for both processes,
@@ -101,6 +105,72 @@ describe("clockHm", () => {
 
   it("renders midnight as 00:00, not 24:00", () => {
     expect(clockHm(at("2026-08-24T15:00:00Z"))).toBe("00:00"); // 08-25 00:00 KST
+  });
+});
+
+describe("addDays", () => {
+  it("steps a single day in either direction", () => {
+    expect(addDays("2026-08-24", 1)).toBe("2026-08-25");
+    expect(addDays("2026-08-24", -1)).toBe("2026-08-23");
+    expect(addDays("2026-08-24", 0)).toBe("2026-08-24");
+  });
+
+  it("carries across month and year ends", () => {
+    expect(addDays("2026-08-31", 1)).toBe("2026-09-01");
+    expect(addDays("2025-12-31", 1)).toBe("2026-01-01");
+    expect(addDays("2026-01-01", -1)).toBe("2025-12-31");
+  });
+
+  it("handles multi-day spans", () => {
+    expect(addDays("2026-08-24", 7)).toBe("2026-08-31");
+    expect(addDays("2026-08-24", -30)).toBe("2026-07-25");
+  });
+});
+
+describe("daysBetween", () => {
+  it("is zero for the same key and signed by direction", () => {
+    expect(daysBetween("2026-08-24", "2026-08-24")).toBe(0);
+    expect(daysBetween("2026-08-24", "2026-08-25")).toBe(1);
+    expect(daysBetween("2026-08-25", "2026-08-24")).toBe(-1);
+  });
+
+  it("counts across a month end", () => {
+    expect(daysBetween("2026-08-30", "2026-09-02")).toBe(3);
+  });
+
+  it("inverts addDays", () => {
+    expect(daysBetween("2026-08-24", addDays("2026-08-24", 42))).toBe(42);
+  });
+});
+
+describe("weekStartOf", () => {
+  // 2026-08-24 is a Monday.
+  it("maps a mid-week day to its Monday", () => {
+    expect(weekStartOf("2026-08-26")).toBe("2026-08-24"); // Wednesday
+    expect(weekStartOf("2026-08-29")).toBe("2026-08-24"); // Saturday
+  });
+
+  it("maps a Monday to itself", () => {
+    expect(weekStartOf("2026-08-24")).toBe("2026-08-24");
+  });
+
+  it("maps a Sunday to the previous Monday, ISO style", () => {
+    expect(weekStartOf("2026-08-30")).toBe("2026-08-24");
+  });
+
+  it("composes with dayStartMs into a Monday 05:00 KST week start", () => {
+    expect(dayStartMs(weekStartOf("2026-08-26"))).toBe(at("2026-08-23T20:00:00Z"));
+  });
+});
+
+describe("hourOf", () => {
+  it("reads the Seoul wall hour regardless of machine timezone", () => {
+    expect(hourOf(at("2026-08-24T17:00:00Z"))).toBe(2); // 08-25 02:00 KST
+    expect(hourOf(at("2026-08-24T20:00:00Z"))).toBe(5); // 08-25 05:00 KST
+  });
+
+  it("renders KST midnight as 0, not 24", () => {
+    expect(hourOf(at("2026-08-24T15:00:00Z"))).toBe(0); // 08-25 00:00 KST
   });
 });
 

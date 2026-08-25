@@ -54,13 +54,19 @@ Two neighbours deliberately keep calendar days. daily-news has its own kst
 helper (news is published against calendar dates). finance's `currentYm` is
 month-grained, where a 04:00 timestamp on the 1st belongs to the new month.
 
-**Not** reached: pomodoro analytics. `entities/pomodoro-session/model/aggregations.ts`
-never used the KST helper — `toDateKey`, `startOfLocalDay`, `startOfIsoWeek`,
-and the hour buckets all read machine-local midnight — so the cutoff does not
-propagate there. Until that is redone, a todo finished at 02:00 stamps
-`completed_on` on the previous day while the same instant's pomodoro session
-lands on the next one in the heatmap and streak. Accepted interim state;
-scheduled before the day sheet puts the day model on screen (see below).
+Pomodoro analytics now shares the boundary too (step 5).
+`entities/pomodoro-session/model/aggregations.ts` originally never used the KST
+helper — its private primitives read machine-local midnight — so a todo
+finished at 02:00 stamped `completed_on` on the previous day while the same
+instant's pomodoro session landed on the next one in the heatmap and streak.
+Those primitives are gone: every day bucket routes through `dayOf`, the week
+windows through `weekStartOf` (Monday 05:00 KST, `@shared/day`'s
+`addDays`/`daysBetween`/`weekStartOf` key arithmetic), and the time-of-day
+buckets through `hourOf` (Seoul wall clock, not machine-local). Attribution is
+unchanged: day counts still key on `endedAt`, the hour pattern on `startedAt`,
+and fold's `started_at` rule stays its own. The stat widgets also roll over at
+05:00 now (`renderer/shared/lib/use-today.ts`) instead of waiting for the next
+session write.
 
 ## Schema (todos.db)
 
@@ -199,6 +205,10 @@ day_folds (
    title resolution); `GET /api/days/:day/log`; `dyd log`)*
 5. **Analytics day boundary** — fold `aggregations.ts` onto the same day
    definition (see above), before the day model becomes visible in step 6.
+   *(done — day/week/hour buckets rebased on @shared/day (`addDays`,
+   `daysBetween`, `weekStartOf`, `hourOf` added there); DailyTrendChart's
+   private midnight copy removed; stat widgets roll over at 05:00 via
+   renderer/shared/lib/use-today.ts)*
 6. **Day-sheet widget** — today's plan as one block, with the shallow edits.
 7. **Assistant shell** — second window, route, assistant-scoped key and base
    URL, and the provider gate below.
