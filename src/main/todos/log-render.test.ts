@@ -140,6 +140,25 @@ describe("renderLogLines: todo grammar", () => {
     ]);
     expect(lines[0].text).toBe('updated "Write tests"');
   });
+
+  it("degrades loudly on a journaled column without bespoke grammar", () => {
+    // journal.ts diffs snapshots generically, so a future todo column is
+    // journaled the day it is added; the renderer must say so rather than
+    // fall through to the contentless "updated" line.
+    const lines = render([
+      op({ op: "update", before: todoRow(), after: { ...todoRow(), priority: 2 } }),
+      op({
+        seq: 2,
+        op: "update",
+        before: todoRow({ title: "Write tets" }),
+        after: { ...todoRow(), priority: 2 },
+      }),
+    ]);
+    expect(lines.map((l) => l.text)).toEqual([
+      'changed priority of "Write tests"',
+      'renamed "Write tets" to "Write tests", changed priority of it',
+    ]);
+  });
 });
 
 describe("renderLogLines: plan grammar", () => {
@@ -186,8 +205,46 @@ describe("renderLogLines: plan grammar", () => {
         before: null,
         after: planRow({ day: "2026-08-26" }),
       }),
+      op({
+        seq: 2,
+        entity: "plan",
+        entityId: "p1",
+        op: "update",
+        before: planRow({ day: "2026-08-26" }),
+        after: planRow({ day: "2026-08-26", start: "13:00", end: "15:00" }),
+      }),
     ]);
-    expect(lines[0].text).toBe('planned "Write tests" 10:00-12:00 on 2026-08-26');
+    expect(lines.map((l) => l.text)).toEqual([
+      'planned "Write tests" 10:00-12:00 on 2026-08-26',
+      'retimed "Write tests" from 10:00-12:00 to 13:00-15:00 on 2026-08-26',
+    ]);
+  });
+
+  it("renders an update by what differs, not by assuming a retime", () => {
+    // PlanEntryPatch is retime-only today; if a day-move op ever lands in the
+    // journal, the log must say the day moved instead of rendering a
+    // zero-width "retimed" built from the after-snapshot.
+    const lines = render([
+      op({
+        entity: "plan",
+        entityId: "p1",
+        op: "update",
+        before: planRow(),
+        after: planRow({ day: "2026-08-26" }),
+      }),
+      op({
+        seq: 2,
+        entity: "plan",
+        entityId: "p1",
+        op: "update",
+        before: planRow(),
+        after: planRow({ day: "2026-08-26", start: "13:00", end: "15:00" }),
+      }),
+    ]);
+    expect(lines.map((l) => l.text)).toEqual([
+      'moved "Write tests" from 2026-08-25 to 2026-08-26',
+      'retimed "Write tests" from 10:00-12:00 to 13:00-15:00, moved it from 2026-08-25 to 2026-08-26',
+    ]);
   });
 });
 
@@ -260,6 +317,28 @@ describe("renderLogLines: grouping", () => {
       op({ seq: 21, op: "delete", before: todoRow(), after: null }),
     ]);
     expect(lines[0].text).toBe('deleted "Write tests" (1 planned block removed)');
+  });
+
+  it("does not fuse an unplan and a deletion from different transactions", () => {
+    // Same shape as a sweep — a plan delete then that todo's delete, adjacent
+    // in the journal — but the stamps differ: two separate intents hours
+    // apart (journal.ts reads the clock once per write context, so one
+    // transaction's ops always share one `at`). Fusing would erase the
+    // deliberate unplan and antedate the deletion to it.
+    const lines = render([
+      op({ seq: 20, entity: "plan", entityId: "p1", op: "delete", before: planRow(), after: null }),
+      op({
+        seq: 21,
+        op: "delete",
+        before: todoRow(),
+        after: null,
+        at: "2026-08-25T09:41:00.000Z",
+      }),
+    ]);
+    expect(lines.map((l) => l.text)).toEqual([
+      'unplanned "Write tests" 10:00-12:00',
+      'deleted "Write tests"',
+    ]);
   });
 
   it("leaves a broken sweep uncollapsed", () => {

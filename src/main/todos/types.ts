@@ -23,6 +23,10 @@ export type WriteContext = {
   // above, so a write that journals nothing — failed validation, no-change
   // patch — never leaves an orphan reasons row.
   reason?: ReasonInput;
+  // The intent's single `ops.at` stamp, read once on first journaled op and
+  // cached here (journal.ts resolveOpAt). Never set by callers — contexts are
+  // one-per-write-request, so the cache scopes the stamp to one intent.
+  at?: string;
 };
 
 export type TodoRow = {

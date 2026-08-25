@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
-import { dayEndMs, dayStartMs } from "@shared/day";
+import { dayEndIso, dayStartIso } from "@shared/day";
 import { assertDate } from "./date";
+import { getTodoTitlesByIds } from "./crud";
 import { getTodosDb } from "./db";
 import type { OpEntity, OpKind } from "./journal";
 import {
@@ -13,10 +14,9 @@ import type { TodoSource } from "./types";
 
 // The log view's queries: one day-window scan over the ops journal with its
 // reasons joined in, handed to log-render.ts (the pure renderer) as parsed
-// rows. Same half-open [dayStart, dayEnd) ISO range as fold.ts — string
-// comparison on `at` is safe because every value is toISOString()
-// (journal.ts) — but ordered by seq: append order is authoritative, and the
-// two diverge only under clock skew.
+// rows. Same half-open [dayStartIso, dayEndIso) range as fold.ts — but ordered
+// by seq: append order is authoritative, and the two diverge only under clock
+// skew.
 
 export type DayLog = { day: string; lines: LogLine[] };
 
@@ -44,10 +44,7 @@ export function getDayLog(day: string): DayLog {
        WHERE o.at >= ? AND o.at < ?
        ORDER BY o.seq`
     )
-    .all(
-      new Date(dayStartMs(day)).toISOString(),
-      new Date(dayEndMs(day)).toISOString()
-    ) as OpRow[];
+    .all(dayStartIso(day), dayEndIso(day)) as OpRow[];
 
   const parse = (snapshot: string | null): Record<string, unknown> | null =>
     snapshot === null ? null : (JSON.parse(snapshot) as Record<string, unknown>);
@@ -80,24 +77,26 @@ function resolveTitles(
   const titles = new Map<string, string>();
   if (ids.size === 0) return titles;
 
-  const list = [...ids];
-  const placeholders = list.map(() => "?").join(",");
-  const live = db
-    .prepare(`SELECT id, title FROM todos WHERE id IN (${placeholders})`)
-    .all(...list) as { id: string; title: string }[];
-  for (const row of live) titles.set(row.id, row.title);
+  for (const row of getTodoTitlesByIds([...ids])) titles.set(row.id, row.title);
 
-  const lastSnapshot = db.prepare(
-    `SELECT COALESCE(after, before) AS snap FROM ops
-     WHERE entity = 'todo' AND entity_id = ?
-     ORDER BY seq DESC LIMIT 1`
-  );
-  for (const id of list) {
-    if (titles.has(id)) continue;
-    const row = lastSnapshot.get(id) as { snap: string | null } | undefined;
-    if (!row || row.snap === null) continue;
+  const missing = [...ids].filter((id) => !titles.has(id));
+  if (missing.length === 0) return titles;
+  // One grouped lookup for every missing id, served by idx_ops_entity
+  // (schema.ts). The bare columns ride SQLite's documented min/max behavior:
+  // with a single MAX() aggregate, non-aggregate columns — and expressions
+  // over them — take their values from the max-seq row.
+  const placeholders = missing.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `SELECT entity_id AS id, COALESCE(after, before) AS snap, MAX(seq)
+       FROM ops WHERE entity = 'todo' AND entity_id IN (${placeholders})
+       GROUP BY entity_id`
+    )
+    .all(...missing) as { id: string; snap: string | null }[];
+  for (const row of rows) {
+    if (row.snap === null) continue;
     const title = (JSON.parse(row.snap) as { title?: unknown }).title;
-    if (typeof title === "string") titles.set(id, title);
+    if (typeof title === "string") titles.set(row.id, title);
   }
   return titles;
 }

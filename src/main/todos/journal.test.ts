@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rowChanged } from "./journal";
+import { changedKeys, rowChanged } from "./journal";
 
 // Only the pure part of journal.ts is unit-tested; createReason/recordOp need
 // better-sqlite3, which cannot load under vitest (Electron ABI) and is covered
@@ -49,5 +49,22 @@ describe("rowChanged", () => {
       Object.entries(row).filter(([key]) => key !== "note")
     );
     expect(rowChanged(row, withoutNote)).toBe(true);
+  });
+});
+
+describe("changedKeys", () => {
+  it("names exactly the differing columns, updated_at excluded", () => {
+    expect(
+      changedKeys(row, {
+        ...row,
+        title: "renamed",
+        worked_sec: 1800,
+        updated_at: "2026-08-24 03:00:00",
+      }).sort()
+    ).toEqual(["title", "worked_sec"]);
+  });
+
+  it("reports a column the journal learns about later — the renderer's generic-fragment feed", () => {
+    expect(changedKeys(row, { ...row, priority: 2 })).toEqual(["priority"]);
   });
 });

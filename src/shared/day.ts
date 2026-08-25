@@ -65,6 +65,22 @@ export function dayEndMs(day: string): number {
 }
 
 /**
+ * The day window as ISO-8601 UTC strings, for string comparison against
+ * journal timestamps: every `ops.at` and `reasons.created_at` is
+ * `toISOString()` (journal.ts) — fixed width, UTC, millisecond precision — so
+ * lexicographic order equals time order. That invariant lives here, next to
+ * the window definition, instead of being re-argued at each query site.
+ */
+export function dayStartIso(day: string): string {
+  return new Date(dayStartMs(day)).toISOString();
+}
+
+/** The exclusive ISO end of `day` — the next day's dayStartIso. */
+export function dayEndIso(day: string): string {
+  return new Date(dayEndMs(day)).toISOString();
+}
+
+/**
  * Wall-clock "HH:MM" in Asia/Seoul for an instant (epoch ms) — how the log
  * view timestamps its lines. Lives here so the zone name stays private to this
  * module. `hourCycle: "h23"`, not `hour12: false`: the latter may render

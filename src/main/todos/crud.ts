@@ -4,7 +4,7 @@ import { today } from "@shared/day";
 import { getTodosDb } from "./db";
 import { assertDate } from "./date";
 import { emitTodosChanged } from "./events";
-import { recordOp, resolveReasonId, rowChanged } from "./journal";
+import { recordOp, rowChanged } from "./journal";
 import { removePlanEntriesForTodo } from "./plan";
 import {
   NotFoundError,
@@ -79,7 +79,8 @@ export function getTodo(id: string): Todo {
 /**
  * Resolves a set of todo ids to their titles for display — the analytics day
  * drill-down's per-session "worked on" line, which links a pomodoro session to
- * the todos that were on the desk during it (docs/design/multi-pomo-todo.md).
+ * the todos that were on the desk during it (docs/design/multi-pomo-todo.md),
+ * and the day log's plan-op title resolution (log.ts).
  * Deleted todos are simply absent from the result (the caller shows a fallback),
  * so this never throws on an unknown id the way `getTodo` does. Order is
  * unspecified; callers key by id.
@@ -158,14 +159,12 @@ export function createTodo(input: TodoCreateInput, ctx: WriteContext): Todo {
     // Re-read: done, created_at and updated_at come from SQL defaults, and the
     // journal snapshot must be the row as stored.
     const created = getRow(id);
-    recordOp(db, {
+    recordOp(db, ctx, {
       entity: "todo",
       entityId: id,
       op: "create",
       before: null,
       after: created,
-      source: ctx.source,
-      reasonId: resolveReasonId(db, ctx),
     });
     return created;
   })();
@@ -247,14 +246,12 @@ export function updateTodo(
     // log).
     const after = getRow(id);
     if (rowChanged(row, after)) {
-      recordOp(db, {
+      recordOp(db, ctx, {
         entity: "todo",
         entityId: id,
         op: "update",
         before: row,
         after,
-        source: ctx.source,
-        reasonId: resolveReasonId(db, ctx),
       });
     }
     return after;
@@ -274,14 +271,12 @@ export function deleteTodo(id: string, ctx: WriteContext): void {
     // (ON DELETE CASCADE) instead; they are accrual and membership, not intent.
     removePlanEntriesForTodo(db, id, ctx);
     db.prepare("DELETE FROM todos WHERE id = ?").run(id);
-    recordOp(db, {
+    recordOp(db, ctx, {
       entity: "todo",
       entityId: id,
       op: "delete",
       before: row,
       after: null,
-      source: ctx.source,
-      reasonId: resolveReasonId(db, ctx),
     });
   })();
   emitTodosChanged({ reason: "delete", id });

@@ -1,5 +1,5 @@
 import { clockHm } from "@shared/day";
-import type { OpEntity, OpKind } from "./journal";
+import { changedKeys, type OpEntity, type OpKind } from "./journal";
 import type { PlanEntryRow, TodoRow, TodoSource } from "./types";
 
 // Renders the ops journal to natural-language log lines — the day record's
@@ -111,7 +111,12 @@ function segmentOps(ops: LogOp[]): Segment[] {
 
 // One rendered fragment: a single op, or a todo delete fused with the
 // plan-delete sweep that preceded it in the same transaction (crud.ts sweeps
-// entries via the journal right before the todo row goes).
+// entries via the journal right before the todo row goes). "Same transaction"
+// is decided by an equal `at` stamp — journal.ts reads the clock once per
+// WriteContext, so one intent's ops share one stamp while separate intents,
+// however adjacent in the journal, do not. Adjacency alone would fuse an
+// unplan and a deletion hours apart into a fictitious sweep line anchored at
+// the earlier time.
 type Unit = { ops: LogOp[]; sweptBlocks: number };
 
 function collapseSweeps(ops: LogOp[]): Unit[] {
@@ -123,20 +128,17 @@ function collapseSweeps(ops: LogOp[]): Unit[] {
     pending = [];
   };
   const pendingTodoId = (): unknown => (pending[0].before as PlanSnap).todo_id;
+  const joinsPending = (todoId: unknown, at: string): boolean =>
+    pending.length > 0 && pendingTodoId() === todoId && pending[0].at === at;
 
   for (const op of ops) {
     if (op.entity === "plan" && op.op === "delete") {
       const todoId = (op.before as PlanSnap | null)?.todo_id;
-      if (pending.length > 0 && pendingTodoId() !== todoId) flush();
+      if (pending.length > 0 && !joinsPending(todoId, op.at)) flush();
       pending.push(op);
       continue;
     }
-    if (
-      op.entity === "todo" &&
-      op.op === "delete" &&
-      pending.length > 0 &&
-      pendingTodoId() === op.entityId
-    ) {
+    if (op.entity === "todo" && op.op === "delete" && joinsPending(op.entityId, op.at)) {
       units.push({ ops: [...pending, op], sweptBlocks: pending.length });
       pending = [];
       continue;
@@ -179,10 +181,18 @@ function createdDestination(date: string | null | undefined, day: string): strin
   return ` for ${date}`;
 }
 
+// Derived and cosmetic todo columns that never render: completed_on rides the
+// done flip, sort_order is mechanical, worked_sec even accrues outside the
+// journal (echoing it would misstate the diff), created_at cannot change.
+// Everything else that journal.ts's generic diff reports either has bespoke
+// grammar below or falls through to a generic "changed <field>" fragment — so
+// a future todo column degrades loudly in the log instead of vanishing into
+// the bare "updated" fallback.
+const SILENT_TODO_FIELDS = new Set(["completed_on", "sort_order", "worked_sec", "created_at"]);
+const SPOKEN_TODO_FIELDS = new Set(["title", "date", "done", "note"]);
+
 // Changed fields only, in fixed order, comma-joined; the title is quoted once
-// and then referred to as "it". Derived and cosmetic columns (completed_on,
-// sort_order, worked_sec, timestamps) never render — worked_sec even accrues
-// outside the journal, so echoing it would misstate the diff.
+// and then referred to as "it".
 function renderTodoUpdate(before: TodoSnap, after: TodoSnap): string {
   const title = after.title ?? before.title;
   let named = false;
@@ -211,8 +221,14 @@ function renderTodoUpdate(before: TodoSnap, after: TodoSnap): string {
         : `updated the note on ${subject()}`
     );
   }
+  for (const key of changedKeys(before, after).sort()) {
+    if (SPOKEN_TODO_FIELDS.has(key) || SILENT_TODO_FIELDS.has(key)) continue;
+    fragments.push(`changed ${key} of ${subject()}`);
+  }
   return fragments.length === 0 ? `updated "${title}"` : fragments.join(", ");
 }
+
+const planRange = (s: PlanSnap): string => `${s.start}-${s.end}`;
 
 function renderPlanOp(op: LogOp, day: string, titles: Map<string, string>): string {
   const before = (op.before ?? {}) as PlanSnap;
@@ -222,11 +238,45 @@ function renderPlanOp(op: LogOp, day: string, titles: Map<string, string>): stri
     snap.todo_id !== undefined && titles.has(snap.todo_id)
       ? `"${titles.get(snap.todo_id)}"`
       : "(unknown todo)";
-  const range = (s: PlanSnap): string => `${s.start}-${s.end}`;
   // Plan ops land in the log of the day they HAPPENED (the at-window), which
   // may not be the day they schedule — name that day when it differs.
   const on = snap.day !== undefined && snap.day !== day ? ` on ${snap.day}` : "";
-  if (op.op === "create") return `planned ${title} ${range(after)}${on}`;
-  if (op.op === "delete") return `unplanned ${title} ${range(before)}${on}`;
-  return `retimed ${title} from ${range(before)} to ${range(after)}${on}`;
+  if (op.op === "create") return `planned ${title} ${planRange(after)}${on}`;
+  if (op.op === "delete") return `unplanned ${title} ${planRange(before)}${on}`;
+  return renderPlanUpdate(before, after, title, on);
+}
+
+// Like renderTodoUpdate, driven by which snapshot fields actually differ — not
+// by PlanEntryPatch's current retime-only surface. types.ts documents day
+// moves and re-points as delete+create today, but that is prose: should the
+// patch surface ever widen, the journal records the op faithfully and this
+// must not compress it into a zero-width "retimed".
+function renderPlanUpdate(
+  before: PlanSnap,
+  after: PlanSnap,
+  title: string,
+  on: string
+): string {
+  let named = false;
+  const subject = (): string => {
+    if (named) return "it";
+    named = true;
+    return title;
+  };
+
+  const fragments: string[] = [];
+  if (before.start !== after.start || before.end !== after.end) {
+    fragments.push(`retimed ${subject()} from ${planRange(before)} to ${planRange(after)}`);
+  }
+  const dayMoved = before.day !== after.day;
+  if (dayMoved) {
+    fragments.push(`moved ${subject()} from ${before.day} to ${after.day}`);
+  }
+  for (const key of changedKeys(before, after).sort()) {
+    if (key === "start" || key === "end" || key === "day") continue;
+    fragments.push(`changed ${key} of ${subject()}`);
+  }
+  if (fragments.length === 0) return `updated the plan for ${title}${on}`;
+  // A day move names both days itself; the `on` suffix would name only one.
+  return fragments.join(", ") + (dayMoved ? "" : on);
 }

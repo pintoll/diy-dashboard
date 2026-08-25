@@ -4,7 +4,7 @@ import { today } from "@shared/day";
 import { comparePlanStart, isPlanTime, planEndMinutes, planMinutes } from "@shared/plan-time";
 import { getTodosDb } from "./db";
 import { assertDate } from "./date";
-import { recordOp, resolveReasonId, rowChanged } from "./journal";
+import { recordOp, rowChanged } from "./journal";
 import {
   NotFoundError,
   ValidationError,
@@ -92,14 +92,12 @@ export function createPlanEntry(input: PlanEntryCreateInput, ctx: WriteContext):
     // No re-read: plan_entries has no SQL defaults, so the bound values are
     // the row as stored (contrast crud.ts createTodo).
     const created: PlanEntryRow = { id, day, todo_id: input.todoId, start, end };
-    recordOp(db, {
+    recordOp(db, ctx, {
       entity: "plan",
       entityId: id,
       op: "create",
       before: null,
       after: created,
-      source: ctx.source,
-      reasonId: resolveReasonId(db, ctx),
     });
     return created;
   })();
@@ -124,14 +122,12 @@ export function updatePlanEntry(
 
     const after: PlanEntryRow = { ...row, start, end };
     if (rowChanged(row, after)) {
-      recordOp(db, {
+      recordOp(db, ctx, {
         entity: "plan",
         entityId: id,
         op: "update",
         before: row,
         after,
-        source: ctx.source,
-        reasonId: resolveReasonId(db, ctx),
       });
     }
     return after;
@@ -145,14 +141,12 @@ export function updatePlanEntry(
 // differently — log rendering and rewind must see one delete op shape.
 function deleteEntryRow(db: Database.Database, row: PlanEntryRow, ctx: WriteContext): void {
   db.prepare("DELETE FROM plan_entries WHERE id = ?").run(row.id);
-  recordOp(db, {
+  recordOp(db, ctx, {
     entity: "plan",
     entityId: row.id,
     op: "delete",
     before: row,
     after: null,
-    source: ctx.source,
-    reasonId: resolveReasonId(db, ctx),
   });
 }
 

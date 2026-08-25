@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { DAY_START_HOUR, clockHm, dayEndMs, dayOf, dayStartMs, today } from "./day";
+import {
+  DAY_START_HOUR,
+  clockHm,
+  dayEndIso,
+  dayEndMs,
+  dayOf,
+  dayStartIso,
+  dayStartMs,
+  today,
+} from "./day";
 
 // This module is the single definition of "which day is it" for both processes,
 // so the 05:00-to-05:00 rule from docs/design/assistant-behavior.md is pinned
@@ -66,6 +75,21 @@ describe("dayEndMs", () => {
   it("bounds the day half-open: the end instant already belongs to the next day", () => {
     expect(dayOf(dayEndMs("2026-08-24") - 1)).toBe("2026-08-24");
     expect(dayOf(dayEndMs("2026-08-24"))).toBe("2026-08-25");
+  });
+});
+
+describe("dayStartIso / dayEndIso", () => {
+  it("renders the window instants in the journal's exact format", () => {
+    // toISOString(): fixed-width UTC with milliseconds — the format every
+    // ops.at is written in (journal.ts), so string comparison orders by time.
+    expect(dayStartIso("2026-08-24")).toBe("2026-08-23T20:00:00.000Z");
+    expect(dayEndIso("2026-08-24")).toBe("2026-08-24T20:00:00.000Z");
+  });
+
+  it("stays in lockstep with the ms window", () => {
+    expect(Date.parse(dayStartIso("2026-08-24"))).toBe(dayStartMs("2026-08-24"));
+    expect(Date.parse(dayEndIso("2026-08-24"))).toBe(dayEndMs("2026-08-24"));
+    expect(dayEndIso("2026-08-24")).toBe(dayStartIso("2026-08-25"));
   });
 });
 

@@ -75,6 +75,11 @@ CREATE TABLE IF NOT EXISTS ops (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ops_at ON ops(at);
+-- Last-op-per-entity lookups (deleted-todo title fallback in log.ts; what a
+-- rewind replay will want too). seq is the rowid alias and rowid is every
+-- index entry's implicit tiebreaker, so MAX(seq) within a prefix reads this
+-- index backwards without naming seq explicitly.
+CREATE INDEX IF NOT EXISTS idx_ops_entity ON ops(entity, entity_id);
 
 CREATE TABLE IF NOT EXISTS todo_sessions (
   attribution_id TEXT PRIMARY KEY,

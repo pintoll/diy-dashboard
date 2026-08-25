@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { dayEndMs, dayOf, dayStartMs, today } from "@shared/day";
+import { dayEndIso, dayEndMs, dayOf, dayStartIso, dayStartMs, today } from "@shared/day";
 import { getTodosDb } from "./db";
 import { assertDate } from "./date";
 import { buildDaySnapshot } from "./day-snapshot";
@@ -79,7 +79,7 @@ function involvedTodos(
 function hasOpsOnDay(db: Database.Database, day: string): boolean {
   return !!db
     .prepare("SELECT 1 FROM ops WHERE at >= ? AND at < ? LIMIT 1")
-    .get(new Date(dayStartMs(day)).toISOString(), new Date(dayEndMs(day)).toISOString());
+    .get(dayStartIso(day), dayEndIso(day));
 }
 
 export function foldDay(day: string, input: FoldInput = {}): DayFold {
@@ -164,21 +164,20 @@ export function resolveYesterday(): string | null {
     .get(cur, last, last) as { day: string | null };
 
   // Ops don't carry a day; the latest `at` before today's start (and after the
-  // end of the last folded day) names the last ops-day. String comparison is
-  // safe — every `at` is toISOString() (journal.ts).
-  const cutoffMs = last === null ? null : dayEndMs(last);
-  const cutoff = cutoffMs === null ? null : new Date(cutoffMs).toISOString();
+  // end of the last folded day) names the last ops-day.
+  const cutoff = last === null ? null : dayEndIso(last);
   const { at } = db
     .prepare(
       `SELECT MAX(at) AS at FROM ops
        WHERE at < ? AND (? IS NULL OR at >= ?)`
     )
-    .get(new Date(dayStartMs(cur)).toISOString(), cutoff, cutoff) as { at: string | null };
+    .get(dayStartIso(cur), cutoff, cutoff) as { at: string | null };
   const opDay = at === null ? null : dayOf(Date.parse(at));
 
   // Sessions journal no ops (sessions.ts recordWork), so a day spent only
   // running pomodoros against already-created todos leaves its sole trace
   // here. Same day-attribution rule as workedSecByTodo: the start instant.
+  const cutoffMs = last === null ? null : dayEndMs(last);
   const { ms } = db
     .prepare(
       `SELECT MAX(started_at) AS ms FROM todo_sessions
