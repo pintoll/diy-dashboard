@@ -28,4 +28,4 @@ export {
 } from "./model/todo-date";
 
 export { useTodoStore, shiftSelectedDate } from "./model/use-todo-store";
-export { usePlanStore } from "./model/use-plan-store";
+export { usePlanStore, acquirePlanSheet } from "./model/use-plan-store";

@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo } from "react";
 import {
+  acquirePlanSheet,
   formatShortDate,
   usePlanStore,
   useTodoStore,
@@ -17,7 +18,6 @@ export type DaySheetConfig = Record<string, never>;
 // (splitting, moving across days) belong to the todo widget or, later, the
 // assistant chat.
 export function DaySheetClient() {
-  const day = usePlanStore((s) => s.day);
   const entries = usePlanStore((s) => s.entries);
   const todosById = usePlanStore((s) => s.todosById);
   const yesterday = usePlanStore((s) => s.yesterday);
@@ -35,8 +35,11 @@ export function DaySheetClient() {
       void setDate(currentDay);
     }
     void useTodoStore.getState().ensureLoaded();
-    void usePlanStore.getState().ensureLoaded();
   }, [currentDay, setDate]);
+
+  // Loads the plan store, and on the last sheet's unmount releases it so the
+  // module-scope change subscription stops refreshing a store nothing reads.
+  useEffect(() => acquirePlanSheet(), []);
 
   const lines = useMemo(
     () => buildSheetLines(entries, todosById),
@@ -44,7 +47,10 @@ export function DaySheetClient() {
   );
   const marker = markerIndex(lines, nowHm);
 
-  if (status === "error") {
+  // A full-screen error only when there is nothing renderable; once the sheet
+  // has lines, a failed background refresh degrades to the inline note below
+  // and the last good sheet stays on screen.
+  if (status === "error" && lines.length === 0) {
     return (
       <p className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
         {error}
@@ -54,6 +60,9 @@ export function DaySheetClient() {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-2">
+      {status === "error" && (
+        <p className="shrink-0 px-2 text-[10px] text-destructive">{error}</p>
+      )}
       {yesterday !== null && (
         <p className="shrink-0 px-2 text-[10px] text-muted-foreground">
           Yesterday ({formatShortDate(yesterday)}) is still unfolded
@@ -81,7 +90,7 @@ export function DaySheetClient() {
       </div>
 
       <div className="shrink-0">
-        <AddPlanLine day={day} nowHm={nowHm} />
+        <AddPlanLine nowHm={nowHm} />
       </div>
     </div>
   );

@@ -37,14 +37,16 @@ export function PlanLineRow({ line, current }: Props) {
     setEditing(true);
   };
 
-  const commit = () => {
+  // False when the draft does not parse; the caller decides whether that
+  // keeps the editor open (Enter) or closes it without saving (blur).
+  const commit = (): boolean => {
     const range = parseTimeRange(draft);
-    if (range === null) {
-      setInvalid(true);
-      return;
+    if (range === null) return false;
+    if (range.start !== line.start || range.end !== line.end) {
+      run(requireTodosApi().plan.update(line.entryId, range));
     }
-    run(requireTodosApi().plan.update(line.entryId, range));
     setEditing(false);
+    return true;
   };
 
   // The sheet's checkbox writes the real todo's done state: lines reference
@@ -82,10 +84,14 @@ export function PlanLineRow({ line, current }: Props) {
             setInvalid(false);
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") commit();
+            if (e.key === "Enter" && !commit()) setInvalid(true);
             if (e.key === "Escape") setEditing(false);
           }}
-          onBlur={() => setEditing(false)}
+          // Clicking away commits like Enter — Escape is the cancel path. An
+          // unparseable draft is dropped rather than trapping focus.
+          onBlur={() => {
+            if (!commit()) setEditing(false);
+          }}
           className={cn(
             "w-[6.75rem] shrink-0 rounded border bg-transparent px-1 py-0.5 text-xs tabular-nums outline-none",
             invalid

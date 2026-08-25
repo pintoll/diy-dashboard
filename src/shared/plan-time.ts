@@ -15,7 +15,8 @@ import { DAY_START_HOUR } from "./day";
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-const MINUTES_PER_DAY = 24 * 60;
+/** The plan-minute line's modulus, and planEndMinutes' end-of-day value. */
+export const MINUTES_PER_DAY = 24 * 60;
 
 const DAY_START_MIN = DAY_START_HOUR * 60;
 
@@ -47,6 +48,19 @@ export function planMinutes(time: string): number {
 export function planEndMinutes(time: string): number {
   const minutes = planMinutes(time);
   return minutes === 0 ? MINUTES_PER_DAY : minutes;
+}
+
+/**
+ * Inverse of planMinutes: the clock "HH:MM" a plan-minute value names. Accepts
+ * planEndMinutes' end-of-day too — 1440 wraps back to "05:00". Lives here so
+ * no caller re-derives the day-start anchor from a literal and silently
+ * drifts if DAY_START_HOUR ever moves.
+ */
+export function planTimeFromMinutes(minutes: number): string {
+  const clock = (minutes + DAY_START_MIN) % MINUTES_PER_DAY;
+  const h = String(Math.floor(clock / 60)).padStart(2, "0");
+  const m = String(clock % 60).padStart(2, "0");
+  return `${h}:${m}`;
 }
 
 /**

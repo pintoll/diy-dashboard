@@ -83,22 +83,19 @@ export function getTodo(id: string): Todo {
  * and the day log's plan-op title resolution (log.ts).
  * Deleted todos are simply absent from the result (the caller shows a fallback),
  * so this never throws on an unknown id the way `getTodo` does. Order is
- * unspecified; callers key by id.
+ * unspecified; callers key by id. A projection of `listTodosByIds`, so the two
+ * resolvers cannot drift; it exists to keep the titles IPC payload trimmed to
+ * the two fields its consumers use.
  */
 export function getTodoTitlesByIds(ids: string[]): { id: string; title: string }[] {
-  const unique = [...new Set(ids)];
-  if (unique.length === 0) return [];
-  const placeholders = unique.map(() => "?").join(",");
-  return getTodosDb()
-    .prepare(`SELECT id, title FROM todos WHERE id IN (${placeholders})`)
-    .all(...unique) as { id: string; title: string }[];
+  return listTodosByIds(ids).map(({ id, title }) => ({ id, title }));
 }
 
 /**
- * Full-row batch resolve for the day sheet's plan-entry join, which needs done
- * state alongside the title and may reference todos outside any listed slice
- * (another day, the backlog, already done). Same contract as
- * `getTodoTitlesByIds`: deleted ids drop out, order unspecified.
+ * Batch resolve, full rows — the day sheet's plan-entry join needs done state
+ * alongside the title, and an entry may reference todos outside any listed
+ * slice (another day, the backlog, already done). Deleted ids drop out rather
+ * than throwing; order is unspecified.
  */
 export function listTodosByIds(ids: string[]): Todo[] {
   const unique = [...new Set(ids)];

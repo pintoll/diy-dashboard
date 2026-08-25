@@ -6,12 +6,11 @@ import {
   type PlanEntry,
   type Todo,
 } from "./todo.types";
+import { useTodoStore } from "./use-todo-store";
 
 type Status = "idle" | "loading" | "ready" | "error";
 
 type PlanStore = {
-  // The day sheet is today-only; the rollover interval below advances this.
-  day: string;
   // Lived order: main sorts with comparePlanStart (05:00 first, small hours
   // last), and this cache preserves it.
   entries: PlanEntry[];
@@ -33,15 +32,17 @@ type PlanStore = {
 // subscription below reconverges this cache no matter who wrote — the widget,
 // the agent HTTP API, or (later) the assistant.
 export const usePlanStore = create<PlanStore>((set, get) => ({
-  day: today(),
   entries: [],
   todosById: {},
   yesterday: null,
   status: "idle",
   error: null,
 
+  // "error" retries too: refresh is otherwise event- and rollover-driven, so
+  // without this a failed first load could never recover by remounting.
   ensureLoaded: async () => {
-    if (get().status !== "idle") return;
+    const { status } = get();
+    if (status !== "idle" && status !== "error") return;
     await get().refresh();
   },
 
@@ -54,7 +55,10 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
 
     if (get().status === "idle") set({ status: "loading" });
     try {
-      const entries = await api.plan.list(get().day);
+      // The sheet is today-only, and "today" is read at call time rather than
+      // cached: a refresh landing after the 05:00 rollover fetches the new day
+      // even before any rollover clock has ticked.
+      const entries = await api.plan.list(today());
       const [todos, yesterday] = await Promise.all([
         api.byIds([...new Set(entries.map((e) => e.todoId))]),
         api.yesterday(),
@@ -67,10 +71,26 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
         error: null,
       });
     } catch (error) {
+      // Entries are kept: the sheet stays rendered (with an inline error note)
+      // instead of vanishing behind a transient refresh failure.
       set({ status: "error", error: todoErrorMessage(error) });
     }
   },
 }));
+
+// The subscriptions below live at module scope for the renderer's lifetime;
+// `status` is their gate. Sheets acquire the store on mount and release on
+// unmount, dropping back to "idle" when the last one goes — otherwise every
+// todos:changed event would keep refreshing a store nothing reads.
+let sheetMounts = 0;
+export function acquirePlanSheet(): () => void {
+  sheetMounts += 1;
+  void usePlanStore.getState().ensureLoaded();
+  return () => {
+    sheetMounts -= 1;
+    if (sheetMounts === 0) usePlanStore.setState({ status: "idle" });
+  };
+}
 
 const REFRESH_DEBOUNCE_MS = 50;
 
@@ -87,7 +107,7 @@ if (bridge) {
     if (!REFRESH_REASONS.has(payload.reason)) return;
     clearTimeout(timer);
     timer = setTimeout(() => {
-      // Before the first load there is nothing on screen to reconverge.
+      // With no sheet mounted there is nothing on screen to reconverge.
       const { status, refresh } = usePlanStore.getState();
       if (status !== "idle") void refresh();
     }, REFRESH_DEBOUNCE_MS);
@@ -95,12 +115,11 @@ if (bridge) {
 }
 
 // Day rollover: at the 05:00 boundary the sheet flips to the new (blank) day.
-// Same one-clock-at-module-scope shape as use-todo-store.
-const DAY_CHECK_INTERVAL_MS = 60_000;
-setInterval(() => {
-  const day = today();
-  if (usePlanStore.getState().day === day) return;
-  usePlanStore.setState({ day });
+// Follows use-todo-store's currentDay clock instead of running a second
+// interval, so this store and the add-line todo picker (fed by useTodoStore)
+// can never disagree about which day is "today".
+useTodoStore.subscribe((state, prev) => {
+  if (state.currentDay === prev.currentDay) return;
   const { status, refresh } = usePlanStore.getState();
   if (status !== "idle") void refresh();
-}, DAY_CHECK_INTERVAL_MS);
+});

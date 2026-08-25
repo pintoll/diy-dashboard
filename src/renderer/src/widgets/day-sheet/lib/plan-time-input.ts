@@ -1,12 +1,16 @@
-import { isPlanTime, planEndMinutes, planMinutes } from "@shared/plan-time";
+import {
+  MINUTES_PER_DAY,
+  isPlanTime,
+  planEndMinutes,
+  planMinutes,
+  planTimeFromMinutes,
+} from "@shared/plan-time";
 
 // Parsing for the sheet's one time-editing affordance: a single text field
 // holding the whole range ("10:00-14:00"). Client-side validation applies the
 // exact server rule (todos/plan.ts assertRange via @shared/plan-time), so the
 // two can never disagree on what is a valid range; the server stays the
 // authority for everything else (e.g. the entry vanishing mid-edit).
-
-const MINUTES_PER_DAY = 24 * 60;
 
 // Whatever a user is likely to type or paste between the two times: hyphen,
 // en/em dash, tilde, with or without spaces.
@@ -42,13 +46,6 @@ export function formatTimeRange(start: string, end: string): string {
   return `${start}\u2013${end}`;
 }
 
-function minutesToHm(planMin: number): string {
-  const clock = (planMin + 5 * 60) % MINUTES_PER_DAY;
-  const h = Math.floor(clock / 60);
-  const m = clock % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
 /**
  * The default block for a new line: now rounded up to the nearest :00/:30
  * (an aligned now stays put), one hour long, clamped to the 05:00 boundary a
@@ -61,5 +58,8 @@ export function suggestRange(nowHm: string): { start: string; end: string } {
   let startMin = Math.ceil(now / 30) * 30;
   if (startMin >= MINUTES_PER_DAY) startMin = now;
   const endMin = Math.min(startMin + 60, MINUTES_PER_DAY);
-  return { start: minutesToHm(startMin), end: minutesToHm(endMin) };
+  return {
+    start: planTimeFromMinutes(startMin),
+    end: planTimeFromMinutes(endMin),
+  };
 }

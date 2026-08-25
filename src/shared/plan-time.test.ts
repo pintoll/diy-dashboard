@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { comparePlanStart, isPlanTime, planEndMinutes, planMinutes } from "./plan-time";
+import {
+  comparePlanStart,
+  isPlanTime,
+  planEndMinutes,
+  planMinutes,
+  planTimeFromMinutes,
+} from "./plan-time";
 
 describe("isPlanTime", () => {
   it("accepts strict two-digit HH:MM across the clock", () => {
@@ -63,6 +69,18 @@ describe("planEndMinutes and the end-after-start rule", () => {
 
   it('accepts "05:00"-"05:00", the whole-day block, as the only start==end pair', () => {
     expect(valid("05:00", "05:00")).toBe(true);
+  });
+});
+
+describe("planTimeFromMinutes", () => {
+  it("inverts planMinutes across the midnight wrap", () => {
+    for (const time of ["05:00", "09:30", "23:00", "00:00", "04:59"]) {
+      expect(planTimeFromMinutes(planMinutes(time))).toBe(time);
+    }
+  });
+
+  it('maps planEndMinutes\' end-of-day (1440) back to "05:00"', () => {
+    expect(planTimeFromMinutes(planEndMinutes("05:00"))).toBe("05:00");
   });
 });
 

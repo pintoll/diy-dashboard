@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Plus } from "lucide-react";
+import { today } from "@shared/day";
 import {
   requireTodosApi,
   todoErrorMessage,
@@ -21,16 +22,13 @@ import {
 } from "../lib/plan-time-input";
 
 type Props = {
-  // The sheet's day (the plan store's, so the write can never race the 05:00
-  // rollover into the wrong day).
-  day: string;
   nowHm: string;
 };
 
 // Adds a line by picking one of today's open todos
 // (assistant-architecture.md). An empty time field takes the suggested block;
 // the same todo may be penciled into several blocks, so no dedup.
-export function AddPlanLine({ day, nowHm }: Props) {
+export function AddPlanLine({ nowHm }: Props) {
   const todos = useTodoStore((s) => s.todos);
   const openTodos = todos.filter((t) => !t.done);
 
@@ -55,7 +53,9 @@ export function AddPlanLine({ day, nowHm }: Props) {
     try {
       await requireTodosApi().plan.create({
         todoId,
-        day,
+        // Read at submit time, never from cached state: a sheet sitting open
+        // across the 05:00 rollover must not write into the expired day.
+        day: today(),
         start: parsed.start,
         end: parsed.end,
       });
