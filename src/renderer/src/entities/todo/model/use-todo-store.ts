@@ -134,7 +134,10 @@ if (bridge) {
   void syncDesk();
 
   let timer: ReturnType<typeof setTimeout> | undefined;
-  bridge.onChanged(() => {
+  bridge.onChanged((payload) => {
+    // Plan/fold writes never change todo rows; the plan store (use-plan-store)
+    // is their reader.
+    if (payload.reason === "plan" || payload.reason === "fold") return;
     clearTimeout(timer);
     timer = setTimeout(() => {
       const { status, refresh } = useTodoStore.getState();

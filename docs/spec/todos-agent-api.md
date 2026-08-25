@@ -425,9 +425,7 @@ deciding that todo's time gets recorded.
 
 ## Live UI updates
 
-Every **todo** write — from the app or from this API — broadcasts a `todos:changed` event to the renderer, which reloads after a short debounce (50 ms). An open dashboard picks up an agent's change without user interaction. Nothing extra to call.
-
-Plan and fold writes do **not** broadcast yet: the renderer has no reader for them until the day-sheet widget lands (`docs/design/assistant-architecture.md`, step 6), which brings its change event with it.
+Every write — todo, plan, or fold, from the app or from this API — broadcasts a `todos:changed` event to the renderer, which reloads after a short debounce (50 ms). Plan writes carry reason `"plan"` (with the plan-entry id) and folds carry `"fold"`; the day-sheet widget is their reader (`docs/design/assistant-architecture.md`, step 6). An open dashboard picks up an agent's change without user interaction. Nothing extra to call.
 
 ## Example: plan tomorrow
 

@@ -5,7 +5,8 @@ Architecture decisions for the in-app assistant, fixed 2026-08-24. Companion to
 omitted.
 
 Status: **designed; phases 1 (the 05:00 day boundary), 2 (the journal), 3
-(the day record's plan and fold services), and 4 (the log view) implemented.**
+(the day record's plan and fold services), 4 (the log view), 5 (the analytics
+day boundary), and 6 (the day-sheet widget) implemented.**
 
 ## Data layer
 
@@ -210,6 +211,11 @@ day_folds (
    private midnight copy removed; stat widgets roll over at 05:00 via
    renderer/shared/lib/use-today.ts)*
 6. **Day-sheet widget** — today's plan as one block, with the shallow edits.
+   *(done — src/renderer/src/widgets/day-sheet (sheet-lines.ts/plan-time-input.ts
+   pure render/parse logic) over a plan store in entities/todo; new IPC
+   `todos:plan:*`, `todos:yesterday`, `todos:by-ids`; plan and fold writes now
+   broadcast `todos:changed` with reasons `"plan"`/`"fold"`. The chat button
+   arrives with step 7's window; the yesterday hint is display-only)*
 7. **Assistant shell** — second window, route, assistant-scoped key and base
    URL, and the provider gate below.
 8. **Agent loop** — LangGraph, the three tools, injected context.

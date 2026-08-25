@@ -4,6 +4,7 @@ import { today } from "@shared/day";
 import { comparePlanStart, isPlanTime, planEndMinutes, planMinutes } from "@shared/plan-time";
 import { getTodosDb } from "./db";
 import { assertDate } from "./date";
+import { emitTodosChanged } from "./events";
 import { recordOp, rowChanged } from "./journal";
 import {
   NotFoundError,
@@ -22,9 +23,11 @@ import {
 // is derived from `start` on the 05:00 day (@shared/plan-time). Every write is
 // journaled as a 'plan' op the same way crud.ts journals todos.
 //
-// No change event is emitted yet: the day-sheet widget
-// (assistant-architecture.md step 6) brings the first renderer reader, and its
-// event arrives with it.
+// Every direct write broadcasts todos:changed with reason "plan" after its
+// transaction commits, so the day-sheet widget refreshes regardless of who
+// wrote (IPC or agent HTTP). The delete-todo sweep below is the exception: it
+// runs inside crud's deleteTodo transaction, whose "delete" broadcast already
+// fires after commit — emitting here would announce uncommitted state.
 
 function assertPlanTime(value: unknown, field: string): string {
   if (!isPlanTime(value)) {
@@ -102,6 +105,7 @@ export function createPlanEntry(input: PlanEntryCreateInput, ctx: WriteContext):
     return created;
   })();
 
+  emitTodosChanged({ reason: "plan", id });
   return rowToPlanEntry(row);
 }
 
@@ -133,6 +137,9 @@ export function updatePlanEntry(
     return after;
   })();
 
+  // Unconditional, like crud's updateTodo: a no-change write still resnaps
+  // subscribers to truth.
+  emitTodosChanged({ reason: "plan", id });
   return rowToPlanEntry(updated);
 }
 
@@ -155,6 +162,7 @@ export function deletePlanEntry(id: string, ctx: WriteContext): void {
   db.transaction(() => {
     deleteEntryRow(db, getEntryRow(db, id), ctx);
   })();
+  emitTodosChanged({ reason: "plan", id });
 }
 
 /**

@@ -94,6 +94,22 @@ export function getTodoTitlesByIds(ids: string[]): { id: string; title: string }
     .all(...unique) as { id: string; title: string }[];
 }
 
+/**
+ * Full-row batch resolve for the day sheet's plan-entry join, which needs done
+ * state alongside the title and may reference todos outside any listed slice
+ * (another day, the backlog, already done). Same contract as
+ * `getTodoTitlesByIds`: deleted ids drop out, order unspecified.
+ */
+export function listTodosByIds(ids: string[]): Todo[] {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return [];
+  const placeholders = unique.map(() => "?").join(",");
+  const rows = getTodosDb()
+    .prepare(`SELECT * FROM todos WHERE id IN (${placeholders})`)
+    .all(...unique) as TodoRow[];
+  return rows.map(rowToTodo);
+}
+
 export function listTodos(filter: TodoListFilter): Todo[] {
   const db = getTodosDb();
   let rows: TodoRow[];

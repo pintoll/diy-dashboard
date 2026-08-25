@@ -170,7 +170,11 @@ export type TodosChangedReason =
   | "delete"
   | "reorder"
   | "active"
-  | "work";
+  | "work"
+  // A plan entry was written (`id` is the plan entry id, not a todo id).
+  | "plan"
+  // A day was folded; folds carry no id.
+  | "fold";
 
 export type TodosChangedPayload = {
   reason: TodosChangedReason;

@@ -9,11 +9,22 @@ import {
   listBacklog,
   listOverdue,
   listTodos,
+  listTodosByIds,
   reorderTodos,
   updateTodo,
 } from "./crud";
+import { resolveYesterday } from "./fold";
+import {
+  createPlanEntry,
+  deletePlanEntry,
+  listPlanEntries,
+  updatePlanEntry,
+} from "./plan";
 import { recordWork } from "./sessions";
 import type {
+  PlanEntry,
+  PlanEntryCreateInput,
+  PlanEntryPatch,
   RecordWorkInput,
   Todo,
   TodoCreateInput,
@@ -89,5 +100,36 @@ export function registerTodosIpc(): void {
 
   ipcMain.handle("todos:record-work", (_event, input: RecordWorkInput): void =>
     recordWork(input)
+  );
+
+  // The day sheet's plan surface (docs/design/assistant-architecture.md step
+  // 6). Widget edits are ordinary journaled ops: source "user", never a reason.
+  ipcMain.handle("todos:plan:list", (_event, day?: string): PlanEntry[] =>
+    listPlanEntries(day ?? today())
+  );
+
+  ipcMain.handle(
+    "todos:plan:create",
+    (_event, input: PlanEntryCreateInput): PlanEntry =>
+      createPlanEntry(input, { source: "user" })
+  );
+
+  ipcMain.handle(
+    "todos:plan:update",
+    (_event, payload: { id: string; patch: PlanEntryPatch }): PlanEntry =>
+      updatePlanEntry(payload.id, payload.patch, { source: "user" })
+  );
+
+  ipcMain.handle("todos:plan:delete", (_event, id: string): void =>
+    deletePlanEntry(id, { source: "user" })
+  );
+
+  // resolveYesterday(): the last pre-today day with records after the last
+  // fold; null = fully folded. Feeds the sheet's "yesterday unfolded" hint.
+  ipcMain.handle("todos:yesterday", (): string | null => resolveYesterday());
+
+  // Full-row batch resolve for the plan-entry join; deleted ids drop out.
+  ipcMain.handle("todos:by-ids", (_event, ids: string[]): Todo[] =>
+    listTodosByIds(ids)
   );
 }

@@ -3,6 +3,7 @@ import { dayEndIso, dayEndMs, dayOf, dayStartIso, dayStartMs, today } from "@sha
 import { getTodosDb } from "./db";
 import { assertDate } from "./date";
 import { buildDaySnapshot } from "./day-snapshot";
+import { emitTodosChanged } from "./events";
 import {
   ValidationError,
   rowToDayFold,
@@ -131,6 +132,9 @@ export function foldDay(day: string, input: FoldInput = {}): DayFold {
     return stored;
   })();
 
+  // Lets the day sheet drop its "yesterday unfolded" hint live when the fold
+  // arrives over the agent HTTP path.
+  emitTodosChanged({ reason: "fold" });
   return rowToDayFold(row);
 }
 

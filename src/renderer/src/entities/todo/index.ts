@@ -7,6 +7,9 @@ export type {
   TodoChangeReason,
   TodoChangePayload,
   TodosApi,
+  PlanEntry,
+  PlanEntryInput,
+  PlanEntryUpdate,
 } from "./model/todo.types";
 
 export {
@@ -25,3 +28,4 @@ export {
 } from "./model/todo-date";
 
 export { useTodoStore, shiftSelectedDate } from "./model/use-todo-store";
+export { usePlanStore } from "./model/use-plan-store";
