@@ -4,8 +4,8 @@ Architecture decisions for the in-app assistant, fixed 2026-08-24. Companion to
 `assistant-behavior.md` (the behavior contract). Results only, deliberation
 omitted.
 
-Status: **designed; phases 1 (the 05:00 day boundary), 2 (the journal), and 3
-(the day record's plan and fold services) implemented.**
+Status: **designed; phases 1 (the 05:00 day boundary), 2 (the journal), 3
+(the day record's plan and fold services), and 4 (the log view) implemented.**
 
 ## Data layer
 
@@ -194,6 +194,9 @@ day_folds (
    agent API /api/plan, /api/days/:day(+/fold), /api/yesterday; deleteTodo now
    sweeps plan entries through the journal instead of a cascade)*
 4. **Log view** — `ops` + `reasons` rendered to natural language at read time.
+   *(done — src/main/todos/log-render.ts (pure renderer: reason collapse,
+   delete-sweep fusion, changed-fields grammar) + log.ts (day-window query,
+   title resolution); `GET /api/days/:day/log`; `dyd log`)*
 5. **Analytics day boundary** — fold `aggregations.ts` onto the same day
    definition (see above), before the day model becomes visible in step 6.
 6. **Day-sheet widget** — today's plan as one block, with the shallow edits.

@@ -63,3 +63,18 @@ export function dayStartMs(day: string): number {
 export function dayEndMs(day: string): number {
   return dayStartMs(day) + MS_PER_DAY;
 }
+
+/**
+ * Wall-clock "HH:MM" in Asia/Seoul for an instant (epoch ms) — how the log
+ * view timestamps its lines. Lives here so the zone name stays private to this
+ * module. `hourCycle: "h23"`, not `hour12: false`: the latter may render
+ * midnight as "24:00".
+ */
+export function clockHm(ms: number): string {
+  return new Date(ms).toLocaleTimeString("en-GB", {
+    timeZone: TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+}

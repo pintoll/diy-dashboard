@@ -21,6 +21,7 @@ usage:
   dyd todo move <n|id|b<n>> <date|today|tomorrow|backlog> [--reason <text>]
   dyd todo use <n|id|->       add a todo to the desk (- clears the desk)
   dyd todo drop <n|id>        remove a todo from the desk
+  dyd log [date|today|yesterday]  a day's journal, rendered
   dyd source                  list data-source connectors
   dyd source list [--group <g>] [--kind <series|events>]
   dyd source show <id>
@@ -330,6 +331,19 @@ elif mode == "backlog":
             line = f"  b{i} {box} {t['title']}"
             print(f"{line:<32} {w}".rstrip() if w else line)
 
+elif mode == "log":
+    d = load(sys.argv[2]) or {}
+    print(f"── log {d.get('day', '')} ─────────────")
+    lines = d.get("lines", [])
+    if not lines:
+        print("  (empty)")
+    else:
+        for l in lines:
+            # The [source] tag marks non-user writers only; direct edits are
+            # the majority and tagging them would be noise.
+            tag = "" if l["source"] == "user" else f"[{l['source']}] "
+            print(f"  {l['time']}  {tag}{l['text']}")
+
 elif mode == "pomo":
     p = load(sys.argv[2])
     if p is None:
@@ -571,6 +585,33 @@ cmd_pomo() {
   esac
 }
 
+# A day's journal, rendered to natural language by the server
+# (GET /api/days/:day/log). `yesterday` is the app day minus one — date
+# arithmetic on the server's day, never this machine's clock; distinct from
+# /api/yesterday, which means "the last unfolded day with records".
+cmd_log() {
+  [ $# -le 1 ] || die_usage
+  local spec day
+  spec=$(printf '%s' "${1:-today}" | tr '[:upper:]' '[:lower:]')
+  case "$spec" in
+    today)
+      day=$(app_today) || exit ;;
+    yesterday)
+      day=$(app_today) || exit
+      day=$(TODAY="$day" python3 -c '
+import os
+from datetime import date, timedelta
+print(date.fromisoformat(os.environ["TODAY"]) - timedelta(days=1))') ;;
+    *)
+      # Verbatim (urlencoded): the server validates and rejects with a
+      # useful message, same policy as date_json.
+      day=$(urlenc "$1") ;;
+  esac
+  api GET "/api/days/$day/log"
+  if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+  api_ok_or_die; fmt log "$BODY"
+}
+
 cmd_todo() {
   if [ $# -eq 0 ]; then
     if [ "$JSON_OUT" = 1 ]; then
@@ -809,6 +850,7 @@ top="$1"; shift
 case "$top" in
   pomo) cmd_pomo "$@" ;;
   todo) cmd_todo "$@" ;;
+  log) cmd_log "$@" ;;
   source) cmd_source "$@" ;;
   cred) cmd_cred "$@" ;;
   -h|--help|help) die_usage ;;

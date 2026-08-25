@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DAY_START_HOUR, dayEndMs, dayOf, dayStartMs, today } from "./day";
+import { DAY_START_HOUR, clockHm, dayEndMs, dayOf, dayStartMs, today } from "./day";
 
 // This module is the single definition of "which day is it" for both processes,
 // so the 05:00-to-05:00 rule from docs/design/assistant-behavior.md is pinned
@@ -66,6 +66,17 @@ describe("dayEndMs", () => {
   it("bounds the day half-open: the end instant already belongs to the next day", () => {
     expect(dayOf(dayEndMs("2026-08-24") - 1)).toBe("2026-08-24");
     expect(dayOf(dayEndMs("2026-08-24"))).toBe("2026-08-25");
+  });
+});
+
+describe("clockHm", () => {
+  it("renders the Seoul wall clock for a UTC instant", () => {
+    expect(clockHm(at("2026-08-24T20:57:11.302Z"))).toBe("05:57"); // 08-25 05:57 KST
+    expect(clockHm(at("2026-08-24T02:03:00Z"))).toBe("11:03"); // 08-24 11:03 KST
+  });
+
+  it("renders midnight as 00:00, not 24:00", () => {
+    expect(clockHm(at("2026-08-24T15:00:00Z"))).toBe("00:00"); // 08-25 00:00 KST
   });
 });
 

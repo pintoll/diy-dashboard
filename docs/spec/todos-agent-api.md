@@ -219,10 +219,10 @@ routes above; these will be removed once no un-updated `dyd` install remains.
 ## The day record
 
 Each day has a record (`docs/design/assistant-behavior.md`): a **plan** — todos
-penciled onto clock-time ranges — and, once the day is closed, a **fold**. (The
-third part, the log, is the ops journal; it has no HTTP surface yet.) Plans are
-pencil sketches: they are expected to break, and re-planning is the normal
-path, not a failure state.
+penciled onto clock-time ranges — a **log** — the ops journal rendered to
+natural language, `GET /api/days/:day/log` — and, once the day is closed, a
+**fold**. Plans are pencil sketches: they are expected to break, and
+re-planning is the normal path, not a failure state.
 
 ### The PlanEntry object
 
@@ -318,6 +318,48 @@ GET /api/days/2026-08-24
 ```
 
 The whole day record in one read. `fold` is `null` until the day is folded.
+The log is deliberately not inlined here — it is drill-down, not default
+context; read it separately.
+
+### `GET /api/days/:day/log`
+
+```
+GET /api/days/2026-08-24/log
+→ 200 { "day": "2026-08-24", "lines": [
+    { "seq": 41, "at": "2026-08-23T20:57:11.302Z", "time": "05:57",
+      "source": "user", "text": "added \"Write tests\"" },
+    { "seq": 45, "at": "2026-08-24T02:03:10.114Z", "time": "11:03",
+      "source": "agent", "reason": "Front-load the migration work",
+      "text": "Front-load the migration work: added \"Write migration\", planned \"Write migration\" 13:00-15:00" }
+  ] }
+```
+
+The day's journal (`ops` + `reasons`), rendered to natural language at read
+time — nothing is stored rendered. Read-only; there is no way to write a log
+line directly, and none is planned.
+
+- The window is over when the ops **happened** (the 05:00 day of their
+  timestamps), not the days they touch: re-planning tomorrow tonight logs
+  today, with the entry's own day named in the sentence (`... on 2026-08-26`).
+- `time` is the wall clock (Asia/Seoul, "HH:MM") of `at`, which stays raw ISO.
+- Consecutive ops written under one reason collapse into **one line**: the
+  reason text, a colon, then the mechanical summary. `reason` is present on
+  exactly those lines; `text` is always self-contained, so printing
+  `lines[].text` alone reads correctly.
+- Unreasoned ops (all direct UI edits — `source: "user"` never carries a
+  reason) render mechanically, one line per op, showing only changed fields.
+  Exception: deleting a todo sweeps its plan entries in the same transaction,
+  and those sweep ops fold into the delete's line
+  (`deleted "T" (2 planned blocks removed)`).
+- `seq` (and `at`/`time`/`source`) come from the group's **first** op — the
+  future rewind anchor, "state before this line".
+- What never appears: reorders (not journaled — cosmetic), folds (not
+  journaled — derived state), and pomodoro work accrual (`workedSec` changes
+  outside the journal). A day can therefore have sessions but an empty log.
+- Plan lines resolve todo titles at read time: a live todo shows its
+  **current** title (a later rename retro-titles older lines — accepted;
+  precision is not the contract); a deleted todo's title comes from its last
+  journal snapshot.
 
 ### `POST /api/days/:day/fold`
 

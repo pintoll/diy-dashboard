@@ -155,6 +155,30 @@ Each prints the resulting desk: `desk: Write migration, Ship release` (or
 `desk: (empty)`). Adding a completed todo errors (exit 1). Adding a **backlog**
 todo un-parks it onto today — it is about to accrue time.
 
+### `dyd log [date|today|yesterday]`
+
+`GET /api/days/:day/log` — a day's journal, rendered to natural language by the
+server ([`todos-agent-api.md`](todos-agent-api.md#get-apidaysdaylog)). Read-only.
+
+```
+── log 2026-08-25 ─────────────
+  05:57  added "Write tests"
+  10:02  planned "Write tests" 10:00-12:00
+  11:03  [agent] Front-load the migration work: added "Write migration", planned "Write migration" 13:00-15:00
+  18:30  deleted "Write tests" (2 planned blocks removed)
+```
+
+- No argument (or `today`) is the app's day via `GET /api/today`, per the
+  "today is the server's call" rule. `yesterday` is that day minus one — the
+  calendar-style neighbor, **not** `GET /api/yesterday`'s "last unfolded day
+  with records". Anything else goes to the server verbatim; a bad date is its
+  `400` (exit 1).
+- `[source]` tags mark non-user writers only (`[agent]`, later `[assistant]`);
+  direct app edits are the majority and stay untagged.
+- A day with no journaled changes prints `(empty)` — pomodoro work accrual is
+  not journaled, so a pure focus day can be empty here while its sessions still
+  count elsewhere.
+
 ### Index addressing
 
 `<n|id>` args: a small integer is a 1-based position in **today's list as `dyd todo` prints it** (API order: `sortOrder`, then creation). `b<n>` is the same, against **the backlog as `dyd todo backlog` prints it**. Both are resolved by refetching that list at execution time — not from a cached view, so it's only racy against concurrent edits in the same second, acceptable single-user. Anything else is treated as a todo id. Positions do not address the overdue list; use ids there.

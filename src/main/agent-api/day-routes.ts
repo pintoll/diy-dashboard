@@ -1,6 +1,7 @@
 import { today } from "@shared/day";
 import { assertDate } from "../todos/date";
 import { foldDay, getDayFold, resolveYesterday } from "../todos/fold";
+import { getDayLog } from "../todos/log";
 import {
   createPlanEntry,
   deletePlanEntry,
@@ -96,6 +97,16 @@ export const dayRoutes: Route[] = [
         plan: listPlanEntries(day),
         fold: getDayFold(day),
       });
+    },
+  },
+  // The day record's third part: the ops journal rendered to natural language
+  // at read time (one line per reason; direct edits mechanical). Read-only —
+  // the window is over when the ops HAPPENED, not the days they touch.
+  {
+    method: "GET",
+    pattern: "/api/days/:day/log",
+    handler: (_req, res, params) => {
+      sendJson(res, 200, getDayLog(params.day));
     },
   },
   {
