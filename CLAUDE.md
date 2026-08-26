@@ -48,4 +48,6 @@ To add a widget:
 
 ## Deployment
 
-GitHub Actions builds Windows `.exe` on tag push (`v*`). Workflow: `.github/workflows/release.yml`. Output uploaded to GitHub Releases.
+GitHub Actions builds the Windows `.exe` on **push to `main`** (normally a `dev` -> `main` PR merge). Workflow: `.github/workflows/release.yml`. electron-builder uploads to a **draft** GitHub Release tagged from `package.json`'s version, which you then publish by hand.
+
+Bump `package.json` before merging to `main`. If the version already has a published release, electron-builder skips every upload (`existing type not compatible with publishing type`) and the run still goes green, so a stale version ships nothing while looking like a success.
