@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
+import { today } from "@shared/day";
 import {
-  kstToday,
   requireTodosApi,
   todoErrorMessage,
   type Todo,
@@ -29,7 +29,7 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
   // A parked todo has no date, but the input still needs a value to fall back
   // to the moment the box is unchecked.
   const [parked, setParked] = useState(todo.date === null);
-  const [date, setDate] = useState(todo.date ?? kstToday());
+  const [date, setDate] = useState(todo.date ?? today());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -56,7 +56,7 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
 
   // The one-click form of the checkbox above: flip the bucket and save, so the
   // common "this can wait indefinitely" move is a single action.
-  const moveBucket = () => void commit(parked ? kstToday() : null);
+  const moveBucket = () => void commit(parked ? today() : null);
 
   const remove = async () => {
     setBusy(true);

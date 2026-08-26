@@ -61,8 +61,10 @@ export function ymOf(date: string): string {
   return date.slice(0, 7);
 }
 
-// KST, matching todos/date.ts and daily-news/kst.ts. Local time would flip
-// "this month" nine hours late on a UTC machine (e.g. WSL) around month ends.
+// KST calendar date, matching daily-news/kst.ts. Local time would flip "this
+// month" nine hours late on a UTC machine (e.g. WSL) around month ends.
+// Deliberately NOT the todo layer's 05:00-bounded day (src/shared/day.ts):
+// billing months are calendar months.
 export function currentYm(): string {
   return new Date()
     .toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" })

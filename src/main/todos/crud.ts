@@ -1,8 +1,10 @@
 import type Database from "better-sqlite3";
 import { nanoid } from "nanoid";
 import { getTodosDb } from "./db";
-import { assertDate, kstToday } from "./date";
+import { assertDate, contextDay } from "./date";
 import { emitTodosChanged } from "./events";
+import { recordOp, rowChanged } from "./journal";
+import { removePlanEntriesForTodo } from "./plan";
 import {
   NotFoundError,
   ValidationError,
@@ -12,7 +14,7 @@ import {
   type TodoListFilter,
   type TodoPatch,
   type TodoRow,
-  type TodoSource,
+  type WriteContext,
 } from "./types";
 
 const MAX_TITLE_LENGTH = 500;
@@ -76,18 +78,32 @@ export function getTodo(id: string): Todo {
 /**
  * Resolves a set of todo ids to their titles for display — the analytics day
  * drill-down's per-session "worked on" line, which links a pomodoro session to
- * the todos that were on the desk during it (docs/design/multi-pomo-todo.md).
+ * the todos that were on the desk during it (docs/design/multi-pomo-todo.md),
+ * and the day log's plan-op title resolution (log.ts).
  * Deleted todos are simply absent from the result (the caller shows a fallback),
  * so this never throws on an unknown id the way `getTodo` does. Order is
- * unspecified; callers key by id.
+ * unspecified; callers key by id. A projection of `listTodosByIds`, so the two
+ * resolvers cannot drift; it exists to keep the titles IPC payload trimmed to
+ * the two fields its consumers use.
  */
 export function getTodoTitlesByIds(ids: string[]): { id: string; title: string }[] {
+  return listTodosByIds(ids).map(({ id, title }) => ({ id, title }));
+}
+
+/**
+ * Batch resolve, full rows — the day sheet's plan-entry join needs done state
+ * alongside the title, and an entry may reference todos outside any listed
+ * slice (another day, the backlog, already done). Deleted ids drop out rather
+ * than throwing; order is unspecified.
+ */
+export function listTodosByIds(ids: string[]): Todo[] {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return [];
   const placeholders = unique.map(() => "?").join(",");
-  return getTodosDb()
-    .prepare(`SELECT id, title FROM todos WHERE id IN (${placeholders})`)
-    .all(...unique) as { id: string; title: string }[];
+  const rows = getTodosDb()
+    .prepare(`SELECT * FROM todos WHERE id IN (${placeholders})`)
+    .all(...unique) as TodoRow[];
+  return rows.map(rowToTodo);
 }
 
 export function listTodos(filter: TodoListFilter): Todo[] {
@@ -139,26 +155,48 @@ export function listOverdue(before: string): Todo[] {
   return rows.map(rowToTodo);
 }
 
-export function createTodo(input: TodoCreateInput, source: TodoSource): Todo {
+export function createTodo(input: TodoCreateInput, ctx: WriteContext): Todo {
   const db = getTodosDb();
   const title = normalizeTitle(input.title);
   const note = normalizeNote(input.note);
-  const date = input.date !== undefined ? normalizeDate(input.date) : kstToday();
+  const date = input.date !== undefined ? normalizeDate(input.date) : contextDay(ctx);
   const id = nanoid();
 
-  db.prepare(
-    `INSERT INTO todos (id, date, title, note, sort_order, source)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(id, date, title, note, nextSortOrder(db, date), source);
+  const row = db.transaction((): TodoRow => {
+    db.prepare(
+      `INSERT INTO todos (id, date, title, note, sort_order, source)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(id, date, title, note, nextSortOrder(db, date), ctx.source);
+
+    // Re-read: done, created_at and updated_at come from SQL defaults, and the
+    // journal snapshot must be the row as stored.
+    const created = getRow(id);
+    recordOp(db, ctx, {
+      entity: "todo",
+      entityId: id,
+      op: "create",
+      before: null,
+      after: created,
+    });
+    return created;
+  })();
 
   emitTodosChanged({ reason: "create", id });
-  return getTodo(id);
+  return rowToTodo(row);
 }
 
-export function updateTodo(id: string, patch: TodoPatch): Todo {
+// `emit: false` is for internal callers that fold this update into a larger
+// operation with its own single todos:changed event (desk.ts un-park); every
+// external entry point emits.
+export function updateTodo(
+  id: string,
+  patch: TodoPatch,
+  ctx: WriteContext,
+  opts: { emit?: boolean } = {}
+): Todo {
   const db = getTodosDb();
 
-  db.transaction(() => {
+  const updated = db.transaction((): TodoRow => {
     const row = getRow(id);
 
     const title = patch.title !== undefined ? normalizeTitle(patch.title) : row.title;
@@ -173,17 +211,21 @@ export function updateTodo(id: string, patch: TodoPatch): Todo {
 
     const wasDone = row.done === 1;
     const done = patch.done ?? wasDone;
+    // One clock read for the whole intent: completed_on and the un-park date
+    // below describe the same completion event, so they must name the same day
+    // even when the call straddles the 05:00 boundary.
+    const day = contextDay(ctx);
     // completed_on tracks the day the todo was actually finished, independent
     // of its planned date; re-opening clears it.
     let completedOn = row.completed_on;
-    if (done && !wasDone) completedOn = kstToday();
+    if (done && !wasDone) completedOn = day;
     if (!done) completedOn = null;
 
     // Un-park: finishing a backlog todo means the work happened, and work
     // belongs to a day. An explicit date in the same patch wins, so a caller
     // can still park a completed todo deliberately.
     if (done && !wasDone && date === null && patch.date === undefined) {
-      date = kstToday();
+      date = day;
     }
 
     // A todo that changes bucket appends to the end of its destination. Keeping
@@ -209,16 +251,46 @@ export function updateTodo(id: string, patch: TodoPatch): Todo {
     if ((done && !wasDone) || date === null) {
       db.prepare("DELETE FROM desk WHERE todo_id = ?").run(id);
     }
+
+    // Journal last, after every write of the mutation has succeeded. The
+    // re-read is required — updated_at is stamped in SQL — and a patch that
+    // changed nothing is not an op (an empty diff would render as a lie in the
+    // log).
+    const after = getRow(id);
+    if (rowChanged(row, after)) {
+      recordOp(db, ctx, {
+        entity: "todo",
+        entityId: id,
+        op: "update",
+        before: row,
+        after,
+      });
+    }
+    return after;
   })();
 
-  emitTodosChanged({ reason: "update", id });
-  return getTodo(id);
+  if (opts.emit !== false) emitTodosChanged({ reason: "update", id });
+  return rowToTodo(updated);
 }
 
-export function deleteTodo(id: string): void {
-  getRow(id);
-  // todo_sessions and desk rows both cascade (ON DELETE CASCADE).
-  getTodosDb().prepare("DELETE FROM todos WHERE id = ?").run(id);
+export function deleteTodo(id: string, ctx: WriteContext): void {
+  const db = getTodosDb();
+  db.transaction(() => {
+    const row = getRow(id);
+    // Plan entries are swept by hand — and journaled — before the todo row
+    // goes: ops append in that order, so rewind's reverse replay recreates the
+    // todo before its entries. todo_sessions and desk rows cascade
+    // (ON DELETE CASCADE) instead; they are accrual and membership, not intent.
+    removePlanEntriesForTodo(db, id, ctx);
+    db.prepare("DELETE FROM todos WHERE id = ?").run(id);
+    recordOp(db, ctx, {
+      entity: "todo",
+      entityId: id,
+      op: "delete",
+      before: row,
+      after: null,
+    });
+  })();
   emitTodosChanged({ reason: "delete", id });
 }
 

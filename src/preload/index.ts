@@ -144,6 +144,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
       remove: (id: string) => ipcRenderer.invoke("todos:desk:remove", id),
       clear: () => ipcRenderer.invoke("todos:desk:clear"),
     },
+    plan: {
+      list: (day?: string) => ipcRenderer.invoke("todos:plan:list", day),
+      create: (input: PlanEntryCreateInput) =>
+        ipcRenderer.invoke("todos:plan:create", input),
+      update: (id: string, patch: PlanEntryPatch) =>
+        ipcRenderer.invoke("todos:plan:update", { id, patch }),
+      remove: (id: string) => ipcRenderer.invoke("todos:plan:delete", id),
+    },
+    yesterday: () => ipcRenderer.invoke("todos:yesterday"),
+    byIds: (ids: string[]) => ipcRenderer.invoke("todos:by-ids", ids),
     recordWork: (input: TodoRecordWorkInput) =>
       ipcRenderer.invoke("todos:record-work", input),
     onChanged: (callback: (payload: TodosChangedPayload) => void) => {

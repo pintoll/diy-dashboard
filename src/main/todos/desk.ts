@@ -1,6 +1,6 @@
-import { nextSortOrder } from "./crud";
+import { updateTodo } from "./crud";
+import { contextDay } from "./date";
 import { getTodosDb } from "./db";
-import { kstToday } from "./date";
 import { emitTodosChanged } from "./events";
 import {
   NotFoundError,
@@ -8,6 +8,7 @@ import {
   rowToTodo,
   type Todo,
   type TodoRow,
+  type WriteContext,
 } from "./types";
 
 // The "desk" is the set of todos currently receiving the running work clock
@@ -37,24 +38,22 @@ function loadOpenTodo(id: string): TodoRow {
   return row;
 }
 
-export function addToDesk(id: string): Todo {
+export function addToDesk(id: string, ctx: WriteContext): Todo {
   const db = getTodosDb();
   const row = loadOpenTodo(id);
+  let current = rowToTodo(row);
   let changed = false;
 
   db.transaction(() => {
     // Un-park: a backlog todo joining the desk is about to accrue pomodoro
     // time, and time belongs to a day. Left dateless it would bank workedSec
     // while appearing in neither today's list, the today widget, nor `dyd`.
+    // Delegated to updateTodo so the un-park IS a date move — same sort_order,
+    // journaling, and whatever rules the date path grows later — with its emit
+    // suppressed to keep this function's single event. The desk INSERT below
+    // is membership, not todo data, and is not journaled.
     if (row.date === null) {
-      const today = kstToday();
-      const next = nextSortOrder(db, today);
-      db.prepare(
-        `UPDATE todos SET date = ?, sort_order = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`
-      ).run(today, next, id);
-      row.date = today;
-      row.sort_order = next;
+      current = updateTodo(id, { date: contextDay(ctx) }, ctx, { emit: false });
       changed = true;
     }
     const info = db
@@ -65,7 +64,7 @@ export function addToDesk(id: string): Todo {
 
   // Already on the desk and already dated: nothing changed — don't emit.
   if (changed) emitTodosChanged({ reason: "active", id });
-  return rowToTodo(row);
+  return current;
 }
 
 export function removeFromDesk(id: string): void {
@@ -95,7 +94,7 @@ export function getActiveTodo(): Todo | null {
   return getDesk()[0] ?? null;
 }
 
-export function setActiveTodo(id: string | null): Todo | null {
+export function setActiveTodo(id: string | null, ctx: WriteContext): Todo | null {
   const db = getTodosDb();
 
   if (id === null) {
@@ -111,6 +110,6 @@ export function setActiveTodo(id: string | null): Todo | null {
   loadOpenTodo(id);
   return db.transaction((): Todo => {
     db.prepare("DELETE FROM desk").run();
-    return addToDesk(id);
+    return addToDesk(id, ctx);
   })();
 }

@@ -11,6 +11,9 @@ export type TodoFilter = TodoListFilter;
 export type TodoWorkInput = TodoRecordWorkInput;
 export type TodoChangeReason = TodosChangedReason;
 export type TodoChangePayload = TodosChangedPayload;
+export type PlanEntry = PlanEntryItem;
+export type PlanEntryInput = PlanEntryCreateInput;
+export type PlanEntryUpdate = PlanEntryPatch;
 
 export type TodosApi = TodosAPI;
 

@@ -1,7 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   formatDateHeading,
-  kstToday,
   shiftSelectedDate,
   useTodoStore,
 } from "@/src/entities/todo";
@@ -9,8 +8,9 @@ import { Button } from "@/src/shared/ui/button";
 
 export function DateNav() {
   const selectedDate = useTodoStore((s) => s.selectedDate);
+  const currentDay = useTodoStore((s) => s.currentDay);
   const setDate = useTodoStore((s) => s.setDate);
-  const isToday = selectedDate === kstToday();
+  const isToday = selectedDate === currentDay;
 
   return (
     <div className="flex items-center justify-between gap-2">
@@ -39,7 +39,7 @@ export function DateNav() {
         </h2>
       </div>
       {!isToday && (
-        <Button variant="outline" size="sm" onClick={() => void setDate(kstToday())}>
+        <Button variant="outline" size="sm" onClick={() => void setDate(currentDay)}>
           Today
         </Button>
       )}

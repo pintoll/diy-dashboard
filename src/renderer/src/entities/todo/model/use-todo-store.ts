@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { addDays, kstToday, weekOf } from "./todo-date";
+import { today } from "@shared/day";
+import { addDays, weekOf } from "./todo-date";
 import {
   NO_BRIDGE_MESSAGE,
   todoErrorMessage,
@@ -17,6 +18,12 @@ type DaySlice = {
 
 type TodoStore = DaySlice & {
   selectedDate: string;
+  // The day happening right now, advanced by the rollover interval at the
+  // bottom of this module. Components must read this instead of calling
+  // `today()` during render: a render-time clock read is invisible to React,
+  // so after the 05:00 rollover "is this today?" would stay stale until some
+  // unrelated re-render happened to flip it mid-interaction.
+  currentDay: string;
   // Todos with no planned day (docs/design/todo-backlog.md). Not part of
   // DaySlice: the backlog does not depend on the browsed date, so changing the
   // date must leave it alone.
@@ -39,7 +46,7 @@ async function fetchDay(api: TodosApi, date: string): Promise<DaySlice> {
     api.list({ from: week[0], to: week[6] }),
     // Overdue is always relative to today, not the browsed date: it is only
     // rendered on the today view.
-    api.overdue(kstToday()),
+    api.overdue(today()),
   ]);
   return { todos, weekTodos, overdue };
 }
@@ -57,7 +64,8 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
   weekTodos: [],
   overdue: [],
 
-  selectedDate: kstToday(),
+  selectedDate: today(),
+  currentDay: today(),
   backlog: [],
   desk: [],
   status: "idle",
@@ -126,7 +134,10 @@ if (bridge) {
   void syncDesk();
 
   let timer: ReturnType<typeof setTimeout> | undefined;
-  bridge.onChanged(() => {
+  bridge.onChanged((payload) => {
+    // Plan/fold writes never change todo rows; the plan store (use-plan-store)
+    // is their reader.
+    if (payload.reason === "plan" || payload.reason === "fold") return;
     clearTimeout(timer);
     timer = setTimeout(() => {
       const { status, refresh } = useTodoStore.getState();
@@ -137,3 +148,16 @@ if (bridge) {
     }, REFRESH_DEBOUNCE_MS);
   });
 }
+
+// Day rollover: one clock, at module scope so it ticks whichever route is
+// mounted. When the 05:00 boundary passes, every `currentDay` subscriber
+// re-renders off the new day, and the loaded slice is refetched because
+// Overdue is defined relative to today, not the browsed date.
+const DAY_CHECK_INTERVAL_MS = 60_000;
+setInterval(() => {
+  const day = today();
+  if (useTodoStore.getState().currentDay === day) return;
+  useTodoStore.setState({ currentDay: day });
+  const { status, refresh } = useTodoStore.getState();
+  if (status !== "idle") void refresh();
+}, DAY_CHECK_INTERVAL_MS);

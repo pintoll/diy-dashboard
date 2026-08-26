@@ -351,14 +351,16 @@ interface FinanceAPI {
   };
 }
 
-// Date-based todos. `date` is the planned day (yyyy-MM-dd, Asia/Seoul) and is
-// never mutated by overdue carry-over; `completedOn` is the day it was
-// actually finished. `workedSec` is pomodoro time accrued via recordWork.
+// Date-based todos. `date` is the planned day (yyyy-MM-dd; a day runs 05:00
+// to 05:00 Asia/Seoul — src/shared/day.ts, never a locally derived calendar
+// date) and is never mutated by overdue carry-over; `completedOn` is the day
+// it was actually finished. `workedSec` is pomodoro time accrued via
+// recordWork.
 //
 // `date: null` means the todo is in the backlog — wanted, but with no planned
 // day (docs/design/todo-backlog.md). Backlog todos appear in no date query,
 // including Overdue; `todos.backlog()` is the only way to list them.
-type TodoSource = "user" | "agent";
+type TodoSource = "user" | "agent" | "assistant";
 
 interface TodoItem {
   id: string;
@@ -395,6 +397,33 @@ interface TodoListFilter {
   to?: string;
 }
 
+// A day-plan line: a todo penciled onto a clock-time range within one 05:00
+// day (docs/design/assistant-behavior.md). `start`/`end` are "HH:MM"; an end
+// of "05:00" means end-of-day, and reading order is 05:00-anchored
+// (@shared/plan-time), not plain clock order. Overlaps are deliberately not
+// validated, and there is no sort field — reordering means retiming.
+interface PlanEntryItem {
+  id: string;
+  day: string;
+  todoId: string;
+  start: string;
+  end: string;
+}
+
+// Omitting `day` means today.
+interface PlanEntryCreateInput {
+  todoId: string;
+  day?: string;
+  start: string;
+  end: string;
+}
+
+// Retiming only: pointing an entry at another todo or day is delete+create.
+interface PlanEntryPatch {
+  start?: string;
+  end?: string;
+}
+
 interface TodoRecordWorkInput {
   // Stable per in-flight interval (`<sessionId>:<todoId>:<seq>`); the ledger's
   // idempotency key, so a retried accrual can never double-count.
@@ -412,7 +441,11 @@ type TodosChangedReason =
   | "delete"
   | "reorder"
   | "active"
-  | "work";
+  | "work"
+  // A plan entry was written (`id` is the plan entry id, not a todo id).
+  | "plan"
+  // A day was folded; folds carry no id.
+  | "fold";
 
 interface TodosChangedPayload {
   reason: TodosChangedReason;
@@ -443,6 +476,19 @@ interface TodosAPI {
     remove: (id: string) => Promise<void>;
     clear: () => Promise<void>;
   };
+  // The day's plan, rendered by the day-sheet widget. `list` defaults to
+  // today; entries arrive in lived order (05:00 first, small hours last).
+  plan: {
+    list: (day?: string) => Promise<PlanEntryItem[]>;
+    create: (input: PlanEntryCreateInput) => Promise<PlanEntryItem>;
+    update: (id: string, patch: PlanEntryPatch) => Promise<PlanEntryItem>;
+    remove: (id: string) => Promise<void>;
+  };
+  // resolveYesterday(): the last pre-today day with records after the last
+  // fold — not the calendar yesterday. `null` = history fully folded.
+  yesterday: () => Promise<string | null>;
+  // Full-row batch resolve for the plan-entry join; deleted ids are absent.
+  byIds: (ids: string[]) => Promise<TodoItem[]>;
   recordWork: (input: TodoRecordWorkInput) => Promise<void>;
   onChanged: (callback: (payload: TodosChangedPayload) => void) => () => void;
 }

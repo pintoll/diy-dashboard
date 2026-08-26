@@ -9,11 +9,13 @@ import {
   YAxis,
 } from "recharts";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { addDays, dayOf } from "@shared/day";
 import {
   dailyActiveHours,
   type DailyHours,
   type PomodoroSessionRecord,
 } from "@/src/entities/pomodoro-session";
+import { useToday } from "@/src/shared/lib/use-today";
 import { Button } from "@/src/shared/ui/button";
 import {
   Card,
@@ -30,7 +32,6 @@ type Props = {
 const FOCUS_COLOR = "var(--chart-1)";
 const LEISURE_COLOR = "var(--chart-3)";
 const WINDOW_DAYS = 7;
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = [
@@ -38,14 +39,9 @@ const MONTHS = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
-function startOfDay(ts: number): number {
-  const d = new Date(ts);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
-// Parse a local `YYYY-MM-DD` key into a local-midnight Date (avoids the UTC
-// shift `new Date("2026-05-30")` would introduce).
+// Parse an app day key into a local-midnight Date (avoids the UTC shift
+// `new Date("2026-05-30")` would introduce). Display only: the weekday of a
+// calendar date is the same in every timezone.
 function parseKey(key: string): Date {
   const [y, m, d] = key.split("-").map(Number);
   return new Date(y, m - 1, d);
@@ -115,24 +111,26 @@ function Swatch({ color, label }: { color: string; label: string }) {
 }
 
 export function DailyTrendChart({ sessions }: Props) {
-  // Capture "today" once so arrow math stays stable across renders.
-  const [todayTs] = useState(() => startOfDay(Date.now()));
-  // Days the window end is shifted back from today. 0 = window ends today.
-  const [offset, setOffset] = useState(0);
+  const todayKey = useToday();
+  // The window's newest day, or null for "follow today". Storing the anchor
+  // rather than an offset from today is what makes the 05:00 rollover behave:
+  // while the chart is showing the present it should roll over with the day,
+  // but once the user has paged back they are reading a fixed window, and a
+  // rollover must not slide it a day older under them.
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const endDay = anchor ?? todayKey;
 
-  const endTs = todayTs - offset * MS_PER_DAY;
   const window = useMemo<DailyHours[]>(
-    () => dailyActiveHours(sessions, WINDOW_DAYS, endTs),
-    [sessions, endTs]
+    () => dailyActiveHours(sessions, WINDOW_DAYS, endDay),
+    [sessions, endDay]
   );
 
   // Stop the left arrow once the window's newest day predates all history.
-  const maxOffset = useMemo(() => {
+  const earliestDay = useMemo(() => {
     let earliest = Infinity;
     for (const s of sessions) if (s.endedAt < earliest) earliest = s.endedAt;
-    if (earliest === Infinity) return 0;
-    return Math.max(0, Math.round((todayTs - startOfDay(earliest)) / MS_PER_DAY));
-  }, [sessions, todayTs]);
+    return earliest === Infinity ? null : dayOf(earliest);
+  }, [sessions]);
 
   const chartData = window.map((d) => ({
     date: d.date,
@@ -166,8 +164,8 @@ export function DailyTrendChart({ sessions }: Props) {
               variant="ghost"
               size="icon-sm"
               aria-label="Previous days"
-              disabled={offset >= maxOffset}
-              onClick={() => setOffset((o) => Math.min(maxOffset, o + 1))}
+              disabled={earliestDay === null || endDay <= earliestDay}
+              onClick={() => setAnchor(addDays(endDay, -1))}
             >
               <ChevronLeft />
             </Button>
@@ -175,8 +173,13 @@ export function DailyTrendChart({ sessions }: Props) {
               variant="ghost"
               size="icon-sm"
               aria-label="Next days"
-              disabled={offset === 0}
-              onClick={() => setOffset((o) => Math.max(0, o - 1))}
+              disabled={anchor === null}
+              // Stepping back onto today drops the anchor, so the chart resumes
+              // following the rollover instead of pinning itself to this key.
+              onClick={() => {
+                const next = addDays(endDay, 1);
+                setAnchor(next >= todayKey ? null : next);
+              }}
             >
               <ChevronRight />
             </Button>

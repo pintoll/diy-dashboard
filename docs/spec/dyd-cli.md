@@ -21,7 +21,7 @@ In order:
 
 Read `port` + `token` per request (cheap, and survives app restarts that change the port). JSON bodies are built with `python3` (correct escaping of titles/notes) and passed inline via `-d`; never via temp files (`curl.exe` cannot read WSL paths).
 
-A view built from several independent reads issues them **concurrently** (`api_get_all`), so its latency is one round trip rather than N — the overview needs five. Responses land in a scratch directory, which does not violate the rule above: the redirect is bash's, so `curl.exe` is never handed a WSL path. Each caller still validates every response itself, because tolerance differs per endpoint (a failed `/api/pomodoro` prints an unavailable line; a failed todo read is fatal).
+A view built from several independent reads issues them **concurrently** (`api_get_all`), so its latency is one round trip rather than N — the overview needs six. Responses land in a scratch directory, which does not violate the rule above: the redirect is bash's, so `curl.exe` is never handed a WSL path. Each caller still validates every response itself, because tolerance differs per endpoint (a failed `/api/pomodoro` prints an unavailable line; a failed todo read is fatal).
 
 No discovery file, or connection refused → print `diy-dashboard is not running` and exit `2`. No daemon to wait for; do not retry.
 
@@ -36,6 +36,16 @@ No discovery file, or connection refused → print `diy-dashboard is not running
 ## Global flags
 
 - `--json` — print the raw API response body instead of formatted output (read commands and command responses alike). For scripting and the future tmux status-line integration.
+
+## "Today" is the server's call
+
+The app's day runs **05:00 → 05:00 Asia/Seoul** (`src/shared/day.ts`), so
+between midnight and 05:00 the machine's calendar date is one day ahead of the
+day every API route means by "today". The CLI therefore never computes a date
+from its own clock: `today`/`tomorrow` date specs and the `── today` header
+all come from `GET /api/today` (`{ "date": "YYYY-MM-DD" }`). Re-deriving the
+boundary client-side would be a second copy of the rule — the drift the shared
+module exists to prevent.
 
 ## Commands
 
@@ -106,18 +116,21 @@ Positions are printed as `b<n>` so they cannot be confused with today's:
   b2 [ ] Read the Postgres locking chapter    35m
 ```
 
-### `dyd todo add "<title>" [-d <date>] [-n <note>]`
+### `dyd todo add "<title>" [-d <date>] [-n <note>] [--reason <text>]`
 
-`POST /api/todos`. `-d` accepts `YYYY-MM-DD`, `today`, `tomorrow`, or `backlog`; default today. Prints the created todo with its list index. `-d backlog` sends `"date": null` and prints a `b<n>` index.
+`POST /api/todos`. `-d` accepts `YYYY-MM-DD`, `today`, `tomorrow`, or `backlog`; `today`/`tomorrow` resolve against `GET /api/today` (the app's 05:00-bounded day, see above). No `-d` omits `date` from the body, which the API itself reads as today. Prints the created todo with its list index. `-d backlog` sends `"date": null` and prints a `b<n>` index.
 
-### `dyd todo done <n|id>`
+`--reason` forwards one natural-language line as the API's `reason` — why this write happened. It is journaled with the change and surfaces in the in-app assistant's log; `done` and `move` take the same flag.
+
+### `dyd todo done <n|id> [--reason <text>]`
 
 `PATCH /api/todos/:id { done: true }`. Completing a backlog todo un-parks it onto today.
 
-### `dyd todo move <n|id|b<n>> <target>`
+### `dyd todo move <n|id|b<n>> <target> [--reason <text>]`
 
 `PATCH /api/todos/:id { date }`. One verb for every re-plan: `backlog` parks the
-todo (sends `null`), `today` / `tomorrow` / `YYYY-MM-DD` place it on a day.
+todo (sends `null`), `today` / `tomorrow` / `YYYY-MM-DD` place it on a day
+(`today`/`tomorrow` via `GET /api/today`, as in `add`).
 
 ```
 dyd todo move 2 backlog        # today's #2 → the backlog
@@ -141,6 +154,93 @@ member accrues; see [`todos-agent-api.md`](todos-agent-api.md#the-desk)).
 Each prints the resulting desk: `desk: Write migration, Ship release` (or
 `desk: (empty)`). Adding a completed todo errors (exit 1). Adding a **backlog**
 todo un-parks it onto today — it is about to accrue time.
+
+### `dyd log [date|today|yesterday]`
+
+`GET /api/days/:day/log` — a day's journal, rendered to natural language by the
+server ([`todos-agent-api.md`](todos-agent-api.md#get-apidaysdaylog)). Read-only.
+
+```
+── log 2026-08-25 ─────────────
+  05:57  added "Write tests"
+  10:02  planned "Write tests" 10:00-12:00
+  11:03  [agent] Front-load the migration work: added "Write migration", planned "Write migration" 13:00-15:00
+  18:30  deleted "Write tests" (2 planned blocks removed)
+```
+
+- No argument (or `today`) is the app's day via `GET /api/today`, per the
+  "today is the server's call" rule. `yesterday` is that day minus one — the
+  calendar-style neighbor, **not** `GET /api/yesterday`'s "last unfolded day
+  with records". Anything else goes to the server verbatim; a bad date is its
+  `400` (exit 1). Every command that names a day (`log`, `day`, `fold`) reads
+  the spec the same way.
+- `[source]` tags mark non-user writers only (`[agent]`, later `[assistant]`);
+  direct app edits are the majority and stay untagged.
+- A day with no journaled changes prints `(empty)` — pomodoro work accrual is
+  not journaled, so a pure focus day can be empty here while its sessions still
+  count elsewhere.
+
+### `dyd day [date|today|yesterday]`
+
+`GET /api/days/:day` — a day's record: the plan, joined with todo state
+(`GET /api/todos/by-ids`), and its fold state.
+
+```
+── day 2026-08-26 ─────────────
+  10:00-12:00  [x] Write migration          85m
+  13:00-15:00  [ ] Ship release
+  (not folded)
+```
+
+A folded day renders from its snapshot instead (titles and outcomes are frozen
+in it): plan lines with each todo's outcome, any off-plan involved todos, then
+`folded at <ts>` and the remarks.
+
+### `dyd yesterday`
+
+`GET /api/yesterday` — the last day before today with records after the last
+fold, i.e. the day a morning session offers to fold. Prints
+`unfolded: 2026-08-24   (dyd day …, dyd log …, dyd fold)` or `all days folded`.
+Distinct from the `yesterday` **day spec** accepted by `log`/`day`/`fold`, which
+is plain calendar arithmetic on the app's today.
+
+### `dyd fold [date|today|yesterday] [--remarks <text>]`
+
+`POST /api/days/:day/fold` — close a day. With no day named, folds the pending
+day `dyd yesterday` reports (exit 1 with `nothing to fold` when history is
+clean) — the lazy morning path; `dyd fold today` is the night close. Naming
+`yesterday` folds the calendar day before today, which is the pending day on an
+ordinary morning but not after a gap; a day with no records is the API's `400`.
+Re-folding
+recomputes the snapshot and restamps `foldedAt`; `--remarks ""` sends `null`,
+clearing stored remarks, and omitting the flag keeps them.
+
+```
+folded 2026-08-26: 2 plan entries, 1/3 todos done
+  remarks: good first day
+```
+
+### `dyd apply <json>`
+
+`POST /api/apply` — one intent as an atomic batch: a required `reason`, an
+optional `sessionId`, and `ops` that may reference earlier creates as `"$N"`
+([`todos-agent-api.md`](todos-agent-api.md#post-apiapply--one-intent-atomically)).
+The argument is the request body verbatim; a JSON syntax error is caught
+client-side with a caret position. Any op failing rolls back the whole batch
+(exit 1 with the server's message).
+
+```
+dyd apply '{"reason":"split C into C-1 and C-2","ops":[
+  {"op":"todo.create","title":"C-1"},
+  {"op":"todo.create","title":"C-2"},
+  {"op":"todo.delete","id":"abc123"},
+  {"op":"plan.create","todoId":"$0","start":"10:00","end":"12:00"}]}'
+applied 4 op(s)   reason: split C into C-1 and C-2
+  + todo [ ] C-1   (2026-08-26)
+  + todo [ ] C-2   (2026-08-26)
+  - todo abc123
+  + plan 10:00-12:00   (2026-08-26)
+```
 
 ### Index addressing
 

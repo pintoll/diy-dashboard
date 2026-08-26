@@ -9,6 +9,8 @@ import {
   buildHeatmapCells,
 } from "@/src/entities/pomodoro-session";
 import { Heatmap } from "@/src/entities/pomodoro-session/client";
+import { dayStartMs } from "@shared/day";
+import { useToday } from "@/src/shared/lib/use-today";
 import { StatTile } from "./StatTile";
 
 const HEATMAP_WEEKS = 12;
@@ -17,16 +19,20 @@ export type PomodoroStatsConfig = Record<string, never>;
 
 export function PomodoroStatsClient() {
   const sessions = useSessionLogStore((s) => s.sessions);
+  // The aggregations only read `now` through dayOf, so any instant inside the
+  // current app day gives the same result; keying on the day's start makes the
+  // tiles roll over at 05:00 without waiting for a new session write.
+  const day = useToday();
 
   const { today, week, streak, cells } = useMemo(() => {
-    const now = Date.now();
+    const now = dayStartMs(day);
     return {
       today: countToday(sessions, now),
       week: countThisWeek(sessions, now),
       streak: computeCurrentStreak(sessions, now),
       cells: buildHeatmapCells(sessions, HEATMAP_WEEKS, now),
     };
-  }, [sessions]);
+  }, [sessions, day]);
 
   return (
     <div className="flex flex-col h-full w-full gap-2 min-h-0">

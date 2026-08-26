@@ -17,6 +17,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/src/shared/ui/card";
+import { dayStartMs } from "@shared/day";
+import { useToday } from "@/src/shared/lib/use-today";
 import { WeeklyHero } from "./WeeklyHero";
 import { DailyTrendChart } from "./DailyTrendChart";
 import { CelebrationStats } from "./CelebrationStats";
@@ -30,10 +32,21 @@ export function FocusAnalyticsPage() {
   const sessions = useSessionLogStore((s) => s.sessions);
   const updateSessionNote = useSessionLogStore((s) => s.updateSessionNote);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  // The day-bucketed stats (weekly, streak) only read `now` through dayOf, so
+  // the day's start instant is an equivalent anchor that rolls them over at
+  // 05:00; lifetime/matrix/hourly/apps don't bucket by day.
+  const day = useToday();
+  const dayAnchor = dayStartMs(day);
 
-  const weekly = useMemo(() => weeklyActiveHours(sessions), [sessions]);
+  const weekly = useMemo(
+    () => weeklyActiveHours(sessions, dayAnchor),
+    [sessions, dayAnchor]
+  );
   const lifetime = useMemo(() => lifetimeStats(sessions), [sessions]);
-  const streak = useMemo(() => computeCurrentStreak(sessions), [sessions]);
+  const streak = useMemo(
+    () => computeCurrentStreak(sessions, dayAnchor),
+    [sessions, dayAnchor]
+  );
   const matrix = useMemo(() => intentOutcomeMatrix(sessions), [sessions]);
   const hourly = useMemo(() => timeOfDayPattern(sessions), [sessions]);
   const apps = useMemo(() => appBreakdown(sessions), [sessions]);

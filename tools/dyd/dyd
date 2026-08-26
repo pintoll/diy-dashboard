@@ -16,11 +16,17 @@ usage:
   dyd todo                    today's list
   dyd todo overdue            overdue list
   dyd todo backlog            backlog (todos with no planned day)
-  dyd todo add "<title>" [-d <date|today|tomorrow|backlog>] [-n <note>]
-  dyd todo done <n|id>
-  dyd todo move <n|id|b<n>> <date|today|tomorrow|backlog>
+  dyd todo add "<title>" [-d <date|today|tomorrow|backlog>] [-n <note>] [--reason <text>]
+  dyd todo done <n|id> [--reason <text>]
+  dyd todo move <n|id|b<n>> <date|today|tomorrow|backlog> [--reason <text>]
   dyd todo use <n|id|->       add a todo to the desk (- clears the desk)
   dyd todo drop <n|id>        remove a todo from the desk
+  dyd log [date|today|yesterday]  a day's journal, rendered
+  dyd day [date|today|yesterday]  a day's record: plan + fold state
+  dyd yesterday               the unfolded day pending a fold, if any
+  dyd fold [date|today|yesterday] [--remarks <text>]  close a day (default: the pending day)
+  dyd apply <json>            one intent as an atomic batch:
+                              {"reason":"...","sessionId"?,"ops":[...]}
   dyd source                  list data-source connectors
   dyd source list [--group <g>] [--kind <series|events>]
   dyd source show <id>
@@ -161,34 +167,71 @@ urlenc() { # group names are free-form and may contain spaces
   printf '%s' "$1" | python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read(), safe=""))'
 }
 
+# app_today -> the app's current day (yyyy-MM-dd) on stdout. The app's day
+# runs 05:00->05:00 Asia/Seoul (src/shared/day.ts), so this machine's calendar
+# date is one day ahead of it between midnight and 05:00 — "today" is the
+# server's call, never computed locally. Callers run this in $(...), so an
+# error exits only the subshell; propagate with `|| exit`.
+app_today() {
+  api GET /api/today; api_ok_or_die
+  jget "$BODY" 'd["date"]'
+}
+
 # date_json <today|tomorrow|backlog|YYYY-MM-DD> -> the JSON value for a body's
-# "date" field. `backlog` is null on the wire, not a magic string; an unknown
-# spec is passed through verbatim so the API rejects it with a useful message.
+# "date" field. `backlog` is null on the wire, not a magic string; `today` and
+# `tomorrow` are the app's 05:00-bounded day (via app_today), not this
+# machine's; an unknown spec is passed through verbatim so the API rejects it
+# with a useful message. Same subshell caveat as app_today: `|| exit`.
 date_json() {
-  SPEC="$1" python3 -c '
+  local spec today
+  spec=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$spec" in
+    backlog)
+      printf 'null\n' ;;
+    today|tomorrow)
+      today=$(app_today) || exit
+      SPEC="$spec" TODAY="$today" python3 -c '
 import json, os
-from datetime import datetime, timedelta
-def kst_now():
-    try:
-        from zoneinfo import ZoneInfo
-        return datetime.now(ZoneInfo("Asia/Seoul"))
-    except Exception:
-        return datetime.now()
-spec = os.environ["SPEC"].strip().lower()
-if spec == "backlog":
-    print("null")
-elif spec == "tomorrow":
-    print(json.dumps(str((kst_now() + timedelta(days=1)).date())))
-elif spec == "today":
-    print(json.dumps(str(kst_now().date())))
-else:
-    print(json.dumps(os.environ["SPEC"]))'
+from datetime import date, timedelta
+d = date.fromisoformat(os.environ["TODAY"])
+if os.environ["SPEC"] == "tomorrow":
+    d += timedelta(days=1)
+print(json.dumps(str(d)))' ;;
+    *)
+      SPEC="$1" python3 -c 'import json, os; print(json.dumps(os.environ["SPEC"]))' ;;
+  esac
+}
+
+# day_spec <today|yesterday|YYYY-MM-DD> -> a urlencoded day for the /api/days
+# routes. One resolver for every command that names a day (log, day, fold), so
+# a spelling accepted by one is accepted by all. `today` and `yesterday` are
+# the app's 05:00-bounded day and the calendar day before it — arithmetic on
+# the server's day, never this machine's clock. Deliberately NOT the same
+# "yesterday" as the `dyd yesterday` command, which asks the resolver for the
+# last unfolded day with records (/api/yesterday); `dyd fold` with no day is
+# that path. An unknown spec passes through verbatim so the API rejects it with
+# a useful message, same policy as date_json. Same subshell caveat as
+# app_today: callers propagate with `|| exit`.
+day_spec() {
+  local spec today
+  spec=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$spec" in
+    today)
+      app_today ;;
+    yesterday)
+      today=$(app_today) || exit
+      TODAY="$today" python3 -c '
+import os
+from datetime import date, timedelta
+print(date.fromisoformat(os.environ["TODAY"]) - timedelta(days=1))' ;;
+    *)
+      urlenc "$1" ;;
+  esac
 }
 
 # --- formatter (all human output) -----------------------------------------
 FORMATTER=$(cat <<'PY'
 import json, sys
-from datetime import datetime, timedelta
 
 def load(s):
     s = (s or "").strip()
@@ -229,13 +272,6 @@ def compact(s):
     st = status_word(s)
     sym = {"running": "▶", "paused": "⏸", "idle": "■"}.get(st, "■")
     return f"{sym} {ph} {mmss(s['remainingSec'])} {st}"
-
-def kst_today():
-    try:
-        from zoneinfo import ZoneInfo
-        return datetime.now(ZoneInfo("Asia/Seoul")).date()
-    except Exception:
-        return datetime.now().date()
 
 # Connector definitions name a credential; they never carry the secret, so there
 # is nothing to redact here.
@@ -285,13 +321,15 @@ def today_block(todos, active_ids, date):
 
 mode = sys.argv[1]
 
+# The "today" printed in headers is the app's day (GET /api/today, 05:00
+# boundary), passed in by the caller — this formatter never reads a clock.
 if mode == "overview":
     p = load(sys.argv[2]); todos = load(sys.argv[3]); overdue = load(sys.argv[4]); desk = load(sys.argv[5])
-    backlog = load(sys.argv[6])
+    backlog = load(sys.argv[6]); app_day = sys.argv[7]
     ids = desk_ids(desk)
     print(pomo_line(p))
     tlist = (todos or {}).get("todos", [])
-    today_block(tlist, ids, str(kst_today()))
+    today_block(tlist, ids, app_day)
     n = len((overdue or {}).get("todos", []))
     if n:
         print(f"── overdue: {n} (dyd todo overdue)")
@@ -301,7 +339,7 @@ if mode == "overview":
 
 elif mode == "todo":
     todos = load(sys.argv[2]); desk = load(sys.argv[3])
-    today_block((todos or {}).get("todos", []), desk_ids(desk), str(kst_today()))
+    today_block((todos or {}).get("todos", []), desk_ids(desk), sys.argv[4])
 
 elif mode == "overdue":
     overdue = load(sys.argv[2])
@@ -324,6 +362,87 @@ elif mode == "backlog":
             w = worked(t["workedSec"])
             line = f"  b{i} {box} {t['title']}"
             print(f"{line:<32} {w}".rstrip() if w else line)
+
+elif mode == "log":
+    d = load(sys.argv[2]) or {}
+    print(f"── log {d.get('day', '')} ─────────────")
+    lines = d.get("lines", [])
+    if not lines:
+        print("  (empty)")
+    else:
+        for l in lines:
+            # The [source] tag marks non-user writers only; direct edits are
+            # the majority and tagging them would be noise.
+            tag = "" if l["source"] == "user" else f"[{l['source']}] "
+            print(f"  {l['time']}  {tag}{l['text']}")
+
+elif mode == "day":
+    d = load(sys.argv[2]); joined = (load(sys.argv[3]) or {}).get("todos", [])
+    info = {t["id"]: t for t in joined}
+    print(f"── day {d['day']} ─────────────")
+    fold = d.get("fold")
+    if fold:
+        snap = fold["snapshot"]
+        outcome = {t["id"]: t for t in snap["todos"]}
+        for e in snap["entries"]:
+            t = outcome.get(e["todoId"], {})
+            box = "[x]" if t.get("done") else "[ ]"
+            w = worked(t.get("workedSec", 0))
+            line = f"  {e['start']}-{e['end']}  {box} {t.get('title', e['todoId'])}"
+            print(f"{line:<40} {w}".rstrip() if w else line)
+        # Involved todos the final plan never scheduled still shaped the day.
+        planned = {e["todoId"] for e in snap["entries"]}
+        for t in snap["todos"]:
+            if t["id"] in planned:
+                continue
+            box = "[x]" if t["done"] else "[ ]"
+            w = worked(t["workedSec"])
+            line = f"  (off-plan)   {box} {t['title']}"
+            print(f"{line:<40} {w}".rstrip() if w else line)
+        print(f"  folded at {fold['foldedAt']}")
+        if fold.get("remarks"):
+            print(f"  remarks: {fold['remarks']}")
+    else:
+        plan = d.get("plan", [])
+        if not plan:
+            print("  (no plan)")
+        for e in plan:
+            t = info.get(e["todoId"], {})
+            box = "[x]" if t.get("done") else "[ ]"
+            print(f"  {e['start']}-{e['end']}  {box} {t.get('title', e['todoId'])}")
+        print("  (not folded)")
+
+elif mode == "yesterday":
+    date = (load(sys.argv[2]) or {}).get("date")
+    if date:
+        print(f"unfolded: {date}   (dyd day {date}, dyd log {date}, dyd fold)")
+    else:
+        print("all days folded")
+
+elif mode == "folded":
+    f = load(sys.argv[2])["fold"]
+    snap = f["snapshot"]
+    done = sum(1 for t in snap["todos"] if t["done"])
+    print(f"folded {snap['day']}: {len(snap['entries'])} plan entries, "
+          f"{done}/{len(snap['todos'])} todos done")
+    if f.get("remarks"):
+        print(f"  remarks: {f['remarks']}")
+
+elif mode == "applied":
+    resp = load(sys.argv[2]); req = load(sys.argv[3]) or {}
+    results = resp.get("results", [])
+    print(f"applied {len(results)} op(s)   reason: {req.get('reason', '')}")
+    for op, r in zip(req.get("ops", []), results):
+        kind = op.get("op", "?.?")
+        verb = {"create": "+", "update": "~", "delete": "-"}.get(kind.split(".")[-1], "?")
+        if "todo" in r:
+            t = r["todo"]; box = "[x]" if t["done"] else "[ ]"
+            print(f"  {verb} todo {box} {t['title']}   ({t['date'] or 'backlog'})")
+        elif "entry" in r:
+            e = r["entry"]
+            print(f"  {verb} plan {e['start']}-{e['end']}   ({e['day']})")
+        else:
+            print(f"  {verb} {kind.split('.')[0]} {r.get('deleted', '')}")
 
 elif mode == "pomo":
     p = load(sys.argv[2])
@@ -496,19 +615,23 @@ resolve_conn
 
 # --- commands --------------------------------------------------------------
 cmd_overview() {
-  # Five independent reads for one screen: issued concurrently, since serially
-  # they are five round trips of latency before anything prints.
-  api_get_all /api/pomodoro /api/todos /api/todos/overdue /api/desk /api/todos/backlog
+  # Six independent reads for one screen: issued concurrently, since serially
+  # they are six round trips of latency before anything prints. /api/today is
+  # among them because the header's date is the app's 05:00-bounded day, not
+  # this machine's calendar date.
+  api_get_all /api/pomodoro /api/todos /api/todos/overdue /api/desk /api/todos/backlog /api/today
   # The pomodoro read is the one allowed to fail (no session yet): a non-2xx
   # there prints an idle timer rather than killing the whole overview.
   local pomo_body=""
   [ "${PAR_STATUS[0]:0:1}" = "2" ] && pomo_body="${PAR_BODY[0]}"
   local i
-  for i in 1 2 3 4; do
+  for i in 1 2 3 4 5; do
     HTTP_STATUS="${PAR_STATUS[$i]}"; BODY="${PAR_BODY[$i]}"; api_ok_or_die
   done
   local todos_body="${PAR_BODY[1]}" overdue_body="${PAR_BODY[2]}"
   local desk_body="${PAR_BODY[3]}" backlog_body="${PAR_BODY[4]}"
+  local app_day
+  app_day=$(jget "${PAR_BODY[5]}" 'd["date"]')
   if [ "$JSON_OUT" = 1 ]; then
     python3 -c '
 import json, sys
@@ -520,10 +643,11 @@ print(json.dumps({
   "overdue": load(sys.argv[3]),
   "desk": load(sys.argv[4]),
   "backlog": load(sys.argv[5]),
-}))' "$pomo_body" "$todos_body" "$overdue_body" "$desk_body" "$backlog_body"
+  "today": load(sys.argv[6]),
+}))' "$pomo_body" "$todos_body" "$overdue_body" "$desk_body" "$backlog_body" "${PAR_BODY[5]}"
     return
   fi
-  fmt overview "$pomo_body" "$todos_body" "$overdue_body" "$desk_body" "$backlog_body"
+  fmt overview "$pomo_body" "$todos_body" "$overdue_body" "$desk_body" "$backlog_body" "$app_day"
 }
 
 cmd_pomo() {
@@ -561,13 +685,30 @@ cmd_pomo() {
   esac
 }
 
+# A day's journal, rendered to natural language by the server
+# (GET /api/days/:day/log).
+cmd_log() {
+  [ $# -le 1 ] || die_usage
+  local day
+  day=$(day_spec "${1:-today}") || exit
+  api GET "/api/days/$day/log"
+  if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+  api_ok_or_die; fmt log "$BODY"
+}
+
 cmd_todo() {
   if [ $# -eq 0 ]; then
-    api GET /api/todos
-    if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
-    api_ok_or_die; local todos_body="$BODY"
-    api GET /api/desk; api_ok_or_die
-    fmt todo "$todos_body" "$BODY"
+    if [ "$JSON_OUT" = 1 ]; then
+      api GET /api/todos
+      printf '%s\n' "$BODY"; api_ok_or_die; return
+    fi
+    # /api/today rides along for the header date (the app's 05:00-bounded day).
+    api_get_all /api/todos /api/desk /api/today
+    local i
+    for i in 0 1 2; do
+      HTTP_STATUS="${PAR_STATUS[$i]}"; BODY="${PAR_BODY[$i]}"; api_ok_or_die
+    done
+    fmt todo "${PAR_BODY[0]}" "${PAR_BODY[1]}" "$(jget "${PAR_BODY[2]}" 'd["date"]')"
     return
   fi
   local sub="$1"; shift
@@ -583,26 +724,33 @@ cmd_todo() {
     add)
       [ $# -ge 1 ] || die_usage
       local title="$1"; shift
-      local date="" note=""
+      local date="" note="" reason="" reason_set=0
       while [ $# -gt 0 ]; do
         case "$1" in
-          -d) date="${2:-}"; shift 2 ;;
-          -n) note="${2:-}"; shift 2 ;;
+          -d) date="${2:-}"; shift 2 || die_usage ;;
+          -n) note="${2:-}"; shift 2 || die_usage ;;
+          --reason) reason="${2:-}"; reason_set=1; shift 2 || die_usage ;;
           *) die_usage ;;
         esac
       done
       # No -d at all leaves "date" out of the body entirely, which the API reads
       # as today. That is not the same as -d backlog, which sends null.
       local datejson=""
-      [ -n "$date" ] && datejson=$(date_json "$date")
+      if [ -n "$date" ]; then
+        datejson=$(date_json "$date") || exit
+      fi
       local body
-      body=$(TITLE="$title" DATEJSON="$datejson" NOTE="$note" python3 -c '
+      body=$(TITLE="$title" DATEJSON="$datejson" NOTE="$note" REASON="$reason" REASON_SET="$reason_set" python3 -c '
 import json, os
 out = {"title": os.environ["TITLE"]}
 if os.environ["DATEJSON"]:
     out["date"] = json.loads(os.environ["DATEJSON"])
 if os.environ["NOTE"]:
     out["note"] = os.environ["NOTE"]
+# Key presence follows the flag, not truthiness: an empty --reason must reach
+# the API (which 400s) rather than silently become an unjournaled write.
+if os.environ["REASON_SET"] == "1":
+    out["reason"] = os.environ["REASON"]
 print(json.dumps(out))')
       api POST /api/todos "$body"
       if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
@@ -619,15 +767,47 @@ print(json.dumps(out))')
       fi ;;
     move)
       # Re-plan a todo: onto a day, or into the backlog (no day at all).
-      [ $# -eq 2 ] || die_usage
-      resolve_id "$1" || exit 1
-      api PATCH "/api/todos/$RESOLVED_ID" "$(printf '{"date":%s}' "$(date_json "$2")")"
+      [ $# -ge 2 ] || die_usage
+      local ref="$1" target="$2"; shift 2
+      local reason="" reason_set=0
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --reason) reason="${2:-}"; reason_set=1; shift 2 || die_usage ;;
+          *) die_usage ;;
+        esac
+      done
+      resolve_id "$ref" || exit 1
+      local datejson
+      datejson=$(date_json "$target") || exit
+      local body
+      body=$(DATEJSON="$datejson" REASON="$reason" REASON_SET="$reason_set" python3 -c '
+import json, os
+out = {"date": json.loads(os.environ["DATEJSON"])}
+if os.environ["REASON_SET"] == "1":
+    out["reason"] = os.environ["REASON"]
+print(json.dumps(out))')
+      api PATCH "/api/todos/$RESOLVED_ID" "$body"
       if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
       api_ok_or_die; fmt moved "$BODY" ;;
     done)
-      [ $# -eq 1 ] || die_usage
-      resolve_id "$1" || exit 1
-      api PATCH "/api/todos/$RESOLVED_ID" '{"done":true}'
+      [ $# -ge 1 ] || die_usage
+      local ref="$1"; shift
+      local reason="" reason_set=0
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --reason) reason="${2:-}"; reason_set=1; shift 2 || die_usage ;;
+          *) die_usage ;;
+        esac
+      done
+      resolve_id "$ref" || exit 1
+      local body
+      body=$(REASON="$reason" REASON_SET="$reason_set" python3 -c '
+import json, os
+out = {"done": True}
+if os.environ["REASON_SET"] == "1":
+    out["reason"] = os.environ["REASON"]
+print(json.dumps(out))')
+      api PATCH "/api/todos/$RESOLVED_ID" "$body"
       if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
       api_ok_or_die; fmt todo_line "$BODY" "done:" ;;
     use)
@@ -650,6 +830,80 @@ print(json.dumps(out))')
       api_ok_or_die; fmt desk_set "$BODY" ;;
     *) die_usage ;;
   esac
+}
+
+# The day record: plan + fold state for one day (GET /api/days/:day). Titles
+# for unfolded plan entries come from /api/todos/by-ids; a folded day carries
+# its own denormalized titles in the snapshot.
+cmd_day() {
+  [ $# -le 1 ] || die_usage
+  local day
+  day=$(day_spec "${1:-today}") || exit
+  api GET "/api/days/$day"
+  if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+  api_ok_or_die
+  local day_body="$BODY" ids todos_body='{"todos":[]}'
+  ids=$(jget "$day_body" '",".join(sorted({e["todoId"] for e in d["plan"]}))')
+  if [ -n "$ids" ]; then
+    api GET "/api/todos/by-ids?ids=$ids"; api_ok_or_die
+    todos_body="$BODY"
+  fi
+  fmt day "$day_body" "$todos_body"
+}
+
+# The assistant's "yesterday": the last day with records after the last fold
+# (GET /api/yesterday) — the day a morning session offers to fold. Distinct
+# from `dyd log yesterday`, which is plain calendar arithmetic on today.
+cmd_yesterday() {
+  [ $# -eq 0 ] || die_usage
+  api GET /api/yesterday
+  if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+  api_ok_or_die; fmt yesterday "$BODY"
+}
+
+# Close a day (POST /api/days/:day/fold). With no day named, folds the pending
+# day the resolver reports — the lazy morning-fold path; `dyd fold today` is
+# the night-close path. Idempotent per the API: re-folding recomputes.
+cmd_fold() {
+  local day="" remarks="" remarks_set=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --remarks) remarks="${2:-}"; remarks_set=1; shift 2 || die_usage ;;
+      -*) die_usage ;;
+      *) [ -n "$day" ] && die_usage; day="$1"; shift ;;
+    esac
+  done
+  if [ -z "$day" ]; then
+    api GET /api/yesterday; api_ok_or_die
+    day=$(jget "$BODY" 'd["date"] or ""')
+    if [ -z "$day" ]; then
+      echo "${PROG}: nothing to fold (all days folded)" >&2
+      exit 1
+    fi
+  else
+    day=$(day_spec "$day") || exit
+  fi
+  local body="{}"
+  if [ "$remarks_set" = 1 ]; then
+    # An empty --remarks sends null, which clears any stored remarks.
+    body=$(REMARKS="$remarks" python3 -c '
+import json, os
+print(json.dumps({"remarks": os.environ["REMARKS"] or None}))')
+  fi
+  api POST "/api/days/$day/fold" "$body"
+  if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+  api_ok_or_die; fmt folded "$BODY"
+}
+
+# One intent as an atomic batch (POST /api/apply): a required reason, an
+# optional sessionId, and ops that may reference earlier creates as "$N".
+# Spec: docs/spec/todos-agent-api.md.
+cmd_apply() {
+  [ $# -eq 1 ] || die_usage
+  local body; body=$(json_arg "$1") || exit 1
+  api POST /api/apply "$body"
+  if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+  api_ok_or_die; fmt applied "$BODY" "$body"
 }
 
 # Data-source connectors. Writes go through the API's dry-run: the app fetches
@@ -754,6 +1008,11 @@ top="$1"; shift
 case "$top" in
   pomo) cmd_pomo "$@" ;;
   todo) cmd_todo "$@" ;;
+  log) cmd_log "$@" ;;
+  day) cmd_day "$@" ;;
+  yesterday) cmd_yesterday "$@" ;;
+  fold) cmd_fold "$@" ;;
+  apply) cmd_apply "$@" ;;
   source) cmd_source "$@" ;;
   cred) cmd_cred "$@" ;;
   -h|--help|help) die_usage ;;
