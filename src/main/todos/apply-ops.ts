@@ -1,12 +1,20 @@
 import { ValidationError } from "./types";
+import {
+  asObject,
+  assertOnlyKeys,
+  PLAN_CREATE_KEYS,
+  PLAN_PATCH_KEYS,
+  TODO_CREATE_KEYS,
+  TODO_PATCH_KEYS,
+} from "./validate";
 
 // Pure parsing/validation for the assistant's batch write (POST /api/apply):
 // one natural-language reason plus the ops it explains, applied atomically by
 // apply.ts (docs/design/assistant-architecture.md). This module is
 // deliberately db-free so vitest can cover it; value-level validation (dates,
 // plan times, titles, unknown ids) stays with the domain functions the
-// executor calls, inside the batch transaction, so the rules cannot fork from
-// the single-op routes.
+// executor calls, inside the batch transaction, and the key policy comes from
+// validate.ts, so neither can fork from the single-op routes.
 //
 // An id field may be "$N": the entity created by ops[N] earlier in the same
 // batch. That is what lets a split (create C-1, create C-2, delete C, plan
@@ -42,32 +50,15 @@ const OP_KINDS = [
   "plan.delete",
 ] as const;
 
-const TODO_PATCH_KEYS = ["title", "note", "date", "done", "sortOrder"];
-const PLAN_PATCH_KEYS = ["start", "end"];
+// The plan.create body minus the id: it travels as a parsed ref instead, and
+// the executor supplies the resolved id. Derived from the pinned allowlist so
+// a field added to PlanEntryCreateInput reaches the executor by default.
+const PLAN_CREATE_INPUT_KEYS = PLAN_CREATE_KEYS.filter((key) => key !== "todoId");
 
-function asRecord(value: unknown, what: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new ValidationError(`${what} must be a JSON object`);
-  }
-  return value as Record<string, unknown>;
-}
-
-// Same policy as the single-op routes (todos-routes.ts assertOnlyKeys): a
-// misnamed field must 400 loudly rather than be dropped into a silent no-op.
-function assertKeys(
+function pick(
   obj: Record<string, unknown>,
-  allowed: string[],
-  what: string
-): void {
-  const unknown = Object.keys(obj).filter((key) => !allowed.includes(key));
-  if (unknown.length > 0) {
-    throw new ValidationError(
-      `${what} has unknown key(s): ${unknown.join(", ")}; allowed: ${allowed.join(", ")}`
-    );
-  }
-}
-
-function pick(obj: Record<string, unknown>, keys: string[]): Record<string, unknown> {
+  keys: readonly string[]
+): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of keys) {
     if (key in obj) out[key] = obj[key];
@@ -111,13 +102,13 @@ function parseRef(
 
 function parseOp(raw: unknown, index: number, prior: ParsedOp[]): ParsedOp {
   const what = `ops[${index}]`;
-  const obj = asRecord(raw, what);
+  const obj = asObject(raw, what);
   switch (obj.op) {
     case "todo.create":
-      assertKeys(obj, ["op", "title", "date", "note"], what);
-      return { kind: "todo.create", input: pick(obj, ["title", "date", "note"]) };
+      assertOnlyKeys(obj, ["op", ...TODO_CREATE_KEYS], what);
+      return { kind: "todo.create", input: pick(obj, TODO_CREATE_KEYS) };
     case "todo.update": {
-      assertKeys(obj, ["op", "id", ...TODO_PATCH_KEYS], what);
+      assertOnlyKeys(obj, ["op", "id", ...TODO_PATCH_KEYS], what);
       const patch = pick(obj, TODO_PATCH_KEYS);
       if (Object.keys(patch).length === 0) {
         throw new ValidationError(
@@ -131,17 +122,17 @@ function parseOp(raw: unknown, index: number, prior: ParsedOp[]): ParsedOp {
       };
     }
     case "todo.delete":
-      assertKeys(obj, ["op", "id"], what);
+      assertOnlyKeys(obj, ["op", "id"], what);
       return { kind: "todo.delete", ref: parseRef(obj.id, "id", index, prior, "todo") };
     case "plan.create":
-      assertKeys(obj, ["op", "todoId", "day", "start", "end"], what);
+      assertOnlyKeys(obj, ["op", ...PLAN_CREATE_KEYS], what);
       return {
         kind: "plan.create",
         todoRef: parseRef(obj.todoId, "todoId", index, prior, "todo"),
-        input: pick(obj, ["day", "start", "end"]),
+        input: pick(obj, PLAN_CREATE_INPUT_KEYS),
       };
     case "plan.update": {
-      assertKeys(obj, ["op", "id", ...PLAN_PATCH_KEYS], what);
+      assertOnlyKeys(obj, ["op", "id", ...PLAN_PATCH_KEYS], what);
       const patch = pick(obj, PLAN_PATCH_KEYS);
       if (Object.keys(patch).length === 0) {
         throw new ValidationError(
@@ -155,7 +146,7 @@ function parseOp(raw: unknown, index: number, prior: ParsedOp[]): ParsedOp {
       };
     }
     case "plan.delete":
-      assertKeys(obj, ["op", "id"], what);
+      assertOnlyKeys(obj, ["op", "id"], what);
       return { kind: "plan.delete", ref: parseRef(obj.id, "id", index, prior, "plan") };
     default:
       throw new ValidationError(
@@ -165,8 +156,8 @@ function parseOp(raw: unknown, index: number, prior: ParsedOp[]): ParsedOp {
 }
 
 export function parseApply(body: unknown): ParsedApply {
-  const obj = asRecord(body, "body");
-  assertKeys(obj, ["reason", "sessionId", "ops"], "body");
+  const obj = asObject(body, "body");
+  assertOnlyKeys(obj, ["reason", "sessionId", "ops"], "body");
 
   // The reason is the point of this route — a batch without one belongs to
   // the single-op routes, where reasons are optional.

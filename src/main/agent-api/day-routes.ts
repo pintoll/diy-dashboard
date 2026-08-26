@@ -9,8 +9,14 @@ import {
   updatePlanEntry,
 } from "../todos/plan";
 import type { PlanEntryCreateInput, PlanEntryPatch } from "../todos/types";
+import {
+  asObject,
+  assertOnlyKeys,
+  PLAN_CREATE_KEYS,
+  PLAN_PATCH_KEYS,
+} from "../todos/validate";
 import { readJsonBody, sendJson, type Route } from "./router";
-import { agentReason, asObject, assertOnlyKeys } from "./todos-routes";
+import { agentReason } from "./todos-routes";
 
 // The day-record surface of the agent API: the plan (todos penciled onto
 // clock-time ranges) and the fold (the day's closed record). Same discipline
@@ -38,7 +44,7 @@ export const dayRoutes: Route[] = [
     // spec's name "day".
     handler: async (req, res) => {
       const body = asObject(await readJsonBody(req), "body");
-      assertOnlyKeys(body, ["todoId", "day", "start", "end", "reason"], "body");
+      assertOnlyKeys(body, [...PLAN_CREATE_KEYS, "reason"], "body");
       const reason = agentReason(body.reason);
       delete body.reason;
       const entry = createPlanEntry(body as PlanEntryCreateInput, {
@@ -56,7 +62,7 @@ export const dayRoutes: Route[] = [
     // 200 the caller reads as a successful move.
     handler: async (req, res, params) => {
       const body = asObject(await readJsonBody(req), "body");
-      assertOnlyKeys(body, ["start", "end", "reason"], "body");
+      assertOnlyKeys(body, [...PLAN_PATCH_KEYS, "reason"], "body");
       const reason = agentReason(body.reason);
       delete body.reason;
       const entry = updatePlanEntry(params.id, body as PlanEntryPatch, {

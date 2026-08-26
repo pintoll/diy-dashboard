@@ -1,9 +1,8 @@
 import type Database from "better-sqlite3";
 import { nanoid } from "nanoid";
-import { today } from "@shared/day";
 import { comparePlanStart, isPlanTime, planEndMinutes, planMinutes } from "@shared/plan-time";
 import { getTodosDb } from "./db";
-import { assertDate } from "./date";
+import { assertDate, contextDay } from "./date";
 import { emitTodosChanged } from "./events";
 import { recordOp, rowChanged } from "./journal";
 import {
@@ -74,7 +73,7 @@ export function createPlanEntry(input: PlanEntryCreateInput, ctx: WriteContext):
   if (typeof input.todoId !== "string" || input.todoId.length === 0) {
     throw new ValidationError("todoId must be a todo id string");
   }
-  const day = input.day !== undefined ? assertDate(input.day, "day") : today();
+  const day = input.day !== undefined ? assertDate(input.day, "day") : contextDay(ctx);
   const start = assertPlanTime(input.start, "start");
   const end = assertPlanTime(input.end, "end");
   assertRange(start, end);

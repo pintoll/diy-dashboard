@@ -12,28 +12,18 @@ Usage:
                                         creating/editing/completing todos by
                                         hand in the widget)
 
-Env overrides (default: the WSL dev instance under ~/.config/diy-dashboard):
-  E2E_API_FILE  path to agent-api.json
-  E2E_DB        path to todos.db
-
-Deliberately does NOT reuse dyd's discovery order (Windows AppData first):
-this script writes scenario data and must never land on the real app's DB.
-HTTP goes through curl (curl.exe when the API file lives under /mnt/) so the
-same scenario can later run against the packaged Windows app from WSL.
+Connection, request, and check bookkeeping come from e2e_common (shared with
+e2e-apply.py), including the env overrides E2E_API_FILE and E2E_DB.
 """
 
 import json
-import os
 import re
 import sqlite3
-import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
-CONFIG_DIR = os.path.expanduser("~/.config/diy-dashboard")
-API_FILE = os.environ.get("E2E_API_FILE", os.path.join(CONFIG_DIR, "agent-api.json"))
-DB_PATH = os.environ.get("E2E_DB", os.path.join(CONFIG_DIR, "todos.db"))
+from e2e_common import API_FILE, DB_PATH, Api, check, section, summarize
 
 KST = timezone(timedelta(hours=9))
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -60,78 +50,6 @@ def shift_day(day: str, days: int) -> str:
     return (datetime.strptime(day, "%Y-%m-%d") + timedelta(days=days)).strftime(
         "%Y-%m-%d"
     )
-
-
-# --- check bookkeeping -------------------------------------------------------
-
-RESULTS: list[tuple[bool, str]] = []
-
-
-def section(title: str) -> None:
-    print(f"\n== {title}")
-
-
-def check(ok: object, desc: str, detail: object = "") -> bool:
-    ok = bool(ok)
-    RESULTS.append((ok, desc))
-    line = f"  [{'PASS' if ok else 'FAIL'}] {desc}"
-    if not ok and detail != "":
-        line += f"\n         {detail}"
-    print(line)
-    return ok
-
-
-def summarize() -> int:
-    failed = [desc for ok, desc in RESULTS if not ok]
-    print(f"\n{'-' * 60}")
-    print(f"{len(RESULTS) - len(failed)}/{len(RESULTS)} checks passed")
-    for desc in failed:
-        print(f"  FAIL: {desc}")
-    return 1 if failed else 0
-
-
-# --- agent API via curl ------------------------------------------------------
-
-
-class Api:
-    def __init__(self, api_file: str):
-        try:
-            with open(api_file) as f:
-                conn = json.load(f)
-            self.port = conn["port"]
-            self.token = conn["token"]
-        except (OSError, ValueError, KeyError):
-            sys.exit(f"cannot read {api_file} — is the dev app running? (pnpm dev)")
-        self.curl = "curl.exe" if api_file.startswith("/mnt/") else "curl"
-
-    def request(self, method, path, body=None, auth=True, token=None):
-        args = [self.curl, "-s", "-S", "-o", "-", "-w", "\n%{http_code}", "-X", method]
-        if auth:
-            args += ["-H", f"Authorization: Bearer {token or self.token}"]
-        if body is not None:
-            args += ["-H", "Content-Type: application/json", "-d", json.dumps(body)]
-        args.append(f"http://127.0.0.1:{self.port}{path}")
-        proc = subprocess.run(args, capture_output=True, text=True)
-        if proc.returncode != 0:
-            sys.exit(f"curl failed — is the app running? ({proc.stderr.strip()})")
-        raw, _, status = proc.stdout.rpartition("\n")
-        try:
-            parsed = json.loads(raw) if raw else None
-        except ValueError:
-            parsed = raw
-        return int(status), parsed
-
-    def get(self, path, **kw):
-        return self.request("GET", path, **kw)
-
-    def post(self, path, body, **kw):
-        return self.request("POST", path, body=body, **kw)
-
-    def patch(self, path, body, **kw):
-        return self.request("PATCH", path, body=body, **kw)
-
-    def delete(self, path, **kw):
-        return self.request("DELETE", path, **kw)
 
 
 # --- todos.db ground truth (read-only; WAL allows concurrent readers) --------

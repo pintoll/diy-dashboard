@@ -172,14 +172,15 @@ server ([`todos-agent-api.md`](todos-agent-api.md#get-apidaysdaylog)). Read-only
   "today is the server's call" rule. `yesterday` is that day minus one — the
   calendar-style neighbor, **not** `GET /api/yesterday`'s "last unfolded day
   with records". Anything else goes to the server verbatim; a bad date is its
-  `400` (exit 1).
+  `400` (exit 1). Every command that names a day (`log`, `day`, `fold`) reads
+  the spec the same way.
 - `[source]` tags mark non-user writers only (`[agent]`, later `[assistant]`);
   direct app edits are the majority and stay untagged.
 - A day with no journaled changes prints `(empty)` — pomodoro work accrual is
   not journaled, so a pure focus day can be empty here while its sessions still
   count elsewhere.
 
-### `dyd day [date|today]`
+### `dyd day [date|today|yesterday]`
 
 `GET /api/days/:day` — a day's record: the plan, joined with todo state
 (`GET /api/todos/by-ids`), and its fold state.
@@ -200,13 +201,17 @@ in it): plan lines with each todo's outcome, any off-plan involved todos, then
 `GET /api/yesterday` — the last day before today with records after the last
 fold, i.e. the day a morning session offers to fold. Prints
 `unfolded: 2026-08-24   (dyd day …, dyd log …, dyd fold)` or `all days folded`.
-Distinct from `dyd log yesterday`, which is plain calendar arithmetic.
+Distinct from the `yesterday` **day spec** accepted by `log`/`day`/`fold`, which
+is plain calendar arithmetic on the app's today.
 
-### `dyd fold [date|today] [--remarks <text>]`
+### `dyd fold [date|today|yesterday] [--remarks <text>]`
 
 `POST /api/days/:day/fold` — close a day. With no day named, folds the pending
 day `dyd yesterday` reports (exit 1 with `nothing to fold` when history is
-clean) — the lazy morning path; `dyd fold today` is the night close. Re-folding
+clean) — the lazy morning path; `dyd fold today` is the night close. Naming
+`yesterday` folds the calendar day before today, which is the pending day on an
+ordinary morning but not after a gap; a day with no records is the API's `400`.
+Re-folding
 recomputes the snapshot and restamps `foldedAt`; `--remarks ""` sends `null`,
 clearing stored remarks, and omitting the flag keeps them.
 

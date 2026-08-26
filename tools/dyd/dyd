@@ -22,9 +22,9 @@ usage:
   dyd todo use <n|id|->       add a todo to the desk (- clears the desk)
   dyd todo drop <n|id>        remove a todo from the desk
   dyd log [date|today|yesterday]  a day's journal, rendered
-  dyd day [date|today]        a day's record: plan + fold state
+  dyd day [date|today|yesterday]  a day's record: plan + fold state
   dyd yesterday               the unfolded day pending a fold, if any
-  dyd fold [date|today] [--remarks <text>]  close a day (default: the pending day)
+  dyd fold [date|today|yesterday] [--remarks <text>]  close a day (default: the pending day)
   dyd apply <json>            one intent as an atomic batch:
                               {"reason":"...","sessionId"?,"ops":[...]}
   dyd source                  list data-source connectors
@@ -199,6 +199,33 @@ if os.environ["SPEC"] == "tomorrow":
 print(json.dumps(str(d)))' ;;
     *)
       SPEC="$1" python3 -c 'import json, os; print(json.dumps(os.environ["SPEC"]))' ;;
+  esac
+}
+
+# day_spec <today|yesterday|YYYY-MM-DD> -> a urlencoded day for the /api/days
+# routes. One resolver for every command that names a day (log, day, fold), so
+# a spelling accepted by one is accepted by all. `today` and `yesterday` are
+# the app's 05:00-bounded day and the calendar day before it — arithmetic on
+# the server's day, never this machine's clock. Deliberately NOT the same
+# "yesterday" as the `dyd yesterday` command, which asks the resolver for the
+# last unfolded day with records (/api/yesterday); `dyd fold` with no day is
+# that path. An unknown spec passes through verbatim so the API rejects it with
+# a useful message, same policy as date_json. Same subshell caveat as
+# app_today: callers propagate with `|| exit`.
+day_spec() {
+  local spec today
+  spec=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$spec" in
+    today)
+      app_today ;;
+    yesterday)
+      today=$(app_today) || exit
+      TODAY="$today" python3 -c '
+import os
+from datetime import date, timedelta
+print(date.fromisoformat(os.environ["TODAY"]) - timedelta(days=1))' ;;
+    *)
+      urlenc "$1" ;;
   esac
 }
 
@@ -659,27 +686,11 @@ cmd_pomo() {
 }
 
 # A day's journal, rendered to natural language by the server
-# (GET /api/days/:day/log). `yesterday` is the app day minus one — date
-# arithmetic on the server's day, never this machine's clock; distinct from
-# /api/yesterday, which means "the last unfolded day with records".
+# (GET /api/days/:day/log).
 cmd_log() {
   [ $# -le 1 ] || die_usage
-  local spec day
-  spec=$(printf '%s' "${1:-today}" | tr '[:upper:]' '[:lower:]')
-  case "$spec" in
-    today)
-      day=$(app_today) || exit ;;
-    yesterday)
-      day=$(app_today) || exit
-      day=$(TODAY="$day" python3 -c '
-import os
-from datetime import date, timedelta
-print(date.fromisoformat(os.environ["TODAY"]) - timedelta(days=1))') ;;
-    *)
-      # Verbatim (urlencoded): the server validates and rejects with a
-      # useful message, same policy as date_json.
-      day=$(urlenc "$1") ;;
-  esac
+  local day
+  day=$(day_spec "${1:-today}") || exit
   api GET "/api/days/$day/log"
   if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
   api_ok_or_die; fmt log "$BODY"
@@ -826,12 +837,8 @@ print(json.dumps(out))')
 # its own denormalized titles in the snapshot.
 cmd_day() {
   [ $# -le 1 ] || die_usage
-  local spec day
-  spec=$(printf '%s' "${1:-today}" | tr '[:upper:]' '[:lower:]')
-  case "$spec" in
-    today) day=$(app_today) || exit ;;
-    *) day=$(urlenc "$1") ;;
-  esac
+  local day
+  day=$(day_spec "${1:-today}") || exit
   api GET "/api/days/$day"
   if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
   api_ok_or_die
@@ -866,19 +873,16 @@ cmd_fold() {
       *) [ -n "$day" ] && die_usage; day="$1"; shift ;;
     esac
   done
-  case "$(printf '%s' "$day" | tr '[:upper:]' '[:lower:]')" in
-    "")
-      api GET /api/yesterday; api_ok_or_die
-      day=$(jget "$BODY" 'd["date"] or ""')
-      if [ -z "$day" ]; then
-        echo "${PROG}: nothing to fold (all days folded)" >&2
-        exit 1
-      fi ;;
-    today)
-      day=$(app_today) || exit ;;
-    *)
-      day=$(urlenc "$day") ;;
-  esac
+  if [ -z "$day" ]; then
+    api GET /api/yesterday; api_ok_or_die
+    day=$(jget "$BODY" 'd["date"] or ""')
+    if [ -z "$day" ]; then
+      echo "${PROG}: nothing to fold (all days folded)" >&2
+      exit 1
+    fi
+  else
+    day=$(day_spec "$day") || exit
+  fi
   local body="{}"
   if [ "$remarks_set" = 1 ]; then
     # An empty --remarks sends null, which clears any stored remarks.

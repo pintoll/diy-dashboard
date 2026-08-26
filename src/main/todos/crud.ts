@@ -1,8 +1,7 @@
 import type Database from "better-sqlite3";
 import { nanoid } from "nanoid";
-import { today } from "@shared/day";
 import { getTodosDb } from "./db";
-import { assertDate } from "./date";
+import { assertDate, contextDay } from "./date";
 import { emitTodosChanged } from "./events";
 import { recordOp, rowChanged } from "./journal";
 import { removePlanEntriesForTodo } from "./plan";
@@ -160,7 +159,7 @@ export function createTodo(input: TodoCreateInput, ctx: WriteContext): Todo {
   const db = getTodosDb();
   const title = normalizeTitle(input.title);
   const note = normalizeNote(input.note);
-  const date = input.date !== undefined ? normalizeDate(input.date) : today();
+  const date = input.date !== undefined ? normalizeDate(input.date) : contextDay(ctx);
   const id = nanoid();
 
   const row = db.transaction((): TodoRow => {
@@ -212,10 +211,10 @@ export function updateTodo(
 
     const wasDone = row.done === 1;
     const done = patch.done ?? wasDone;
-    // One clock read for the whole patch: completed_on and the un-park date
+    // One clock read for the whole intent: completed_on and the un-park date
     // below describe the same completion event, so they must name the same day
     // even when the call straddles the 05:00 boundary.
-    const day = today();
+    const day = contextDay(ctx);
     // completed_on tracks the day the todo was actually finished, independent
     // of its planned date; re-opening clears it.
     let completedOn = row.completed_on;

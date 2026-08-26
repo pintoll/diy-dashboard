@@ -27,6 +27,10 @@ export type WriteContext = {
   // cached here (journal.ts resolveOpAt). Never set by callers — contexts are
   // one-per-write-request, so the cache scopes the stamp to one intent.
   at?: string;
+  // The intent's app day (05:00 to 05:00), read once on first use and cached
+  // here (date.ts contextDay). Same rule as `at`, for the day every date
+  // default of the intent falls back to.
+  day?: string;
 };
 
 export type TodoRow = {

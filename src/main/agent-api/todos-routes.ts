@@ -13,36 +13,19 @@ import {
 import type { ReasonInput } from "../todos/journal";
 import { ValidationError } from "../todos/types";
 import type { TodoCreateInput, TodoPatch } from "../todos/types";
+import {
+  asObject,
+  assertOnlyKeys,
+  TODO_CREATE_KEYS,
+  TODO_PATCH_KEYS,
+} from "../todos/validate";
 import { readJsonBody, sendJson, type Route } from "./router";
 
 // The todos surface of the agent API. Route handlers only translate
 // HTTP <-> the same domain functions the IPC layer calls, so validation,
 // semantics, and todos:changed pushes are identical no matter who writes.
-
-export function asObject(body: unknown, what: string): Record<string, unknown> {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    throw new ValidationError(`${what} must be a JSON object`);
-  }
-  return body as Record<string, unknown>;
-}
-
-// Rejects body keys outside `allowed`. The callers are agents that trust
-// status codes, so a misnamed field must 400 loudly: dropping it silently
-// turns "planned tomorrow" into "planned today" (POST /api/plan with "date"
-// for "day") or returns 200 for a patch that applied nothing (PATCH
-// /api/plan/:id with keys the route deliberately ignores).
-export function assertOnlyKeys(
-  body: Record<string, unknown>,
-  allowed: string[],
-  what: string
-): void {
-  const unknown = Object.keys(body).filter((key) => !allowed.includes(key));
-  if (unknown.length > 0) {
-    throw new ValidationError(
-      `${what} has unknown key(s): ${unknown.join(", ")}; allowed: ${allowed.join(", ")}`
-    );
-  }
-}
+// Key policy comes from todos/validate.ts, shared with the batch parser
+// (todos/apply-ops.ts), so the two write surfaces accept the same bodies.
 
 // Validates an optional caller-supplied reason ("--reason" in dyd) for the
 // write context. The row itself is minted lazily by resolveReasonId inside the
@@ -128,6 +111,7 @@ export const todosRoutes: Route[] = [
     pattern: "/api/todos",
     handler: async (req, res) => {
       const body = asObject(await readJsonBody(req), "body");
+      assertOnlyKeys(body, [...TODO_CREATE_KEYS, "reason"], "body");
       // `reason` rides in the body but is journal metadata, not todo input —
       // strip it so the cast below stays honest.
       const reason = agentReason(body.reason);
@@ -142,6 +126,7 @@ export const todosRoutes: Route[] = [
     pattern: "/api/todos/:id",
     handler: async (req, res, params) => {
       const body = asObject(await readJsonBody(req), "body");
+      assertOnlyKeys(body, [...TODO_PATCH_KEYS, "reason"], "body");
       const reason = agentReason(body.reason);
       delete body.reason;
       const todo = updateTodo(params.id, body as TodoPatch, { source: "agent", reason });

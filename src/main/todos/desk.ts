@@ -1,5 +1,5 @@
-import { today } from "@shared/day";
 import { updateTodo } from "./crud";
+import { contextDay } from "./date";
 import { getTodosDb } from "./db";
 import { emitTodosChanged } from "./events";
 import {
@@ -53,7 +53,7 @@ export function addToDesk(id: string, ctx: WriteContext): Todo {
     // suppressed to keep this function's single event. The desk INSERT below
     // is membership, not todo data, and is not journaled.
     if (row.date === null) {
-      current = updateTodo(id, { date: today() }, ctx, { emit: false });
+      current = updateTodo(id, { date: contextDay(ctx) }, ctx, { emit: false });
       changed = true;
     }
     const info = db

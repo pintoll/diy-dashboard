@@ -150,6 +150,8 @@ POST /api/todos
 
 Omitting `date` means today; `"date": null` puts the todo straight into the backlog. The two are deliberately different, so a caller that simply does not care about the day still gets today. `source` is forced to `"agent"` — you cannot impersonate a user-created todo.
 
+Keys are strict: anything outside `title`, `date`, `note`, `reason` is a `400`, the same policy `POST /api/apply` applies to a `todo.create` op. A misnamed field must fail loudly rather than be dropped — `{"title": "t", "day": "2026-01-01"}` would otherwise return `201` with the todo silently dated today.
+
 An optional `"reason"` field (one natural-language line, non-empty) records *why* this write happened. It is journal metadata, not part of the todo: it is stripped before the write, stored atomically with it, and later surfaces in the in-app assistant's log (`docs/design/assistant-architecture.md`). A JSON `null` counts as absent, not as an error — some serializers emit `null` for omitted optionals, and the DELETE query-param form cannot distinguish the two; any other empty or non-string `reason` is a `400`. A reason attached to a write that ends up changing nothing (say, re-completing an already-done todo) is not journaled: no op row, no reason row.
 
 ### `PATCH /api/todos/:id`
@@ -164,7 +166,7 @@ All fields optional. Setting `done: true` stamps `completedOn` and steps the tod
 
 `"date": null` parks the todo in the backlog; a date pulls it back out. Either way, unless the patch also sets `sortOrder`, a todo that changes bucket is appended to the end of its destination rather than keeping an order number that would drop it into the middle of the other list.
 
-Accepts the same optional `"reason"` field as `POST /api/todos`.
+Accepts the same optional `"reason"` field as `POST /api/todos`, and the same strict-key policy: anything outside `title`, `note`, `date`, `done`, `sortOrder`, `reason` is a `400` rather than a `200` for a patch that applied nothing.
 
 ### `DELETE /api/todos/:id`
 
@@ -480,7 +482,7 @@ deciding that todo's time gets recorded.
 
 | Code | Meaning |
 |---|---|
-| `400` | Bad input — malformed date, empty title, non-JSON body, empty or non-string `reason` (`null` counts as absent), activating a completed todo, a plan time that is not strict "HH:MM", an entry whose end does not come after its start within the 05:00 day, folding a future or empty day, blank remarks, a batch with a missing reason / empty `ops` / more than 100 ops / an unknown op kind / a bad `"$N"` reference |
+| `400` | Bad input — malformed date, empty title, non-JSON body, an unknown key in a write body (every write surface is strict, and they share one allowlist), empty or non-string `reason` (`null` counts as absent), activating a completed todo, a plan time that is not strict "HH:MM", an entry whose end does not come after its start within the 05:00 day, folding a future or empty day, blank remarks, a batch with a missing reason / empty `ops` / more than 100 ops / an unknown op kind / a bad `"$N"` reference |
 | `401` | Missing or invalid bearer token |
 | `404` | Unknown todo or plan-entry id, or unknown route |
 | `405` | Route exists, wrong method |

@@ -1,5 +1,5 @@
 import { BrowserWindow } from "electron";
-import type { TodosChangedPayload } from "./types";
+import type { TodosChangedPayload, TodosChangedReason } from "./types";
 
 // Broadcast to every open window; the renderer subscribes via
 // window.electronAPI.todos.onChanged. Every mutation in this folder emits
@@ -15,7 +15,18 @@ let buffered: TodosChangedPayload[] | null = null;
 
 function broadcast(payload: TodosChangedPayload): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send("todos:changed", payload);
+    if (win.isDestroyed()) continue;
+    // Every push announces state that has already committed (each emit site
+    // fires after its transaction returns), so a failed send is a stale
+    // window, not a failed write: it must not surface to the writer as a 500
+    // for work that landed — which would invite a duplicate retry — and one
+    // window dying between the check above and the send must not starve the
+    // rest.
+    try {
+      win.webContents.send("todos:changed", payload);
+    } catch (err) {
+      console.error("[todos] todos:changed push failed:", err);
+    }
   }
 }
 
@@ -28,10 +39,28 @@ export function emitTodosChanged(payload: TodosChangedPayload): void {
 }
 
 /**
+ * One payload per distinct reason, in first-seen order. Subscribers act on
+ * `reason` alone — both stores debounce it into a full refresh — so a 100-op
+ * batch has nothing to say beyond "todos changed, plan changed", and sending
+ * it 100 times only floods IPC at the moment the UI wants to repaint. `id` is
+ * dropped from a reason that covers several payloads: no single id describes
+ * them, and a stale one would be worse than none.
+ */
+function coalesce(payloads: TodosChangedPayload[]): TodosChangedPayload[] {
+  const byReason = new Map<TodosChangedReason, TodosChangedPayload>();
+  for (const payload of payloads) {
+    const seen = byReason.get(payload.reason);
+    if (seen === undefined) byReason.set(payload.reason, payload);
+    else if (seen.id !== undefined) byReason.set(payload.reason, { reason: payload.reason });
+  }
+  return [...byReason.values()];
+}
+
+/**
  * Runs `fn` — which must open AND commit the enclosing write transaction —
- * with emits buffered, then broadcasts them in order. If `fn` throws, the
- * buffer is discarded along with the rolled-back writes. A re-entrant call
- * joins the outer buffer rather than flushing early.
+ * with emits buffered, then broadcasts them (coalesced) in order. If `fn`
+ * throws, the buffer is discarded along with the rolled-back writes. A
+ * re-entrant call joins the outer buffer rather than flushing early.
  */
 export function withBufferedTodosChanged<T>(fn: () => T): T {
   if (buffered !== null) return fn();
@@ -43,6 +72,6 @@ export function withBufferedTodosChanged<T>(fn: () => T): T {
     return result;
   } finally {
     buffered = null;
-    for (const payload of toFlush) broadcast(payload);
+    for (const payload of coalesce(toFlush)) broadcast(payload);
   }
 }

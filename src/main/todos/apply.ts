@@ -48,9 +48,9 @@ export function applyBatch(body: unknown): ApplyResult {
   withBufferedTodosChanged(() => {
     db.transaction(() => {
       for (const op of ops) {
-        const result = runOp(op, created, ctx);
-        results.push(result);
-        created.push(createdId(op, result));
+        const outcome = runOp(op, created, ctx);
+        results.push(outcome.result);
+        created.push(outcome.createdId ?? null);
       }
     })();
   });
@@ -60,51 +60,62 @@ export function applyBatch(body: unknown): ApplyResult {
 
 function resolveRef(ref: OpRef, created: (string | null)[]): string {
   if (ref.kind === "id") return ref.id;
-  return created[ref.index] as string;
+  const id = created[ref.index];
+  // The parser only emits a ref pointing at an earlier op that mints an id, so
+  // a miss is a broken invariant between parseRef and runOp below — not caller
+  // input. Fail loudly rather than hand a "null" id to the domain layer and
+  // report it as a 404 mid-batch.
+  if (id === null || id === undefined) {
+    throw new Error(`ops[${ref.index}] minted no id for reference "$${ref.index}"`);
+  }
+  return id;
 }
 
-function createdId(op: ParsedOp, result: ApplyOpResult): string | null {
-  if (op.kind === "todo.create") return (result as { todo: Todo }).todo.id;
-  if (op.kind === "plan.create") return (result as { entry: PlanEntry }).entry.id;
-  return null;
-}
+// What an op produced: the HTTP response entry, plus the id it minted for
+// later "$N" references. Returning both together is what keeps `created` in
+// step with `results` — the id comes from the same typed value the result
+// carries, so a new create kind cannot land in `results` while `created` gets
+// a silent null.
+type OpOutcome = { result: ApplyOpResult; createdId?: string };
 
-function runOp(
-  op: ParsedOp,
-  created: (string | null)[],
-  ctx: WriteContext
-): ApplyOpResult {
+function runOp(op: ParsedOp, created: (string | null)[], ctx: WriteContext): OpOutcome {
   switch (op.kind) {
-    case "todo.create":
-      return { todo: createTodo(op.input as TodoCreateInput, ctx) };
+    case "todo.create": {
+      const todo = createTodo(op.input as TodoCreateInput, ctx);
+      return { result: { todo }, createdId: todo.id };
+    }
     case "todo.update":
       return {
-        todo: updateTodo(resolveRef(op.ref, created), op.patch as TodoPatch, ctx),
+        result: {
+          todo: updateTodo(resolveRef(op.ref, created), op.patch as TodoPatch, ctx),
+        },
       };
     case "todo.delete": {
       const id = resolveRef(op.ref, created);
       deleteTodo(id, ctx);
-      return { deleted: id };
+      return { result: { deleted: id } };
     }
-    case "plan.create":
-      return {
-        entry: createPlanEntry(
-          { ...op.input, todoId: resolveRef(op.todoRef, created) } as PlanEntryCreateInput,
-          ctx
-        ),
-      };
+    case "plan.create": {
+      const entry = createPlanEntry(
+        { ...op.input, todoId: resolveRef(op.todoRef, created) } as PlanEntryCreateInput,
+        ctx
+      );
+      return { result: { entry }, createdId: entry.id };
+    }
     case "plan.update":
       return {
-        entry: updatePlanEntry(
-          resolveRef(op.ref, created),
-          op.patch as PlanEntryPatch,
-          ctx
-        ),
+        result: {
+          entry: updatePlanEntry(
+            resolveRef(op.ref, created),
+            op.patch as PlanEntryPatch,
+            ctx
+          ),
+        },
       };
     case "plan.delete": {
       const id = resolveRef(op.ref, created);
       deletePlanEntry(id, ctx);
-      return { deleted: id };
+      return { result: { deleted: id } };
     }
   }
 }
