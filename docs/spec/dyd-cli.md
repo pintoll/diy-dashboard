@@ -179,6 +179,64 @@ server ([`todos-agent-api.md`](todos-agent-api.md#get-apidaysdaylog)). Read-only
   not journaled, so a pure focus day can be empty here while its sessions still
   count elsewhere.
 
+### `dyd day [date|today]`
+
+`GET /api/days/:day` — a day's record: the plan, joined with todo state
+(`GET /api/todos/by-ids`), and its fold state.
+
+```
+── day 2026-08-26 ─────────────
+  10:00-12:00  [x] Write migration          85m
+  13:00-15:00  [ ] Ship release
+  (not folded)
+```
+
+A folded day renders from its snapshot instead (titles and outcomes are frozen
+in it): plan lines with each todo's outcome, any off-plan involved todos, then
+`folded at <ts>` and the remarks.
+
+### `dyd yesterday`
+
+`GET /api/yesterday` — the last day before today with records after the last
+fold, i.e. the day a morning session offers to fold. Prints
+`unfolded: 2026-08-24   (dyd day …, dyd log …, dyd fold)` or `all days folded`.
+Distinct from `dyd log yesterday`, which is plain calendar arithmetic.
+
+### `dyd fold [date|today] [--remarks <text>]`
+
+`POST /api/days/:day/fold` — close a day. With no day named, folds the pending
+day `dyd yesterday` reports (exit 1 with `nothing to fold` when history is
+clean) — the lazy morning path; `dyd fold today` is the night close. Re-folding
+recomputes the snapshot and restamps `foldedAt`; `--remarks ""` sends `null`,
+clearing stored remarks, and omitting the flag keeps them.
+
+```
+folded 2026-08-26: 2 plan entries, 1/3 todos done
+  remarks: good first day
+```
+
+### `dyd apply <json>`
+
+`POST /api/apply` — one intent as an atomic batch: a required `reason`, an
+optional `sessionId`, and `ops` that may reference earlier creates as `"$N"`
+([`todos-agent-api.md`](todos-agent-api.md#post-apiapply--one-intent-atomically)).
+The argument is the request body verbatim; a JSON syntax error is caught
+client-side with a caret position. Any op failing rolls back the whole batch
+(exit 1 with the server's message).
+
+```
+dyd apply '{"reason":"split C into C-1 and C-2","ops":[
+  {"op":"todo.create","title":"C-1"},
+  {"op":"todo.create","title":"C-2"},
+  {"op":"todo.delete","id":"abc123"},
+  {"op":"plan.create","todoId":"$0","start":"10:00","end":"12:00"}]}'
+applied 4 op(s)   reason: split C into C-1 and C-2
+  + todo [ ] C-1   (2026-08-26)
+  + todo [ ] C-2   (2026-08-26)
+  - todo abc123
+  + plan 10:00-12:00   (2026-08-26)
+```
+
 ### Index addressing
 
 `<n|id>` args: a small integer is a 1-based position in **today's list as `dyd todo` prints it** (API order: `sortOrder`, then creation). `b<n>` is the same, against **the backlog as `dyd todo backlog` prints it**. Both are resolved by refetching that list at execution time — not from a cached view, so it's only racy against concurrent edits in the same second, acceptable single-user. Anything else is treated as a todo id. Positions do not address the overdue list; use ids there.

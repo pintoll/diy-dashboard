@@ -128,6 +128,18 @@ GET /api/todos/backlog
 
 Todos with `"date": null`, in manual order. They are invisible to every dated query, so this route is the only way to reach them.
 
+### `GET /api/todos/by-ids`
+
+```
+GET /api/todos/by-ids?ids=abc123,def456
+→ 200 { "todos": [ ...Todo ] }
+```
+
+Batch resolution for callers holding bare todo ids — plan entries reference
+todos that may live on another day, in the backlog, or be done. Deleted ids
+simply **drop out** of the result rather than `404`ing (show a fallback);
+order is unspecified, so key by id. An empty or missing `ids` is a `400`.
+
 ### `POST /api/todos`
 
 ```
@@ -390,6 +402,57 @@ Semantics worth internalizing:
 - Folds take no `"reason"` and are not journaled; the snapshot is derived
   state, and `remarks` is the natural-language payload.
 
+## `POST /api/apply` — one intent, atomically
+
+The assistant's write path (`docs/design/assistant-architecture.md`): one
+natural-language **reason** plus every op it explains, applied as a single
+transaction and journaled as one intent — the log renders the whole batch as
+one line. The single-op routes above stay the right tool for a lone quick
+edit; this route exists so a multi-op intent (splitting a todo, laying out a
+morning plan) never scatters across reasons.
+
+```jsonc
+POST /api/apply
+{
+  "reason": "split C into C-1 and C-2",  // required, non-empty
+  "sessionId": "cc-0142",                // optional, client-generated, journaled
+  "ops": [
+    { "op": "todo.create", "title": "C-1" },
+    { "op": "todo.create", "title": "C-2" },
+    { "op": "todo.delete", "id": "abc123" },
+    { "op": "plan.create", "todoId": "$0", "start": "10:00", "end": "12:00" }
+  ]
+}
+→ 200 { "reasonId": "wUzT…", "results": [
+    { "todo": {...} }, { "todo": {...} }, { "deleted": "abc123" }, { "entry": {...} }
+  ] }
+```
+
+- **Op kinds** — `todo.create`, `todo.update`, `todo.delete`, `plan.create`,
+  `plan.update`, `plan.delete`. Each carries exactly the fields of its
+  single-op route (minus `reason`, which lives at the top level): updates
+  take `id` plus at least one patch field, deletes take `id` alone, creates
+  take the create body. Unknown op kinds and unknown keys are a `400`, as
+  everywhere.
+- **`"$N"` references** — anywhere an op names an id (`id`, `todoId`), the
+  string `"$N"` means "the entity created by `ops[N]`" earlier in the same
+  batch. The target must be an earlier `*.create` of the right entity;
+  forward/self references, refs to non-creates, and malformed `$…` strings
+  are a `400` (a real nanoid can never start with `$`). This is what lets a
+  split stay one intent.
+- **Atomicity** — ops run in order inside one transaction; any failure
+  (validation, unknown id) rolls back the entire batch, reason row included,
+  and returns that op's `400`/`404`. `results` mirrors `ops` by index:
+  creates and updates return the written object, deletes return
+  `{ "deleted": "<id>" }`.
+- **Journal** — one `reasons` row (`source: "assistant"`, the `sessionId` if
+  given), every op stamped with one shared `at`, so the day log collapses the
+  batch into a single `[assistant]` line. `reasonId` is `null` when nothing
+  journaled (every op was a no-change patch).
+- At most **100 ops** per batch — a batch is one intent, not a bulk importer.
+- Folding is not an op; it stays `POST /api/days/:day/fold` (folds are not
+  journaled).
+
 ## Pomodoro linkage
 
 While a pomodoro **work** phase runs, every todo on the desk accrues the elapsed
@@ -417,7 +480,7 @@ deciding that todo's time gets recorded.
 
 | Code | Meaning |
 |---|---|
-| `400` | Bad input — malformed date, empty title, non-JSON body, empty or non-string `reason` (`null` counts as absent), activating a completed todo, a plan time that is not strict "HH:MM", an entry whose end does not come after its start within the 05:00 day, folding a future or empty day, blank remarks |
+| `400` | Bad input — malformed date, empty title, non-JSON body, empty or non-string `reason` (`null` counts as absent), activating a completed todo, a plan time that is not strict "HH:MM", an entry whose end does not come after its start within the 05:00 day, folding a future or empty day, blank remarks, a batch with a missing reason / empty `ops` / more than 100 ops / an unknown op kind / a bad `"$N"` reference |
 | `401` | Missing or invalid bearer token |
 | `404` | Unknown todo or plan-entry id, or unknown route |
 | `405` | Route exists, wrong method |
@@ -425,7 +488,7 @@ deciding that todo's time gets recorded.
 
 ## Live UI updates
 
-Every write — todo, plan, or fold, from the app or from this API — broadcasts a `todos:changed` event to the renderer, which reloads after a short debounce (50 ms). Plan writes carry reason `"plan"` (with the plan-entry id) and folds carry `"fold"`; the day-sheet widget is their reader (`docs/design/assistant-architecture.md`, step 6). An open dashboard picks up an agent's change without user interaction. Nothing extra to call.
+Every write — todo, plan, or fold, from the app or from this API — broadcasts a `todos:changed` event to the renderer, which reloads after a short debounce (50 ms). Plan writes carry reason `"plan"` (with the plan-entry id) and folds carry `"fold"`; the day-sheet widget is their reader (`docs/design/assistant-architecture.md`, step 6). An open dashboard picks up an agent's change without user interaction. Nothing extra to call. A batch (`POST /api/apply`) buffers its events and broadcasts them only after the whole batch commits — a rolled-back batch announces nothing.
 
 ## Example: plan tomorrow
 

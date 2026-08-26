@@ -7,6 +7,7 @@ import {
   listBacklog,
   listOverdue,
   listTodos,
+  listTodosByIds,
   updateTodo,
 } from "../todos/crud";
 import type { ReasonInput } from "../todos/journal";
@@ -101,6 +102,25 @@ export const todosRoutes: Route[] = [
     pattern: "/api/todos/backlog",
     handler: (_req, res) => {
       sendJson(res, 200, { todos: listBacklog() });
+    },
+  },
+  // Batch resolution for callers holding bare todo ids — plan entries
+  // reference todos that may live on another day, in the backlog, or be done.
+  // Deleted ids drop out of the result rather than 404ing (the caller shows a
+  // fallback), mirroring the todos:by-ids IPC.
+  {
+    method: "GET",
+    pattern: "/api/todos/by-ids",
+    handler: (_req, res, _params, query) => {
+      const raw = query.get("ids");
+      if (raw === null || raw.trim().length === 0) {
+        throw new ValidationError("ids must be a comma-separated list of todo ids");
+      }
+      const ids = raw
+        .split(",")
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0);
+      sendJson(res, 200, { todos: listTodosByIds(ids) });
     },
   },
   {

@@ -1,18 +1,23 @@
 # In-App Assistant: Architecture
 
-Architecture decisions for the in-app assistant, fixed 2026-08-24. Companion to
+Architecture decisions for the assistant, fixed 2026-08-24 and revised
+2026-08-26 (the Claude Code pivot, see "The brain" below). Companion to
 `assistant-behavior.md` (the behavior contract). Results only, deliberation
 omitted.
 
-Status: **designed; phases 1 (the 05:00 day boundary), 2 (the journal), 3
-(the day record's plan and fold services), 4 (the log view), 5 (the analytics
-day boundary), and 6 (the day-sheet widget) implemented.**
+Status: **phases 1 (the 05:00 day boundary), 2 (the journal), 3 (the day
+record's plan and fold services), 4 (the log view), 5 (the analytics day
+boundary), 6 (the day-sheet widget), 7 (the batch apply route + dyd verbs),
+and 8 (the secretary workspace) implemented; 9 (rewind) deferred.**
 
 ## Data layer
 
 - Choke point already exists: `src/main/todos/crud.ts` serves both the widget
-  IPC (source `user`) and the agent API (source `agent`). The assistant becomes
-  a third source, `assistant`, calling the same functions in-process (no HTTP).
+  IPC (source `user`) and the agent API (source `agent`). The assistant is the
+  third source, `assistant`, writing through the agent API's batch route
+  (`POST /api/apply` → `src/main/todos/apply.ts`): one required reason plus
+  the ops it explains, applied atomically through those same functions, with
+  `"$N"` references so a multi-op intent (a split) stays one reason.
 - Two new concepts, both in todos.db (the journal must be written inside crud
   transactions):
   - `reasons`: one row per intent — id, source (`assistant`|`agent`),
@@ -33,8 +38,9 @@ day boundary), and 6 (the day-sheet widget) implemented.**
   journaled too.
 - Todo op vocabulary stays minimal. Splitting/merging todos = add/delete
   combos under one reason; no new operations.
-- dyd / agent API take a per-command `--reason` (one reason per call). Reason
-  ids for grouping multiple calls: deferred until it hurts.
+- dyd / agent API take a per-command `--reason` (one reason per call) for the
+  quick lane. Grouping many ops under one reason — deferred at design time —
+  is the batch route (`dyd apply`); per-call reason ids never happened.
 
 ## Day boundary: 05:00 app-wide
 
@@ -113,64 +119,67 @@ day_folds (
 
 ## Sessions & rewind
 
-- Sessions are in-memory in the main process, disposable, no table. A single
-  write-lock: one live session at a time (multiple sequential sessions per day
-  allowed).
-- Rewind is session-scoped and journal-based: each `apply_changes` call is one
-  reason = one conversation anchor; rewinding to an anchor inverts that
-  session's later ops in reverse order (before-snapshots are the inverse data).
-  Modes per the contract: conversation only, state only, or both. No separate
-  undo stack.
-- Inverting an op must apply only the fields where before and after differ,
-  never restore the whole before snapshot: `worked_sec` accrues via
-  `recordWork` outside the journal (a mechanical rollup of `todo_sessions`,
-  not an intent), so a whole-row restore would clobber time banked since the
-  op.
+- A session is a Claude Code conversation in the secretary workspace — the
+  app keeps no session state, no table, and no write-lock. The workspace's
+  SessionStart hook hands the conversation a session id; every `apply`
+  carries it into `reasons.session_id`, so the journal can still group a
+  conversation's intents after the fact.
+- Concurrency is unmanaged by design: one user, and a widget-vs-assistant
+  race resolves through the journal (both writes journaled, last wins). A
+  long or resumed conversation is instructed to re-read before writing
+  (workspace CLAUDE.md); nothing enforces it app-side.
+- Rewind is **deferred** (step 9). Until it hurts, reverting is explicit:
+  the assistant issues compensating ops in a new `apply` under a
+  "revert: ..." reason — an honest journaled change, not an unwind. If an
+  inverse replay is ever built, the old rule stands: invert only the fields
+  where before and after differ, never restore the whole before snapshot
+  (`worked_sec` accrues via `recordWork` outside the journal, so a whole-row
+  restore would clobber time banked since the op).
+- Conversation-side rewind belongs to Claude Code natively. There is no
+  atomic conversation+state rewind; the behavior contract was amended
+  accordingly.
 
-## Inner agent
+## The brain: Claude Code (pivot, 2026-08-26)
 
-- LangGraph JS (`@langchain/langgraph`) in the main process, with three
-  guardrails that keep it removable:
-  1. **No checkpointer.** Sessions stay disposable; rewind stays on the ops
-     journal. LangGraph persistence/time-travel is never used.
-  2. **Graph stays `llmCall <-> toolNode`.** Growth only if backlog items
-     (PARA layer, widget-access isolation) genuinely demand more nodes.
-  3. **Tools are thin shells** over the service layer (crud + plan + fold).
-     LangChain abstractions never cross the tool boundary.
-- Three tools:
-  - `apply_changes({ reason, ops })` — the only write; one call = one reason
-    = one revertible unit = one rewind anchor.
-  - `read_day(day)` — drill-down into past days (fold snapshot + remarks, or
-    raw plan/log if unfolded).
-  - `fold_day({ day, remarks })` — snapshot computed by code, model supplies
-    remarks only.
-- Context is injected, not fetched: session start = distilled triple
-  (yesterday's result, today's plan, today's log) + now/assistant-day; each
-  turn prepends a delta of out-of-session ops since the last turn, so
-  mid-session widget edits are visible without polling tools.
-- System prompt = distilled behavior contract (identity, day model, tool
-  rules), maintained separately from `assistant-behavior.md`; refined during
-  implementation.
+The original design embedded a LangGraph JS loop with a Gemini provider in
+the main process. Before implementation it was replaced by Claude Code acting
+as the assistant from a dedicated workspace (`~/workspace/secretary`),
+talking to the app through `dyd` over the agent API. Phases 1-6 carried over
+untouched — they never contained model code.
+
+- The workspace directory IS the assistant boundary:
+  - `CLAUDE.md` — the distilled behavior contract (identity, day model, tool
+    rules): the role the in-app system prompt would have played.
+  - A SessionStart hook loads the distilled triple (yesterday's result,
+    today's plan, today's log so far) plus the session id into context before
+    the first word — the contract's "context is injected, not fetched", now a
+    harness guarantee that also covers `--resume`.
+  - `.claude/settings.json` allowlists `dyd` there and nowhere else, which is
+    what makes "changes apply immediately during conversation, no
+    per-operation approval step" true without loosening any other directory.
+  - Project memory is workspace-scoped: durable user patterns may persist
+    there; day facts stay in day records.
+- The original three tools map onto the API surface one to one:
+  `apply_changes` → `POST /api/apply` (`dyd apply`); `read_day` →
+  `GET /api/days/:day` + `/log` (`dyd day`, `dyd log`); `fold_day` →
+  `POST /api/days/:day/fold` (`dyd fold`).
+- The quick lane stays: outside the workspace, single-op writes with (or
+  without) `--reason` remain ordinary `agent`-source edits. Entering a
+  secretary conversation is what upgrades writes to reasoned batches.
 
 ## Provider
 
-- Gemini only at first, behind LangChain's chat-model interface (which is the
-  contract's "models swappable behind an adapter").
-- API key **and base URL** are entered in-app, assistant-scoped (separate from
-  the daily-news `geminiApiKey`), stored via the existing settings secret
-  twin-field machinery (`src/main/settings/store.ts`).
-- Implementation gate: the JS wrapper must accept a base-URL override.
-  Python's `ChatGoogleGenerativeAI` supports `base_url`; the JS side
-  (`@langchain/google-genai`, or the newer unified `@langchain/google` /
-  `ChatGoogle` the docs now recommend) was not confirmed at design time. If
-  neither takes it, fall back to a thin custom chat model — the loop does not
-  care.
+None. The model is whatever runs the user's Claude Code; the journal and the
+API do not care — the contract's "models swappable behind an adapter", taken
+to its limit. No assistant API key or base URL is stored in the app, and the
+LangChain base-URL gate the original design carried is moot.
 
 ## Surface
 
-- Chat lives in a **separate window** (second BrowserWindow, own route).
-  Opened from the plan widget's chat button; also a global shortcut
-  (Electron `globalShortcut`, works from the tray).
+- Chat lives in a **terminal**: a Claude Code session opened in the secretary
+  workspace. There is no second BrowserWindow, no route, no global shortcut,
+  and the plan widget ships no chat button — reconsider a widget affordance
+  only if opening the terminal proves to be real friction.
 - The paired widget renders today's plan as **one memo-like block** — the day
   on a single sheet: one line per plan entry (start–end, todo title, done),
   sorted by start time, a current-time marker, and a small "yesterday
@@ -215,19 +224,29 @@ day_folds (
    pure render/parse logic) over a plan store in entities/todo; new IPC
    `todos:plan:*`, `todos:yesterday`, `todos:by-ids`; plan and fold writes now
    broadcast `todos:changed` with reasons `"plan"`/`"fold"`. The chat button
-   arrives with step 7's window; the yesterday hint is display-only)*
-7. **Assistant shell** — second window, route, assistant-scoped key and base
-   URL, and the provider gate below.
-8. **Agent loop** — LangGraph, the three tools, injected context.
-9. **Rewind** — inverse replay of a session's ops.
+   was dropped by the step-7 pivot; the yesterday hint is display-only)*
+7. **Batch apply + dyd verbs** — the assistant's write path: `POST /api/apply`
+   (one reason + ops, `"$N"` refs, atomic, buffered `todos:changed`), plus
+   `GET /api/todos/by-ids` and the dyd verbs `apply` / `day` / `yesterday` /
+   `fold`. *(done — src/main/todos/apply-ops.ts (pure parser, unit-tested) +
+   apply.ts (outer transaction over the same crud/plan functions, whose inner
+   transactions become savepoints) + events.ts emit buffering;
+   docs/spec/todos-agent-api.md and dyd-cli.md updated)*
+8. **Secretary workspace** — `~/workspace/secretary`: CLAUDE.md (the
+   distilled contract), SessionStart hook (loads the triple + session id),
+   `dyd` allowlist. Outside this repo by design — the workspace is user
+   configuration, not app code. *(done)*
+9. **Rewind** — deferred until compensating ops (see Sessions & rewind) hurt.
 
-Steps 1–6 carry no model code: the day record, its journal, and the sheet that
-renders it are ordinary app features, usable on their own. The model arrives in
-step 7 on top of a journal that has already been exercised by hand, so a bad
-plan line is never ambiguous between a tool bug and a graph bug.
+Steps 1–7 carry no model code: the day record, its journal, and the batch
+route are ordinary app features, usable on their own (`dyd` is a complete
+manual client). The model arrives with step 8's workspace on top of a journal
+already exercised by hand, so a bad plan line is never ambiguous between a
+tool bug and a prompt bug.
 
-## Open at design time
+## Open at implementation time
 
-- JS wrapper base-URL support (see Provider gate).
-- System prompt distillation.
+- Rewind (step 9): compensating ops until real inverse replay hurts enough.
+- A widget-side affordance for opening the chat: dropped with the second
+  window; revisit only on real friction.
 - Widget visual design (layout above is fixed; styling at implementation).
