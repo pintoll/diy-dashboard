@@ -24,6 +24,7 @@ const todo = (id: string, title: string, over: Partial<TodoRow> = {}): TodoRow =
   sort_order: 0,
   worked_sec: 999_999,
   source: "user",
+  project_id: null,
   created_at: "2026-08-24 10:00:00",
   updated_at: "2026-08-24 10:00:00",
   ...over,

@@ -24,10 +24,11 @@ type TodoStore = DaySlice & {
   // so after the 05:00 rollover "is this today?" would stay stale until some
   // unrelated re-render happened to flip it mid-interaction.
   currentDay: string;
-  // Todos with no planned day (docs/design/todo-backlog.md). Not part of
-  // DaySlice: the backlog does not depend on the browsed date, so changing the
-  // date must leave it alone.
-  backlog: Todo[];
+  // The inbox: todos with no planned day and no project — unclassified capture
+  // (docs/design/projects-para.md). Not part of DaySlice: it does not depend on
+  // the browsed date, so changing the date must leave it alone. A project's own
+  // undated work is read per-project, not from here.
+  inbox: Todo[];
   // The desk: todos currently receiving the running work clock, oldest member
   // first (docs/design/multi-pomo-todo.md). Empty when nothing is on the desk.
   desk: Todo[];
@@ -66,7 +67,7 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
 
   selectedDate: today(),
   currentDay: today(),
-  backlog: [],
+  inbox: [],
   desk: [],
   status: "idle",
   error: null,
@@ -85,12 +86,12 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
 
     if (get().status === "idle") set({ status: "loading" });
     try {
-      const [day, backlog, desk] = await Promise.all([
+      const [day, inbox, desk] = await Promise.all([
         fetchDay(api, get().selectedDate),
-        api.backlog(),
+        api.inbox(),
         api.desk.get(),
       ]);
-      set({ ...day, backlog, desk, status: "ready", error: null });
+      set({ ...day, inbox, desk, status: "ready", error: null });
     } catch (error) {
       set({ status: "error", error: todoErrorMessage(error) });
     }
@@ -136,8 +137,16 @@ if (bridge) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   bridge.onChanged((payload) => {
     // Plan/fold writes never change todo rows; the plan store (use-plan-store)
-    // is their reader.
-    if (payload.reason === "plan" || payload.reason === "fold") return;
+    // is their reader. Project writes are the same story — the project store
+    // reads them — and the one that does move todo rows (deleting a project
+    // detaches them) emits a separate "update" alongside.
+    if (
+      payload.reason === "plan" ||
+      payload.reason === "fold" ||
+      payload.reason === "project"
+    ) {
+      return;
+    }
     clearTimeout(timer);
     timer = setTimeout(() => {
       const { status, refresh } = useTodoStore.getState();

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { today } from "@shared/day";
+import { ProjectSelect } from "@/src/entities/project/client";
 import {
   requireTodosApi,
   todoErrorMessage,
@@ -30,9 +31,12 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
   // to the moment the box is unchecked.
   const [parked, setParked] = useState(todo.date === null);
   const [date, setDate] = useState(todo.date ?? today());
+  const [projectId, setProjectId] = useState(todo.projectId);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // moveBucket goes through here too, so a bucket flip carries whatever the
+  // picker currently shows. An unchanged value is a no-op in the journal diff.
   const commit = async (nextDate: string | null) => {
     setBusy(true);
     setError(null);
@@ -41,6 +45,7 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
         title: title.trim(),
         note: note.trim().length > 0 ? note.trim() : null,
         date: nextDate,
+        projectId,
       });
       onDone();
     } catch (err) {
@@ -89,6 +94,10 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
           placeholder="Optional"
           className="max-h-72 min-h-40"
         />
+      </div>
+      <div className="flex flex-col gap-2">
+        <Label>Project</Label>
+        <ProjectSelect value={projectId} onChange={setProjectId} />
       </div>
       <div className="flex flex-col gap-2">
         <Label htmlFor="todo-date">Date</Label>

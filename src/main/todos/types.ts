@@ -43,6 +43,7 @@ export type TodoRow = {
   sort_order: number;
   worked_sec: number;
   source: TodoSource;
+  project_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -57,6 +58,7 @@ export type Todo = {
   sortOrder: number;
   workedSec: number;
   source: TodoSource;
+  projectId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -64,10 +66,14 @@ export type Todo = {
 // `date` omitted means today; `date: null` means the backlog. The two are
 // deliberately distinct, so a caller that simply does not care about the day
 // still gets today rather than silently parking the todo.
+//
+// `projectId` is never required: capture stays zero-friction, and filing is
+// review's job (docs/design/projects-para.md).
 export type TodoCreateInput = {
   title: string;
   date?: string | null;
   note?: string | null;
+  projectId?: string | null;
 };
 
 export type TodoPatch = {
@@ -76,6 +82,7 @@ export type TodoPatch = {
   date?: string | null;
   done?: boolean;
   sortOrder?: number;
+  projectId?: string | null;
 };
 
 // Either a single date or an inclusive range. Empty filter = today (resolved
@@ -178,7 +185,113 @@ export type TodosChangedReason =
   // A plan entry was written (`id` is the plan entry id, not a todo id).
   | "plan"
   // A day was folded; folds carry no id.
-  | "fold";
+  | "fold"
+  // A project or one of its docs was written (`id` is that row's id, not a
+  // todo id). A write that also touches todo rows — the detach sweep in
+  // deleteProject — emits a separate "update" alongside.
+  | "project";
+
+// --- The steering layer: projects and their docs (docs/design/projects-para.md) ---
+
+// A project has an end; an area doesn't. One table, because everything else
+// about them — status, docs, filed todos — is identical.
+export type ProjectKind = "project" | "area";
+
+// `archived` is a status rather than a separate bucket: PARA's Archives folded
+// into the row it describes.
+export type ProjectStatus = "active" | "someday" | "done" | "archived";
+
+export type ProjectRow = {
+  id: string;
+  kind: ProjectKind;
+  title: string;
+  outcome: string | null;
+  status: ProjectStatus;
+  target_date: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+};
+
+export type Project = {
+  id: string;
+  kind: ProjectKind;
+  title: string;
+  // One line: what "done" means. Advisory for areas, which have no end.
+  outcome: string | null;
+  status: ProjectStatus;
+  // A soft marker, never a deadline: nothing notifies off it.
+  targetDate: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  // Stamped when status becomes "archived", cleared when it leaves.
+  archivedAt: string | null;
+};
+
+export type ProjectCreateInput = {
+  title: string;
+  kind?: ProjectKind;
+  outcome?: string | null;
+  status?: ProjectStatus;
+  targetDate?: string | null;
+};
+
+export type ProjectPatch = {
+  title?: string;
+  kind?: ProjectKind;
+  outcome?: string | null;
+  status?: ProjectStatus;
+  targetDate?: string | null;
+  sortOrder?: number;
+};
+
+export type ProjectListFilter = {
+  status?: ProjectStatus;
+};
+
+// A project's undated work (its backlog, in pull order) and what it has
+// finished. Dated open todos are deliberately absent: they were consciously
+// scheduled and live on their day.
+export type ProjectTodos = {
+  backlog: Todo[];
+  completed: Todo[];
+};
+
+export type ProjectDocRow = {
+  id: string;
+  project_id: string;
+  title: string;
+  body: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectDoc = {
+  id: string;
+  projectId: string;
+  title: string;
+  body: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectDocCreateInput = {
+  title: string;
+  body?: string;
+};
+
+// `body` replaces, `append` adds a line — mutually exclusive, because a patch
+// carrying both has no honest ordering. Ritual writes (the evening fold's
+// worklog line) use `append`.
+export type ProjectDocPatch = {
+  title?: string;
+  body?: string;
+  append?: string;
+};
 
 export type TodosChangedPayload = {
   reason: TodosChangedReason;
@@ -201,6 +314,34 @@ export function rowToTodo(row: TodoRow): Todo {
     sortOrder: row.sort_order,
     workedSec: row.worked_sec,
     source: row.source,
+    projectId: row.project_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function rowToProject(row: ProjectRow): Project {
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    outcome: row.outcome,
+    status: row.status,
+    targetDate: row.target_date,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    archivedAt: row.archived_at,
+  };
+}
+
+export function rowToProjectDoc(row: ProjectDocRow): ProjectDoc {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    body: row.body,
+    sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

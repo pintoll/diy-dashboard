@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useTodoStore } from "@/src/entities/todo";
 import { Card, CardContent } from "@/src/shared/ui/card";
-import { BacklogSection } from "./BacklogSection";
+import { InboxSection } from "./InboxSection";
 import { DateNav } from "./DateNav";
 import { OverdueSection } from "./OverdueSection";
 import { TodoDayList } from "./TodoDayList";
@@ -54,8 +54,8 @@ export function TodosPage() {
             {isToday && <OverdueSection />}
             <TodoDayList />
             {/* Unlike Overdue, shown on every date: pulling an item out of the
-                backlog targets whichever day is being browsed. */}
-            <BacklogSection />
+                inbox targets whichever day is being browsed. */}
+            <InboxSection />
           </CardContent>
         </Card>
       </div>

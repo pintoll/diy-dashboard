@@ -1,0 +1,152 @@
+import {
+  createProjectDoc,
+  deleteProjectDoc,
+  listProjectDocs,
+  updateProjectDoc,
+} from "../todos/project-docs";
+import {
+  asProjectStatus,
+  createProject,
+  deleteProject,
+  listProjectTodos,
+  listProjects,
+  updateProject,
+} from "../todos/projects";
+import type {
+  ProjectCreateInput,
+  ProjectDocCreateInput,
+  ProjectDocPatch,
+  ProjectPatch,
+} from "../todos/types";
+import {
+  asObject,
+  assertOnlyKeys,
+  PROJECT_CREATE_KEYS,
+  PROJECT_DOC_CREATE_KEYS,
+  PROJECT_DOC_PATCH_KEYS,
+  PROJECT_PATCH_KEYS,
+} from "../todos/validate";
+import { agentReason } from "./todos-routes";
+import { readJsonBody, sendJson, type Route } from "./router";
+
+// The steering surface of the agent API (docs/design/projects-para.md). Same
+// contract as todos-routes.ts: handlers only translate HTTP <-> the domain
+// functions IPC also calls, so validation and journaling cannot fork per
+// surface, and key policy comes from todos/validate.ts.
+//
+// Nothing here executes work. Pulling a project's backlog item onto a day is an
+// ordinary PATCH /api/todos/:id — projects must never become a second
+// execution surface.
+
+export const projectsRoutes: Route[] = [
+  {
+    method: "GET",
+    pattern: "/api/projects",
+    handler: (_req, res, _params, query) => {
+      const status = query.get("status");
+      const projects =
+        status === null ? listProjects() : listProjects({ status: asProjectStatus(status) });
+      sendJson(res, 200, { projects });
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/projects",
+    handler: async (req, res) => {
+      const body = asObject(await readJsonBody(req), "body");
+      assertOnlyKeys(body, [...PROJECT_CREATE_KEYS, "reason"], "body");
+      // `reason` rides in the body but is journal metadata, not project input.
+      const reason = agentReason(body.reason);
+      delete body.reason;
+      const project = createProject(body as ProjectCreateInput, { source: "agent", reason });
+      sendJson(res, 201, { project });
+    },
+  },
+  {
+    method: "PATCH",
+    pattern: "/api/projects/:id",
+    handler: async (req, res, params) => {
+      const body = asObject(await readJsonBody(req), "body");
+      assertOnlyKeys(body, [...PROJECT_PATCH_KEYS, "reason"], "body");
+      const reason = agentReason(body.reason);
+      delete body.reason;
+      const project = updateProject(params.id, body as ProjectPatch, {
+        source: "agent",
+        reason,
+      });
+      sendJson(res, 200, { project });
+    },
+  },
+  {
+    // Archiving is the recommended way to retire a project — it keeps the
+    // history a retrospective wants — but a mistyped one has to be removable.
+    // Deleting detaches its todos (they survive, unfiled) and removes its docs,
+    // every consequence journaled.
+    method: "DELETE",
+    pattern: "/api/projects/:id",
+    handler: (_req, res, params, query) => {
+      const reason = agentReason(query.get("reason"));
+      deleteProject(params.id, { source: "agent", reason });
+      sendJson(res, 204, undefined);
+    },
+  },
+  {
+    // A project's undated open work in pull order, plus what it finished. Dated
+    // open todos are absent by design: they live on their day.
+    method: "GET",
+    pattern: "/api/projects/:id/todos",
+    handler: (_req, res, params) => {
+      sendJson(res, 200, listProjectTodos(params.id));
+    },
+  },
+  {
+    method: "GET",
+    pattern: "/api/projects/:id/docs",
+    handler: (_req, res, params) => {
+      sendJson(res, 200, { docs: listProjectDocs(params.id) });
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/projects/:id/docs",
+    handler: async (req, res, params) => {
+      const body = asObject(await readJsonBody(req), "body");
+      assertOnlyKeys(body, [...PROJECT_DOC_CREATE_KEYS, "reason"], "body");
+      const reason = agentReason(body.reason);
+      delete body.reason;
+      const doc = createProjectDoc(params.id, body as ProjectDocCreateInput, {
+        source: "agent",
+        reason,
+      });
+      sendJson(res, 201, { doc });
+    },
+  },
+  {
+    // Docs are addressed directly, not under their project: an id identifies
+    // one doc globally, and nesting would invite a mismatched pair.
+    // `append` adds a line (the evening ritual's worklog write); `body`
+    // replaces. The two are mutually exclusive — 400 if both.
+    method: "PATCH",
+    pattern: "/api/docs/:id",
+    handler: async (req, res, params) => {
+      const body = asObject(await readJsonBody(req), "body");
+      assertOnlyKeys(body, [...PROJECT_DOC_PATCH_KEYS, "reason"], "body");
+      const reason = agentReason(body.reason);
+      delete body.reason;
+      const doc = updateProjectDoc(params.id, body as ProjectDocPatch, {
+        source: "agent",
+        reason,
+      });
+      sendJson(res, 200, { doc });
+    },
+  },
+  {
+    method: "DELETE",
+    pattern: "/api/docs/:id",
+    handler: (_req, res, params, query) => {
+      const reason = agentReason(query.get("reason"));
+      deleteProjectDoc(params.id, { source: "agent", reason });
+      sendJson(res, 204, undefined);
+    },
+  },
+];

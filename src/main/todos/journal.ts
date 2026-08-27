@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { nanoid } from "nanoid";
 import type { WriteContext } from "./types";
 
-// The ops journal: every intent-level todo and plan change appends
+// The ops journal: every intent-level todo, plan, project and doc change appends
 // one row with full before/after snapshots; a `reasons` row groups the ops of
 // one natural-language intent (docs/design/assistant-architecture.md). Like
 // schema.ts this file takes the connection as an argument and carries no
@@ -20,7 +20,7 @@ import type { WriteContext } from "./types";
 // marks same-intent ops for the log's sweep fusion (log-render.ts).
 
 export type ReasonSource = "assistant" | "agent";
-export type OpEntity = "todo" | "plan";
+export type OpEntity = "todo" | "plan" | "project" | "project_doc";
 export type OpKind = "create" | "update" | "delete";
 
 export type ReasonInput = {

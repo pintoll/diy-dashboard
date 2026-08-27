@@ -51,6 +51,20 @@ function normalizeDate(date: unknown): string | null {
   return assertDate(date);
 }
 
+// null means unfiled (the inbox, if the todo is also undated). No FK backs this
+// reference — deleteProject detaches through the journal instead — so filing
+// under a project that does not exist is a caller bug worth rejecting here, the
+// same rule plan.ts applies to todoId. Call inside the caller's transaction.
+function normalizeProjectId(db: Database.Database, projectId: unknown): string | null {
+  if (projectId === null) return null;
+  if (typeof projectId !== "string" || projectId.length === 0) {
+    throw new ValidationError("projectId must be a project id string or null");
+  }
+  const exists = db.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId);
+  if (!exists) throw new NotFoundError(`No project with id "${projectId}"`);
+  return projectId;
+}
+
 // Appends to the end of a bucket — a day, or the backlog (`null`). `IS` rather
 // than `=` because a NULL bind matches no row under `= ?`, which would land
 // every parked todo on sort_order 0; for a non-null bind the two are identical.
@@ -144,6 +158,26 @@ export function listBacklog(): Todo[] {
   return rows.map(rowToTodo);
 }
 
+/**
+ * The inbox: the undated todos filed under no project — unclassified capture
+ * waiting for review (docs/design/projects-para.md). It is the todos page's
+ * section; the rest of the backlog now belongs to the projects that own it and
+ * is read per-project (projects.ts listProjectTodos).
+ *
+ * listBacklog above deliberately keeps its whole-warehouse meaning: the agent
+ * API serves it to the secretary, which partitions by `projectId` itself.
+ */
+export function listInbox(): Todo[] {
+  const rows = getTodosDb()
+    .prepare(
+      `SELECT * FROM todos
+       WHERE date IS NULL AND project_id IS NULL
+       ORDER BY sort_order, created_at`
+    )
+    .all() as TodoRow[];
+  return rows.map(rowToTodo);
+}
+
 /** Open todos planned before `before` (exclusive) — the Overdue section. */
 export function listOverdue(before: string): Todo[] {
   assertDate(before, "before");
@@ -163,10 +197,11 @@ export function createTodo(input: TodoCreateInput, ctx: WriteContext): Todo {
   const id = nanoid();
 
   const row = db.transaction((): TodoRow => {
+    const projectId = normalizeProjectId(db, input.projectId ?? null);
     db.prepare(
-      `INSERT INTO todos (id, date, title, note, sort_order, source)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(id, date, title, note, nextSortOrder(db, date), ctx.source);
+      `INSERT INTO todos (id, date, title, note, sort_order, source, project_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, date, title, note, nextSortOrder(db, date), ctx.source, projectId);
 
     // Re-read: done, created_at and updated_at come from SQL defaults, and the
     // journal snapshot must be the row as stored.
@@ -202,6 +237,10 @@ export function updateTodo(
     const title = patch.title !== undefined ? normalizeTitle(patch.title) : row.title;
     const note = patch.note !== undefined ? normalizeNote(patch.note) : row.note;
     let date = patch.date !== undefined ? normalizeDate(patch.date) : row.date;
+    const projectId =
+      patch.projectId !== undefined
+        ? normalizeProjectId(db, patch.projectId)
+        : row.project_id;
     if (patch.sortOrder !== undefined && !Number.isInteger(patch.sortOrder)) {
       throw new ValidationError("sortOrder must be an integer");
     }
@@ -239,9 +278,9 @@ export function updateTodo(
     db.prepare(
       `UPDATE todos
        SET title = ?, note = ?, date = ?, sort_order = ?, done = ?,
-           completed_on = ?, updated_at = CURRENT_TIMESTAMP
+           completed_on = ?, project_id = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`
-    ).run(title, note, date, sortOrder, done ? 1 : 0, completedOn, id);
+    ).run(title, note, date, sortOrder, done ? 1 : 0, completedOn, projectId, id);
 
     // A todo steps off the desk the moment it can no longer be worked on there:
     // it is finished, or it has just been parked. Both drop membership in this
@@ -294,7 +333,15 @@ export function deleteTodo(id: string, ctx: WriteContext): void {
   emitTodosChanged({ reason: "delete", id });
 }
 
-/** Rewrites sort_order for one date — or for the backlog (`null`). */
+/**
+ * Rewrites sort_order for one date — or for the backlog (`null`).
+ *
+ * The undated bucket is now shared by the inbox and every project backlog, and
+ * this scopes only by date, so reordering the inbox renumbers those ids alone
+ * and leaves project-filed rows on their old numbers. Duplicate values across
+ * the bucket are harmless under `ORDER BY sort_order, created_at`, but a
+ * per-project reorder will need a project predicate of its own.
+ */
 export function reorderTodos(date: string | null, ids: string[]): void {
   if (date !== null) assertDate(date);
   const db = getTodosDb();

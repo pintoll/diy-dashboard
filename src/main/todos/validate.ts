@@ -2,6 +2,10 @@ import {
   ValidationError,
   type PlanEntryCreateInput,
   type PlanEntryPatch,
+  type ProjectCreateInput,
+  type ProjectDocCreateInput,
+  type ProjectDocPatch,
+  type ProjectPatch,
   type TodoCreateInput,
   type TodoPatch,
 } from "./types";
@@ -48,6 +52,7 @@ export const TODO_CREATE_KEYS = Object.keys({
   title: true,
   date: true,
   note: true,
+  projectId: true,
 } satisfies Record<keyof TodoCreateInput, true>);
 
 export const TODO_PATCH_KEYS = Object.keys({
@@ -56,7 +61,36 @@ export const TODO_PATCH_KEYS = Object.keys({
   date: true,
   done: true,
   sortOrder: true,
+  projectId: true,
 } satisfies Record<keyof TodoPatch, true>);
+
+export const PROJECT_CREATE_KEYS = Object.keys({
+  title: true,
+  kind: true,
+  outcome: true,
+  status: true,
+  targetDate: true,
+} satisfies Record<keyof ProjectCreateInput, true>);
+
+export const PROJECT_PATCH_KEYS = Object.keys({
+  title: true,
+  kind: true,
+  outcome: true,
+  status: true,
+  targetDate: true,
+  sortOrder: true,
+} satisfies Record<keyof ProjectPatch, true>);
+
+export const PROJECT_DOC_CREATE_KEYS = Object.keys({
+  title: true,
+  body: true,
+} satisfies Record<keyof ProjectDocCreateInput, true>);
+
+export const PROJECT_DOC_PATCH_KEYS = Object.keys({
+  title: true,
+  body: true,
+  append: true,
+} satisfies Record<keyof ProjectDocPatch, true>);
 
 export const PLAN_CREATE_KEYS = Object.keys({
   todoId: true,

@@ -1,6 +1,12 @@
 import { clockHm } from "@shared/day";
 import { changedKeys, type OpEntity, type OpKind } from "./journal";
-import type { PlanEntryRow, TodoRow, TodoSource } from "./types";
+import type {
+  PlanEntryRow,
+  ProjectDocRow,
+  ProjectRow,
+  TodoRow,
+  TodoSource,
+} from "./types";
 
 // Renders the ops journal to natural-language log lines — the day record's
 // third part, derived at read time (docs/design/assistant-architecture.md):
@@ -48,6 +54,8 @@ export type RenderLogInput = {
 
 type TodoSnap = Partial<TodoRow>;
 type PlanSnap = Partial<PlanEntryRow>;
+type ProjectSnap = Partial<ProjectRow>;
+type DocSnap = Partial<ProjectDocRow>;
 
 export function renderLogLines(input: RenderLogInput): LogLine[] {
   const lines: LogLine[] = [];
@@ -154,9 +162,16 @@ function renderUnit(unit: Unit, day: string, titles: Map<string, string>): strin
   // For a sweep the last op is the todo delete; the swept entries only feed
   // the parenthetical count.
   const op = unit.ops[unit.ops.length - 1];
-  return op.entity === "todo"
-    ? renderTodoOp(op, day, unit.sweptBlocks)
-    : renderPlanOp(op, day, titles);
+  switch (op.entity) {
+    case "todo":
+      return renderTodoOp(op, day, unit.sweptBlocks);
+    case "plan":
+      return renderPlanOp(op, day, titles);
+    case "project":
+      return renderProjectOp(op);
+    case "project_doc":
+      return renderProjectDocOp(op);
+  }
 }
 
 function renderTodoOp(op: LogOp, day: string, sweptBlocks: number): string {
@@ -189,7 +204,7 @@ function createdDestination(date: string | null | undefined, day: string): strin
 // a future todo column degrades loudly in the log instead of vanishing into
 // the bare "updated" fallback.
 const SILENT_TODO_FIELDS = new Set(["completed_on", "sort_order", "worked_sec", "created_at"]);
-const SPOKEN_TODO_FIELDS = new Set(["title", "date", "done", "note"]);
+const SPOKEN_TODO_FIELDS = new Set(["title", "date", "done", "note", "project_id"]);
 
 // Changed fields only, in fixed order, comma-joined; the title is quoted once
 // and then referred to as "it".
@@ -221,11 +236,106 @@ function renderTodoUpdate(before: TodoSnap, after: TodoSnap): string {
         : `updated the note on ${subject()}`
     );
   }
+  // Untitled on purpose: the snapshot carries the project id, not its name, and
+  // resolving it would need a second title map. Which project is one click away
+  // in the UI; that it moved is the part the log has to state.
+  if (before.project_id !== after.project_id) {
+    fragments.push(
+      after.project_id === null
+        ? `detached ${subject()} from its project`
+        : `filed ${subject()} into a project`
+    );
+  }
   for (const key of changedKeys(before, after).sort()) {
     if (SPOKEN_TODO_FIELDS.has(key) || SILENT_TODO_FIELDS.has(key)) continue;
     fragments.push(`changed ${key} of ${subject()}`);
   }
   return fragments.length === 0 ? `updated "${title}"` : fragments.join(", ");
+}
+
+// Derived and cosmetic project columns, on the same rule as SILENT_TODO_FIELDS:
+// archived_at rides the status flip, sort_order is mechanical, created_at
+// cannot change. Anything else degrades to a loud generic fragment.
+const SILENT_PROJECT_FIELDS = new Set(["sort_order", "created_at", "archived_at"]);
+const SPOKEN_PROJECT_FIELDS = new Set(["title", "status", "kind", "outcome", "target_date"]);
+
+function renderProjectOp(op: LogOp): string {
+  const before = (op.before ?? {}) as ProjectSnap;
+  const after = (op.after ?? {}) as ProjectSnap;
+  if (op.op === "create") return `created ${after.kind ?? "project"} "${after.title}"`;
+  if (op.op === "delete") return `deleted ${before.kind ?? "project"} "${before.title}"`;
+  return renderProjectUpdate(before, after);
+}
+
+// A status move is the whole point of the steering layer, so each destination
+// gets its own verb rather than a generic "changed status".
+function statusFragment(status: string | undefined, subject: string): string {
+  switch (status) {
+    case "archived":
+      return `archived ${subject}`;
+    case "done":
+      return `marked ${subject} done`;
+    case "someday":
+      return `moved ${subject} to someday`;
+    case "active":
+      return `reactivated ${subject}`;
+    default:
+      return `changed the status of ${subject}`;
+  }
+}
+
+function renderProjectUpdate(before: ProjectSnap, after: ProjectSnap): string {
+  const title = after.title ?? before.title;
+  let named = false;
+  const subject = (): string => {
+    if (named) return "it";
+    named = true;
+    return `"${title}"`;
+  };
+
+  const fragments: string[] = [];
+  if (before.title !== after.title) {
+    named = true;
+    fragments.push(`renamed "${before.title}" to "${after.title}"`);
+  }
+  if (before.status !== after.status) {
+    fragments.push(statusFragment(after.status, subject()));
+  }
+  if (before.kind !== after.kind) {
+    fragments.push(`turned ${subject()} into ${after.kind === "area" ? "an area" : "a project"}`);
+  }
+  if (before.outcome !== after.outcome) {
+    fragments.push(
+      after.outcome === null
+        ? `cleared the outcome of ${subject()}`
+        : `set the outcome of ${subject()}`
+    );
+  }
+  if (before.target_date !== after.target_date) {
+    fragments.push(
+      after.target_date === null
+        ? `cleared the target date of ${subject()}`
+        : `set the target date of ${subject()} to ${after.target_date}`
+    );
+  }
+  for (const key of changedKeys(before, after).sort()) {
+    if (SPOKEN_PROJECT_FIELDS.has(key) || SILENT_PROJECT_FIELDS.has(key)) continue;
+    fragments.push(`changed ${key} of ${subject()}`);
+  }
+  return fragments.length === 0 ? `updated "${title}"` : fragments.join(", ");
+}
+
+// Doc bodies are prose the user wrote and may be long; the log says that a doc
+// changed, never what it now says.
+function renderProjectDocOp(op: LogOp): string {
+  const before = (op.before ?? {}) as DocSnap;
+  const after = (op.after ?? {}) as DocSnap;
+  if (op.op === "create") return `added the doc "${after.title}"`;
+  if (op.op === "delete") return `removed the doc "${before.title}"`;
+  if (before.title !== after.title) {
+    return `renamed the doc "${before.title}" to "${after.title}"`;
+  }
+  return `updated the doc "${after.title ?? before.title}"`;
 }
 
 const planRange = (s: PlanSnap): string => `${s.start}-${s.end}`;

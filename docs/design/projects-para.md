@@ -4,7 +4,8 @@ A mid/long-term steering layer above the day-scoped todo system, modeled on
 PARA but folded to fit an execution dashboard. Todos stay "finish today";
 projects answer "is the right work moving at all".
 
-Status: **design.** Not started.
+Status: **Phase 1 implemented** (schema, CRUD/IPC/routes, todo project picker,
+inbox). Phases 2-4 not started.
 
 ## Why
 
@@ -188,9 +189,14 @@ neither works, that's not a tooling problem.
 
 ## Phases
 
-1. **Schema + plumbing**: `projects`, `project_docs`, `todos.project_id`, ops
-   CHECK rebuild; CRUD/IPC/routes; project picker in todo edit dialog;
-   todos-page backlog section reduced to inbox.
+1. **Schema + plumbing** — *done*: `projects`, `project_docs`,
+   `todos.project_id`, ops CHECK rebuild; CRUD/IPC/routes; project picker in
+   todo edit dialog; todos-page backlog section reduced to inbox. Deviations
+   from the sketch above: `GET /api/todos/backlog` kept its whole-warehouse
+   meaning (the secretary partitions by `projectId` itself) while the app's
+   inbox got its own query and IPC channel; `kind` is editable and delete is
+   exposed on both surfaces, since archive is a recommendation, not a
+   constraint.
 2. **`/projects` page**: master-detail, docs editor, triage, pull-to-today.
 3. **Widget**: steering card + stale badge + drill-down; fold-flow note
    prompts.

@@ -54,6 +54,7 @@ AUTH="Authorization: Bearer $TOKEN"
   "sortOrder": 0,                 // manual order within its date
   "workedSec": 1500,              // pomodoro time accrued onto this todo
   "source": "agent",              // "user" | "agent" | "assistant"
+  "projectId": null,              // the project it is filed under; null = unfiled
   "createdAt": "2026-07-09 12:41:14",
   "updatedAt": "2026-07-09 12:41:14"
 }
@@ -69,6 +70,7 @@ Three rules worth internalizing:
 - **`date` is never rewritten by carry-over.** An unfinished todo from Monday stays dated Monday; the UI surfaces it in today's "Overdue" section. Move it only if the user asks.
 - **Completing sets `completedOn` to today**, leaving `date` alone. So a past day always shows what was actually planned that day.
 - **`date: null` means the backlog** — wanted, but with no planned day (`docs/design/todo-backlog.md`). A backlog todo is excluded from *every* dated query, Overdue included, so `GET /api/todos/backlog` is the only way to see it. Park something when the user wants it off the calendar indefinitely; do not park something merely because its day is unclear — ask.
+- **`projectId` files a todo under a project** (`docs/design/projects-para.md`). It is never required: capture stays zero-friction and filing is review's job. Combined with `date` it splits the undated bucket in two — `date: null, projectId: null` is the **inbox** (unclassified capture, the todos page's section), and `date: null` with a project is that **project's backlog**, read through `GET /api/projects/:id/todos`.
 
 **The un-park rule.** Work belongs to a day, so anything that means work is happening assigns one:
 
@@ -128,6 +130,13 @@ GET /api/todos/backlog
 
 Todos with `"date": null`, in manual order. They are invisible to every dated query, so this route is the only way to reach them.
 
+This is the **whole** undated warehouse, project-filed rows included — the split
+into inbox and project backlogs is yours to make from `projectId`, so a review
+sweep here still sees everything. Two consequences worth knowing: the app's own
+inbox section shows only the `projectId: null` subset, and rows belonging to an
+**archived** project appear here too (filter them out if the sweep is about
+active work).
+
 ### `GET /api/todos/by-ids`
 
 ```
@@ -150,7 +159,7 @@ POST /api/todos
 
 Omitting `date` means today; `"date": null` puts the todo straight into the backlog. The two are deliberately different, so a caller that simply does not care about the day still gets today. `source` is forced to `"agent"` — you cannot impersonate a user-created todo.
 
-Keys are strict: anything outside `title`, `date`, `note`, `reason` is a `400`, the same policy `POST /api/apply` applies to a `todo.create` op. A misnamed field must fail loudly rather than be dropped — `{"title": "t", "day": "2026-01-01"}` would otherwise return `201` with the todo silently dated today.
+Keys are strict: anything outside `title`, `date`, `note`, `projectId`, `reason` is a `400`, the same policy `POST /api/apply` applies to a `todo.create` op. A misnamed field must fail loudly rather than be dropped — `{"title": "t", "day": "2026-01-01"}` would otherwise return `201` with the todo silently dated today.
 
 An optional `"reason"` field (one natural-language line, non-empty) records *why* this write happened. It is journal metadata, not part of the todo: it is stripped before the write, stored atomically with it, and later surfaces in the in-app assistant's log (`docs/design/assistant-architecture.md`). A JSON `null` counts as absent, not as an error — some serializers emit `null` for omitted optionals, and the DELETE query-param form cannot distinguish the two; any other empty or non-string `reason` is a `400`. A reason attached to a write that ends up changing nothing (say, re-completing an already-done todo) is not journaled: no op row, no reason row.
 
@@ -166,7 +175,9 @@ All fields optional. Setting `done: true` stamps `completedOn` and steps the tod
 
 `"date": null` parks the todo in the backlog; a date pulls it back out. Either way, unless the patch also sets `sortOrder`, a todo that changes bucket is appended to the end of its destination rather than keeping an order number that would drop it into the middle of the other list.
 
-Accepts the same optional `"reason"` field as `POST /api/todos`, and the same strict-key policy: anything outside `title`, `note`, `date`, `done`, `sortOrder`, `reason` is a `400` rather than a `200` for a patch that applied nothing.
+`"projectId"` files or refiles the todo; `null` unfiles it. An unknown project id is a `404`. Pulling a project's backlog item onto a day is an ordinary `"date"` patch here — that is the only path from a project into doing.
+
+Accepts the same optional `"reason"` field as `POST /api/todos`, and the same strict-key policy: anything outside `title`, `note`, `date`, `done`, `sortOrder`, `projectId`, `reason` is a `400` rather than a `200` for a patch that applied nothing.
 
 ### `DELETE /api/todos/:id`
 
@@ -229,6 +240,103 @@ Kept one release as a single-active compat shim over the desk. `GET` returns the
 first desk member (`{ "todo": {...} | null }`); `POST { "id" }` **collapses** the
 desk to just that todo, `POST { "id": null }` clears it. New clients use the desk
 routes above; these will be removed once no un-updated `dyd` install remains.
+
+## Projects — the steering layer
+
+Todos answer "finish today"; **projects** answer "is the right work moving at
+all" (`docs/design/projects-para.md`). PARA folded to fit: a project (has an
+end) and an area (doesn't) share one shape separated by `kind`, archiving is a
+`status` rather than a second bucket, and Resources is out of scope.
+
+**Projects never execute.** The only path from a project into doing is pulling
+one of its backlog todos onto a day, which is an ordinary
+`PATCH /api/todos/:id` with a `date`. Do not treat a project as a second task
+list, and do not invent sub-projects, dependencies, or deadline pressure from
+`targetDate` — it is a soft marker and nothing notifies off it.
+
+### The Project object
+
+```jsonc
+{
+  "id": "kR2m_9xQpLs4vNbT1yWzC",
+  "kind": "project",                       // "project" | "area"
+  "title": "Ship the projects layer",
+  "outcome": "phase 4 merged to main",     // one line: what "done" means; null ok
+  "status": "active",                      // "active" | "someday" | "done" | "archived"
+  "targetDate": null,                      // YYYY-MM-DD; a soft marker, never a deadline
+  "sortOrder": 0,
+  "createdAt": "2026-08-27 14:20:01",
+  "updatedAt": "2026-08-27 14:20:01",
+  "archivedAt": null                       // set when status becomes "archived"
+}
+```
+
+`archivedAt` is derived, never sent: entering `archived` stamps it, leaving
+clears it, and staying archived keeps the original stamp.
+
+### The ProjectDoc object
+
+A project's freeform prose — goals, decisions found mid-work, current state.
+Every project is created with one doc titled `notes`.
+
+```jsonc
+{
+  "id": "b7Xq_2mKdVn8sLpR4tYcE",
+  "projectId": "kR2m_9xQpLs4vNbT1yWzC",
+  "title": "notes",
+  "body": "2026-08-27: wired the schema\nnext: the page",
+  "sortOrder": 0,
+  "createdAt": "2026-08-27 14:20:01",
+  "updatedAt": "2026-08-27 15:02:44"
+}
+```
+
+The discipline that keeps these useful: **the doc holds context, the backlog
+holds actions**. "Next: rotate the API key" written in prose rots — extract such
+lines into backlog todos.
+
+### Routes
+
+Every write takes the same optional `"reason"` field as the todo routes (query
+param on DELETE), and the same strict-key policy. Project and doc writes are
+journaled as `project` / `project_doc` ops and show up in
+`GET /api/days/:day/log` alongside todo changes.
+
+```
+GET    /api/projects            → 200 { "projects": [ ...Project ] }
+GET    /api/projects?status=active
+POST   /api/projects            { "title", "kind"?, "outcome"?, "status"?, "targetDate"? }
+                                → 201 { "project": {...} }
+PATCH  /api/projects/:id        { "title"?, "kind"?, "outcome"?, "status"?, "targetDate"?, "sortOrder"? }
+                                → 200 { "project": {...} }
+DELETE /api/projects/:id        → 204
+GET    /api/projects/:id/todos  → 200 { "backlog": [ ...Todo ], "completed": [ ...Todo ] }
+GET    /api/projects/:id/docs   → 200 { "docs": [ ...ProjectDoc ] }
+POST   /api/projects/:id/docs   { "title", "body"? } → 201 { "doc": {...} }
+PATCH  /api/docs/:id            { "title"?, "body"? | "append"? } → 200 { "doc": {...} }
+DELETE /api/docs/:id            → 204
+```
+
+Notes that matter in practice:
+
+- `GET /api/projects` returns everything including archived; pass `status` to
+  narrow. An invalid status is a `400`.
+- `kind` may be changed on PATCH — promoting an area to a project (and back) is
+  a real move, and the journal records it.
+- **`GET /api/projects/:id/todos`** gives the project's *undated open* work in
+  pull order plus what it has finished. Dated open todos are deliberately
+  absent: they were consciously scheduled and live on their day. The **next
+  action** is `backlog[0]`; an active project with an empty backlog is
+  effectively dead, which is what a weekly review looks for.
+- **Prefer archiving over deleting.** `status: "archived"` keeps the project's
+  full history, which is the point of the archive. Deleting is available for a
+  mistyped project: it **detaches** its todos (they survive, `projectId` back to
+  `null`) and removes its docs, every consequence journaled.
+- **`PATCH /api/docs/:id` supports `append`**, which adds one line to the body
+  (`body` replaces instead). Sending both is a `400`. `append` is the ritual
+  write — the evening fold's per-project worklog line, e.g.
+  `{"append": "2026-08-27: finished IPC wiring; next: widget registration"}`.
+  Dated appends make the worklog accumulate without anyone maintaining it.
 
 ## The day record
 
