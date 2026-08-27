@@ -3,14 +3,17 @@ import { sqliteUtcToMs } from "@shared/sqlite-time";
 import { getTodosDb } from "./db";
 import type { ProjectStats } from "./types";
 
-// The steering numbers behind the projects page (docs/design/projects-para.md):
-// progress for the detail pane, and a last-activity day for the left list's
-// stale badge — the ambient nag that replaces discipline.
+// The steering numbers behind the projects page and the projects widget
+// (docs/design/projects-para.md): progress for the detail pane, a last-activity
+// day for the stale badge — the ambient nag that replaces discipline — and the
+// next action, which is what the widget offers to pull onto today.
 //
-// Rolled up for every project at once rather than per project, because the left
-// list needs all of them on first paint and listProjectTodos would be one round
-// trip each. Three grouped scans, merged here; `idx_todos_project` covers the
-// two that matter.
+// Rolled up for every project at once rather than per project, because both
+// surfaces need all of them on first paint and listProjectTodos would be one
+// round trip each. Four grouped scans, merged here; `idx_todos_project` covers
+// the rollups and `idx_todos_open` the next-action pick. `nextAction` is the odd
+// one out: not an aggregate but a pick — the row that would come first out of
+// the backlog.
 //
 // "Activity" means the project moved: time banked against one of its todos, a
 // todo finished, or a note written. `projects.updated_at` is deliberately not a
@@ -28,6 +31,7 @@ type TodoRollup = {
 
 type LastMs = { projectId: string; ms: number | null };
 type LastAt = { projectId: string; at: string | null };
+type NextAction = { projectId: string; id: string; title: string };
 
 /** The later of two yyyy-MM-dd days; either may be absent. */
 function laterDay(a: string | null, b: string | null): string | null {
@@ -77,6 +81,24 @@ export function listProjectStats(): ProjectStats[] {
     )
     .all() as LastAt[];
 
+  // The head of each project's backlog, under exactly the order
+  // listProjectTodos hands the page (`sort_order, created_at`) — the widget's
+  // next action and the page's first backlog row must be the same todo.
+  // ROW_NUMBER rather than the bare-column MIN(sort_order) trick, which cannot
+  // express the created_at tiebreaker.
+  const nextActions = db
+    .prepare(
+      `SELECT projectId, id, title FROM (
+         SELECT project_id AS projectId, id, title,
+                ROW_NUMBER() OVER (
+                  PARTITION BY project_id ORDER BY sort_order, created_at
+                ) AS rn
+         FROM todos
+         WHERE project_id IS NOT NULL AND date IS NULL AND done = 0
+       ) WHERE rn = 1`
+    )
+    .all() as NextAction[];
+
   const byId = new Map<string, ProjectStats>();
   const ensure = (projectId: string): ProjectStats => {
     let stats = byId.get(projectId);
@@ -88,6 +110,7 @@ export function listProjectStats(): ProjectStats[] {
         openBacklog: 0,
         workedSec: 0,
         lastActivityDay: null,
+        nextAction: null,
       };
       byId.set(projectId, stats);
     }
@@ -107,6 +130,10 @@ export function listProjectStats(): ProjectStats[] {
     if (row.ms === null) continue;
     const stats = ensure(row.projectId);
     stats.lastActivityDay = laterDay(stats.lastActivityDay, dayOf(row.ms));
+  }
+
+  for (const row of nextActions) {
+    ensure(row.projectId).nextAction = { id: row.id, title: row.title };
   }
 
   for (const row of docs) {

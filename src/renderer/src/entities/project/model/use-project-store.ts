@@ -30,6 +30,7 @@ const EMPTY_STATS: ProjectStats = Object.freeze({
   openBacklog: 0,
   workedSec: 0,
   lastActivityDay: null,
+  nextAction: null,
 });
 
 /** A project's rollup, or zeros when it has no todos and no notes yet. */
@@ -86,15 +87,18 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 // both live in todos.db and one broadcast keeps them in step.
 //
 // "project" covers the rows themselves. The todo reasons are here for `stats`,
-// which is a rollup *of todos*: finishing one, filing one, or banking pomodoro
-// time against one all move a project's progress and its last-activity day
-// without touching a single projects row. "reorder" and "active" cannot.
+// which is mostly a rollup *of todos*: finishing one, filing one, or banking
+// pomodoro time against one all move a project's progress and its last-activity
+// day without touching a single projects row. "reorder" is in the list for
+// `nextAction` alone — reordering a project's backlog moves a different todo to
+// the head without changing a single number. Only "active" cannot.
 //
-// Every surface that shows projects acquires — the projects page, and each todo
-// picker — so the list stays warm exactly while something is reading it.
+// Every surface that shows projects acquires — the projects page, the widget,
+// and each todo picker — so the list stays warm exactly while something is
+// reading it.
 export const acquireProjects = createRefreshGate(
   useProjectStore,
-  ["project", "create", "update", "delete", "work"],
+  ["project", "create", "update", "delete", "reorder", "work"],
   {
     onAcquire: () => void useProjectStore.getState().ensureLoaded(),
     onRelease: () => useProjectStore.setState({ status: "idle" }),

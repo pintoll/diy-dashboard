@@ -573,6 +573,9 @@ interface ProjectStatsItem {
   // The last day the project moved: work banked, a todo finished, or a note
   // written. A rename is not movement and does not count.
   lastActivityDay: string | null;
+  // The head of the backlog: the one thing that would move this project next,
+  // or null when there is nothing pullable.
+  nextAction: { id: string; title: string } | null;
 }
 
 // A project's freeform prose — goals, decisions, current state. Every project

@@ -1,8 +1,13 @@
 import { CircleSlash, Clock } from "lucide-react";
 import { formatShortDate, useTodoStore } from "@/src/entities/todo";
-import { statsOf, useProjectStore, type Project } from "@/src/entities/project";
+import {
+  STALE_AFTER_DAYS,
+  isStale,
+  statsOf,
+  useProjectStore,
+  type Project,
+} from "@/src/entities/project";
 import { cn } from "@/src/shared/lib/utils";
-import { STALE_AFTER_DAYS, isStale } from "../lib/group-projects";
 
 type Props = {
   project: Project;

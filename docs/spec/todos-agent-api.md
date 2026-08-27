@@ -497,12 +497,25 @@ POST /api/days/2026-08-24/fold
 → 200 { "fold": { "day", "snapshot", "remarks", "foldedAt" } }
 ```
 
-Folding closes a day: the **snapshot** — the final plan plus each involved
-todo's outcome (`{ id, title, done, completedOn, workedSec }`) — is computed
+Folding closes a day: the **snapshot** — the final plan, each involved todo's
+outcome (`{ id, title, done, completedOn, workedSec, projectId }`), and the
+projects the day moved (`{ id, title, workedSec, doneCount }`) — is computed
 app-side, deterministically; only `remarks` comes from the caller. Involved
 means planned into, dated on, completed on, or worked on that day. `workedSec`
 in the snapshot is the seconds accrued **on that day** (sessions starting
 within it), not the todo's lifetime rollup.
+
+`snapshot.projects` is the evening ritual's input
+(`docs/design/projects-para.md`): a project appears only if the day actually
+**moved** it — time banked against one of its todos, or one of its todos
+completed on that day. A todo merely dated on the day puts no project there.
+So the fold response alone names the projects worth appending a worklog line
+to, via `PATCH /api/docs/:id { "append": ... }`.
+
+The snapshot carries `"v"`. It is `2` today; folds written before project
+attribution existed are still stored as `v: 1` and have neither
+`todos[].projectId` nor `projects` — re-folding such a day upgrades it. There
+is no migration: a snapshot is derived state.
 
 Semantics worth internalizing:
 

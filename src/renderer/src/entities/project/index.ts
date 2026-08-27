@@ -13,6 +13,8 @@ export type {
 
 export { NO_BRIDGE_MESSAGE, requireProjectsApi } from "./model/project.types";
 
+export { STALE_AFTER_DAYS, isStale } from "./lib/stale";
+
 export { useProjectStore, acquireProjects, statsOf } from "./model/use-project-store";
 
 export {

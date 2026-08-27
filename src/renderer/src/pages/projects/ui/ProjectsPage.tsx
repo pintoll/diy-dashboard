@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import {
   acquireProjectDetail,
@@ -27,9 +27,12 @@ export function ProjectsPage() {
   const selectedId = useProjectDetailStore((s) => s.selectedId);
   const select = useProjectDetailStore((s) => s.select);
 
+  const [searchParams, setSearchParams] = useSearchParams();
+
   // Selection is deliberately not persisted: the page is opened to review, and
   // reopening on the inbox is the review's first step either way — which is
-  // what acquireProjectDetail's release clears on the way out.
+  // what acquireProjectDetail's release clears on the way out. A `?project=`
+  // deep link (the widget's title link) is the stated exception, handled below.
   useEffect(() => {
     // The inbox pane and every backlog row read the todo store.
     void ensureTodos();
@@ -40,6 +43,18 @@ export function ProjectsPage() {
       releaseProjects();
     };
   }, [ensureTodos]);
+
+  // Arriving from the projects widget, which names the project it was clicked
+  // on. Consumed once and stripped from the URL, so a later manual selection is
+  // not fought by a stale param on the next render. Runs after the effect above
+  // so the acquire's refresh has already gone out for the inbox. A project id
+  // that no longer exists falls back to the inbox via the guard below.
+  useEffect(() => {
+    const target = searchParams.get("project");
+    if (target === null) return;
+    setSearchParams({}, { replace: true });
+    void select(target);
+  }, [searchParams, setSearchParams, select]);
 
   // A project the user deleted, or one archived away, must not leave the right
   // pane rendering a row that no longer exists.

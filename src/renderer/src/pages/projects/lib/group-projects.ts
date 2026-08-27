@@ -1,13 +1,8 @@
-import { daysBetween } from "@shared/day";
 import type { Project } from "@/src/entities/project";
 
-// How the left list is ordered, and when a project reads as rotting. Pure and
-// db-free so both rules are testable — they are the page's only real judgement
-// (docs/design/projects-para.md).
-
-// The design doc's badge threshold. The weekly review sweeps at two weeks; this
-// is the earlier, quieter nag that makes the sweep unnecessary.
-export const STALE_AFTER_DAYS = 7;
+// How the left list is ordered. Pure and db-free so the rule is testable — it
+// is the page's own judgement; the stale rule it renders alongside belongs to
+// the entity (docs/design/projects-para.md).
 
 export type ProjectSection = {
   key: "active" | "areas" | "someday" | "done" | "archived";
@@ -57,17 +52,4 @@ export function groupProjects(projects: Project[]): ProjectSection[] {
     },
     { key: "archived", label: "Archived", projects: archived, collapsed: true },
   ];
-}
-
-/**
- * Whether a project has gone quiet. Only active projects can: an area has no
- * end to drift away from, and someday/done/archived are quiet on purpose.
- *
- * A project with no activity at all counts as stale — it was created and then
- * nothing happened, which is the case worth surfacing.
- */
-export function isStale(project: Project, lastActivityDay: string | null, currentDay: string): boolean {
-  if (project.status !== "active" || project.kind !== "project") return false;
-  if (lastActivityDay === null) return true;
-  return daysBetween(lastActivityDay, currentDay) >= STALE_AFTER_DAYS;
 }

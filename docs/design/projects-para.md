@@ -4,8 +4,8 @@ A mid/long-term steering layer above the day-scoped todo system, modeled on
 PARA but folded to fit an execution dashboard. Todos stay "finish today";
 projects answer "is the right work moving at all".
 
-Status: **Phase 2 implemented** (schema and plumbing, plus the `/projects`
-page: master-detail, docs editor, triage, pull-to-today). Phases 3-4 not
+Status: **Phase 3 implemented** (schema and plumbing, the `/projects` page, and
+the steering widget plus project attribution in the day fold). Phase 4 not
 started.
 
 ## Why
@@ -146,9 +146,10 @@ holds *actions*. "Next: rotate the API key" written in prose rots; the ritual
 
 Compact steering card: active projects with title, progress, next action,
 last-activity; stale projects dimmed/badged (the ambient nag that replaces
-discipline). Click → drill-down dialog: outcome, note tail (last entry
-preview), backlog with pull-to-today, quick-append to note. The page exists
-first so management never gets crammed into this dialog.
+discipline). The next action carries a one-click pull onto today — the whole
+morning ritual, without leaving the dashboard. Anything deeper is the page's
+job: the title links straight to it. (The sketch had a drill-down dialog here
+instead; phase 3 below records why it went.)
 
 ## Rituals
 
@@ -157,9 +158,9 @@ actions onto today, merge with date-native items. Drill-down's note tail gives
 re-entry context. Secretary variant: morning brief includes the notes of
 pulled todos' projects.
 
-**Evening (hooks the existing day fold).** Fold flow lists projects touched
-today (from `todo_sessions` + completions) and offers a per-project note
-append. Secretary drafts it: "2026-08-27: finished IPC wiring; next: widget
+**Evening (hooks the existing day fold).** The fold's snapshot lists the
+projects the day moved (from `todo_sessions` + completions) and the secretary
+offers a per-project note append. Secretary drafts it: "2026-08-27: finished IPC wiring; next: widget
 registration; watch normalizeDate." Dated appends make the worklog automatic —
 nobody maintains it, it accumulates.
 
@@ -221,7 +222,34 @@ neither works, that's not a tooling problem.
    - Filing a todo now re-appends its `sort_order`, because the undated bucket
      is split by project: carrying an inbox number into a backlog dropped the
      row into the middle of that list.
-3. **Widget**: steering card + stale badge + drill-down; fold-flow note
-   prompts.
+3. **Widget** — *done*: the steering card (active projects with progress, next
+   action and last-activity; stale rows dimmed and badged) and the fold's
+   project attribution. Deviations:
+   - **No drill-down dialog.** A card's title deep-links to
+     `/projects?project=<id>` instead. The dialog the sketch describes — outcome,
+     note tail, backlog, quick-append — would have duplicated the page it was
+     explicitly built after; the page consumes the param once and strips it.
+   - **The fold half is data only.** There is still no in-app fold action: the
+     day sheet's "yesterday unfolded" hint stays display-only and folding
+     remains `POST /api/days/:day/fold` / `dyd fold`. What changed is the
+     snapshot, now `v: 2` with `todos[].projectId` and a `projects` rollup of
+     what the day actually moved, so one fold call names the projects worth a
+     worklog line. The append itself was already there
+     (`PATCH /api/docs/:id { "append": ... }`). Older folds stay `v: 1` until
+     re-folded; a snapshot is derived state, so there is no migration.
+   - **Active projects only**, and no widget config. `isStale` never fires for
+     an area, so an area on the card would be permanent, unactionable noise.
+   - The **pull-to-today is kept** despite the dialog going away: it is the only
+     project-into-doing interaction the core rule permits, and without it the
+     morning ritual becomes a page round trip. It sits on the next-action line.
+   - `projects:stats` gained **`nextAction`** (the backlog head, under
+     `listProjectTodos`'s own ordering) — the card needs it for every project at
+     once, and one `projects/:id/todos` call each would be N round trips for one
+     glance. It is the rollup's only non-aggregate field, and the first one a
+     **reorder** can move, so the renderer's refresh gate now listens for that
+     reason too.
+   - `isStale` / `STALE_AFTER_DAYS` moved from the page's `group-projects.ts`
+     down to `entities/project/lib/stale.ts`: two surfaces nag with the rule
+     now, and widgets may not import from pages.
 4. **Secretary integration**: apply entities, `dyd projects`, morning brief /
    evening draft / weekly review flows; focus-analytics per-project view.

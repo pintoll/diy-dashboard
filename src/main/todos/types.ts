@@ -141,11 +141,12 @@ export type PlanEntryPatch = {
   end?: string;
 };
 
-// The fold's frozen record of a day: the final plan plus each involved todo's
-// outcome. Computed deterministically by code (day-snapshot.ts); versioned so
-// later readers can still render old folds if the shape ever grows.
+// The fold's frozen record of a day: the final plan, each involved todo's
+// outcome, and which projects the day actually moved. Computed deterministically
+// by code (day-snapshot.ts); versioned so later readers can still render old
+// folds if the shape ever grows.
 export type DaySnapshot = {
-  v: 1;
+  v: 2;
   day: string;
   // The final plan, in lived order (planMinutes(start); insertion breaks ties).
   entries: { todoId: string; start: string; end: string }[];
@@ -158,8 +159,28 @@ export type DaySnapshot = {
     done: boolean;
     completedOn: string | null;
     workedSec: number;
+    projectId: string | null;
   }[];
+  // The projects the day actually MOVED: time banked against one of their
+  // todos, or one of their todos completed on it (docs/design/projects-para.md,
+  // the evening ritual). A todo merely dated on the day is not movement, so it
+  // puts no project here. `title` is denormalized for the same reason todo
+  // titles are.
+  projects: { id: string; title: string; workedSec: number; doneCount: number }[];
 };
+
+// A fold written before project attribution existed. Nothing produces this
+// shape any more; it is what still sits in `day_folds` for days folded earlier,
+// and re-folding such a day upgrades it. Only rowToDayFold admits it.
+export type DaySnapshotV1 = {
+  v: 1;
+  day: string;
+  entries: DaySnapshot["entries"];
+  todos: Omit<DaySnapshot["todos"][number], "projectId">[];
+};
+
+/** What a `day_folds` row may hold: the current shape, or an older one. */
+export type StoredDaySnapshot = DaySnapshot | DaySnapshotV1;
 
 export type DayFoldRow = {
   day: string;
@@ -170,7 +191,7 @@ export type DayFoldRow = {
 
 export type DayFold = {
   day: string;
-  snapshot: DaySnapshot;
+  snapshot: StoredDaySnapshot;
   remarks: string | null;
   foldedAt: string;
 };
@@ -278,6 +299,10 @@ export type ProjectStats = {
   // note written. Renaming it is not movement, so `projects.updated_at` is
   // deliberately not a source.
   lastActivityDay: string | null;
+  // The head of the backlog — the one thing that would move this project next.
+  // Null when there is nothing pullable, which is the same emptiness
+  // `openBacklog: 0` reports.
+  nextAction: { id: string; title: string } | null;
 };
 
 export type ProjectDocRow = {
@@ -381,7 +406,7 @@ export function rowToPlanEntry(row: PlanEntryRow): PlanEntry {
 export function rowToDayFold(row: DayFoldRow): DayFold {
   return {
     day: row.day,
-    snapshot: JSON.parse(row.snapshot) as DaySnapshot,
+    snapshot: JSON.parse(row.snapshot) as StoredDaySnapshot,
     remarks: row.remarks,
     foldedAt: row.folded_at,
   };

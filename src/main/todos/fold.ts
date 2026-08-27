@@ -77,6 +77,20 @@ function involvedTodos(
   return [...byId.values()];
 }
 
+/** Titles for the projects the involved todos are filed under. */
+function projectTitles(db: Database.Database, todos: TodoRow[]): Map<string, string> {
+  const ids = [
+    ...new Set(todos.map((t) => t.project_id).filter((id): id is string => id !== null)),
+  ];
+  if (ids.length === 0) return new Map();
+  const rows = db
+    .prepare(
+      `SELECT id, title FROM projects WHERE id IN (${ids.map(() => "?").join(",")})`
+    )
+    .all(...ids) as { id: string; title: string }[];
+  return new Map(rows.map((row) => [row.id, row.title]));
+}
+
 function hasOpsOnDay(db: Database.Database, day: string): boolean {
   return !!db
     .prepare("SELECT 1 FROM ops WHERE at >= ? AND at < ? LIMIT 1")
@@ -108,7 +122,13 @@ export function foldDay(day: string, input: FoldInput = {}): DayFold {
       throw new ValidationError(`nothing to fold: "${day}" has no records`);
     }
 
-    const snapshot = buildDaySnapshot({ day, entries, todos, workedSecByTodo: worked });
+    const snapshot = buildDaySnapshot({
+      day,
+      entries,
+      todos,
+      workedSecByTodo: worked,
+      projectTitles: projectTitles(db, todos),
+    });
     const existing = db
       .prepare("SELECT * FROM day_folds WHERE day = ?")
       .get(day) as DayFoldRow | undefined;
