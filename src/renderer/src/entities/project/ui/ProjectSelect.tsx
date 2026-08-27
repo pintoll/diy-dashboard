@@ -6,7 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/src/shared/ui/select";
-import { useProjectStore } from "../model/use-project-store";
+import { acquireProjects, useProjectStore } from "../model/use-project-store";
 
 // Radix rejects an empty string as an item value, so "unfiled" needs a
 // sentinel. Project ids are nanoids (21 chars from a URL-safe alphabet), so
@@ -33,11 +33,10 @@ export function ProjectSelect({
   disabled = false,
 }: Props) {
   const projects = useProjectStore((s) => s.projects);
-  const ensureLoaded = useProjectStore((s) => s.ensureLoaded);
 
-  useEffect(() => {
-    void ensureLoaded();
-  }, [ensureLoaded]);
+  // Acquire rather than a bare ensureLoaded: the list is only worth keeping
+  // warm while a picker is on screen.
+  useEffect(() => acquireProjects(), []);
 
   const options = useMemo(
     () => projects.filter((p) => p.status !== "archived" || p.id === value),

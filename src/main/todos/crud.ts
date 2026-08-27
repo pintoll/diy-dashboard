@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { getTodosDb } from "./db";
 import { assertDate, contextDay } from "./date";
 import { emitTodosChanged } from "./events";
-import { normalizeName, normalizeOptionalDate } from "./fields";
+import { movedBucket, normalizeName, normalizeOptionalDate } from "./fields";
 import { recordOp, rowChanged } from "./journal";
 import { removePlanEntriesForTodo } from "./plan";
 import { assertProjectExists } from "./project-row";
@@ -137,10 +137,22 @@ export function listTodos(filter: TodoListFilter): Todo[] {
  * Done rows are included — a todo can only be completed while parked by an
  * explicit `{ done: true, date: null }` patch, but if one exists the section
  * has to be able to show it.
+ *
+ * The bucket is split by project into lists that each renumber from 0
+ * (reorderTodos below), so sort_order alone does not order it: the split comes
+ * first. The result is the inbox, then each project's backlog in its own pull
+ * order — one sequence a positional reader (`dyd todo backlog`, which addresses
+ * rows as `b<n>`) can rely on not to reshuffle when one project is reordered.
  */
 export function listBacklog(): Todo[] {
   const rows = getTodosDb()
-    .prepare("SELECT * FROM todos WHERE date IS NULL ORDER BY sort_order, created_at")
+    .prepare(
+      `SELECT t.* FROM todos t
+       LEFT JOIN projects p ON p.id = t.project_id
+       WHERE t.date IS NULL
+       ORDER BY t.project_id IS NOT NULL, p.title, t.project_id,
+                t.sort_order, t.created_at`
+    )
     .all() as TodoRow[];
   return rows.map(rowToTodo);
 }
@@ -151,8 +163,9 @@ export function listBacklog(): Todo[] {
  * section; the rest of the backlog now belongs to the projects that own it and
  * is read per-project (projects.ts listProjectTodos).
  *
- * listBacklog above deliberately keeps its whole-warehouse meaning: the agent
- * API serves it to the secretary, which partitions by `projectId` itself.
+ * listBacklog above deliberately keeps its whole-warehouse meaning — the agent
+ * API serves the secretary from it — which is why ordering the bucket's several
+ * lists into one sequence is that query's job and not its callers'.
  */
 export function listInbox(): Todo[] {
   const rows = getTodosDb()
@@ -258,13 +271,11 @@ export function updateTodo(
     // the old number would drop it into the middle of the other list — very
     // visible when pulling an item out of the backlog into today.
     //
-    // Filing counts as a bucket change, because the undated bucket is split by
-    // project: the inbox and every project backlog are separate lists that each
-    // number from 0, so a todo carrying its inbox number into a backlog would
-    // tie with a row already sitting there and land mid-list.
-    const movedBucket = date !== row.date || projectId !== row.project_id;
+    // What counts as a change of bucket — including why filing a dated todo
+    // does not — lives in fields.ts, where it is testable without a connection.
+    const moved = movedBucket(date, projectId, row);
     let sortOrder = patch.sortOrder ?? row.sort_order;
-    if (patch.sortOrder === undefined && movedBucket) {
+    if (patch.sortOrder === undefined && moved) {
       sortOrder = nextSortOrder(db, date);
     }
 
@@ -332,10 +343,11 @@ export function deleteTodo(id: string, ctx: WriteContext): void {
  * The undated bucket is shared by the inbox and every project backlog, and this
  * scopes only by date, so reordering one of those lists renumbers its own ids
  * and leaves the rest of the bucket alone. Values therefore repeat across the
- * bucket, which is harmless: no query ever reads the undated bucket whole —
- * listInbox and listProjectTodos each add a project predicate first. What would
- * not be harmless is a repeat *within* one list, and updateTodo prevents that
- * by re-appending any todo whose project changes.
+ * bucket, so every read of it orders by the split before sort_order: listInbox
+ * and listProjectTodos add a project predicate, and listBacklog — which does
+ * read the bucket whole — groups by project first. What would not be harmless
+ * is a repeat *within* one list, and updateTodo prevents that by re-appending
+ * any todo whose project changes.
  */
 export function reorderTodos(date: string | null, ids: string[]): void {
   if (date !== null) assertDate(date);

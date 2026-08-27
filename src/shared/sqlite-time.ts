@@ -5,8 +5,9 @@
 // tomorrow.
 //
 // Shared rather than per-process because both sides read these columns: main
-// rolls `project_docs.updated_at` into a project's last-activity day, and the
-// renderer renders the same column as "saved 3m ago". memos/crud.ts sidesteps
+// rolls `project_docs.updated_at` into a project's last-activity day and ages
+// the daily-news weekly profile off its own stamp, while the renderer renders
+// that same doc column as "saved 3m ago". memos/crud.ts sidesteps
 // the whole problem by storing ISO strings of its own; the todos tables use the
 // SQL default, so anything treating one of their timestamps as an instant has
 // to come through here.

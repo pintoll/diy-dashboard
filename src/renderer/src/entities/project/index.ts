@@ -13,7 +13,7 @@ export type {
 
 export { NO_BRIDGE_MESSAGE, requireProjectsApi } from "./model/project.types";
 
-export { useProjectStore, statsOf } from "./model/use-project-store";
+export { useProjectStore, acquireProjects, statsOf } from "./model/use-project-store";
 
 export {
   useProjectDetailStore,

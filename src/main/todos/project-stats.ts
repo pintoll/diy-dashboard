@@ -67,6 +67,8 @@ export function listProjectStats(): ProjectStats[] {
 
   // Every project owns at least its default `notes` doc, so this is also what
   // gives a brand-new project a last-activity day: the day it was created.
+  // Reading updated_at as activity holds only because updateProjectDoc moves it
+  // on a body write alone — a tab rename leaves it where it was.
   const docs = db
     .prepare(
       `SELECT project_id AS projectId, MAX(updated_at) AS at

@@ -1,4 +1,5 @@
-import { requireTodosApi, useTodoStore } from "@/src/entities/todo";
+import { useState } from "react";
+import { requireTodosApi, todoErrorMessage, useTodoStore } from "@/src/entities/todo";
 import { ProjectSelect } from "@/src/entities/project/client";
 import { AddTodoForm, TodoRow } from "@/src/features/manage-todo/client";
 
@@ -9,11 +10,19 @@ import { AddTodoForm, TodoRow } from "@/src/features/manage-todo/client";
 export function InboxTriage() {
   const inbox = useTodoStore((s) => s.inbox);
   const currentDay = useTodoStore((s) => s.currentDay);
+  const [error, setError] = useState<string | null>(null);
 
-  const file = (todoId: string, projectId: string | null) => {
-    requireTodosApi()
-      .update(todoId, { projectId })
-      .catch((error) => console.warn("filing failed:", error));
+  // A filing that fails has to say so: the picker shows the chosen project
+  // until the next broadcast snaps it back, so a silent failure reads as a
+  // filed item and the sweep moves on believing the inbox is emptier than it
+  // is. Same setError path as ProjectStatusSelect and ProjectForm.
+  const file = async (todoId: string, projectId: string | null) => {
+    setError(null);
+    try {
+      await requireTodosApi().update(todoId, { projectId });
+    } catch (err) {
+      setError(todoErrorMessage(err));
+    }
   };
 
   return (
@@ -24,6 +33,12 @@ export function InboxTriage() {
           Unfiled capture. Give each one a project, a day, or a delete.
         </p>
       </header>
+
+      {error && (
+        <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
 
       {inbox.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">
@@ -39,7 +54,7 @@ export function InboxTriage() {
               <div className="w-40 shrink-0">
                 <ProjectSelect
                   value={todo.projectId}
-                  onChange={(projectId) => file(todo.id, projectId)}
+                  onChange={(projectId) => void file(todo.id, projectId)}
                   placeholder="File under..."
                 />
               </div>

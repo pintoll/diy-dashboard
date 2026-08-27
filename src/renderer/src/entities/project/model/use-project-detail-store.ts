@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import {
-  subscribeTodosChanged,
+  createRefreshGate,
   todoErrorMessage,
   type Todo,
 } from "@/src/entities/todo";
@@ -74,23 +74,45 @@ export const useProjectDetailStore = create<ProjectDetailStore>((set, get) => {
     if (!pending) return Promise.resolve();
 
     const token = ++writeToken;
-    return requireProjectsApi()
-      .docs.update(pending.docId, { body: pending.body })
+
+    // The draft is kept on failure — the text is not on disk, so dropping it
+    // would silently discard what the user typed — and the body goes back on
+    // the queue with it. Without that, `queued` is already null here and every
+    // later flush (tab switch, pane unmount, quit) is a no-op over an empty
+    // queue, so the kept draft never reaches disk at all. Anything typed since
+    // is newer and wins.
+    const recover = (error: unknown) => {
+      if (queued === null) queued = pending;
+      set({ error: todoErrorMessage(error) });
+    };
+
+    // requireProjectsApi throws rather than rejecting, and this runs from a
+    // bare timer callback.
+    let write: Promise<ProjectDoc>;
+    try {
+      write = requireProjectsApi().docs.update(pending.docId, { body: pending.body });
+    } catch (error) {
+      recover(error);
+      return Promise.resolve();
+    }
+
+    return write
       .then((doc) => {
         // The broadcast this write triggers refreshes the list anyway; what
         // matters here is releasing the draft so that refresh may adopt the
         // stored body again.
-        if (token !== writeToken) return;
+        //
+        // Not while a newer body for the same doc is queued, though: queueWrite
+        // does not bump the token, so this reply still looks current while the
+        // text on screen has moved past it. Adopting it there would rewrite the
+        // textarea back to what was sent a keystroke ago.
+        if (token !== writeToken || queued?.docId === doc.id) return;
         set((state) => ({
           docs: state.docs.map((d) => (d.id === doc.id ? doc : d)),
           draft: state.draft?.docId === doc.id ? null : state.draft,
         }));
       })
-      .catch((error) => {
-        // The draft is kept on failure: the text is not on disk, so dropping it
-        // would silently discard what the user typed.
-        set({ error: todoErrorMessage(error) });
-      });
+      .catch(recover);
   };
 
   const queueWrite = (docId: string, body: string) => {
@@ -183,39 +205,31 @@ export const useProjectDetailStore = create<ProjectDetailStore>((set, get) => {
   };
 });
 
-// The subscriptions below live at module scope for the renderer's lifetime;
-// `status` is their gate. The page acquires on mount and releases on unmount,
-// dropping the store back to "idle" so change events stop refetching a pane
-// nobody is looking at (the acquirePlanSheet pattern).
-let paneMounts = 0;
-export function acquireProjectDetail(): () => void {
-  paneMounts += 1;
-  void useProjectDetailStore.getState().refresh();
-  return () => {
-    paneMounts -= 1;
-    if (paneMounts > 0) return;
-    // Whatever is half-typed belongs on disk before the pane stops listening.
-    void useProjectDetailStore.getState().flush();
-    useProjectDetailStore.setState({ status: "idle" });
-  };
-}
-
 // "project" carries doc writes and the project rows themselves; the todo
 // reasons move the three lists — including "reorder", which is the backlog's
 // whole point, and "work", which changes the worked time a row shows.
-const REFRESH_REASONS = new Set([
-  "project",
-  "create",
-  "update",
-  "delete",
-  "reorder",
-  "work",
-]);
-
-subscribeTodosChanged(
-  (payload) => REFRESH_REASONS.has(payload.reason),
-  () => {
-    const { status, refresh } = useProjectDetailStore.getState();
-    if (status !== "idle") void refresh();
+//
+// The page acquires on mount and releases on unmount, which is what keeps
+// change events from refetching a pane nobody is looking at.
+export const acquireProjectDetail = createRefreshGate(
+  useProjectDetailStore,
+  ["project", "create", "update", "delete", "reorder", "work"],
+  {
+    onAcquire: () => void useProjectDetailStore.getState().refresh(),
+    onRelease: () => {
+      // Whatever is half-typed belongs on disk before the pane stops listening.
+      void useProjectDetailStore.getState().flush();
+      // The selection goes with it: the page is opened to review and review
+      // starts at the inbox (ProjectsPage), which only holds if leaving
+      // actually drops what was selected. Clearing the lists in the same breath
+      // keeps a reopen from painting the old project's rows before the first
+      // refresh.
+      useProjectDetailStore.setState({
+        selectedId: null,
+        ...EMPTY,
+        status: "idle",
+        error: null,
+      });
+    },
   }
 );

@@ -1,3 +1,4 @@
+import { sqliteUtcToMs } from "@shared/sqlite-time";
 import { getDb } from "./db";
 import { runIngest } from "./ingest";
 import { runWeeklyProfileUpdate } from "./profile";
@@ -28,10 +29,10 @@ function isWeeklyProfileStale(): boolean {
 
   if (!row || !row.updated_at) return true;
 
-  // SQLite datetime('now') yields UTC "yyyy-MM-dd HH:mm:ss" with no offset, which
-  // Date.parse would otherwise read as local time; pin it to UTC with a "Z".
-  const updatedMs = Date.parse(row.updated_at.replace(" ", "T") + "Z");
-  if (Number.isNaN(updatedMs)) return true;
+  // datetime('now') yields UTC with no offset, which Date.parse would read as
+  // local time — nine hours out under KST.
+  const updatedMs = sqliteUtcToMs(row.updated_at);
+  if (updatedMs === null) return true;
 
   return Date.now() - updatedMs >= WEEKLY_PROFILE_MAX_AGE_MS;
 }

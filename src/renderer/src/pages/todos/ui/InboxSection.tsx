@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
 import { useTodoStore } from "@/src/entities/todo";
 import { AddTodoForm, SortableTodoList } from "@/src/features/manage-todo/client";
+import { SectionToggle } from "@/src/shared/ui/section-header";
 
 // The inbox: captured with no planned day and filed under no project
 // (docs/design/projects-para.md). The mirror image of Overdue — that section is
@@ -17,19 +17,9 @@ export function InboxSection() {
 
   return (
     <section className="flex flex-col gap-1 border-t border-border pt-4">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="flex items-center gap-1 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
-        aria-expanded={open}
-      >
-        {open ? (
-          <ChevronDown className="size-3.5" />
-        ) : (
-          <ChevronRight className="size-3.5" />
-        )}
+      <SectionToggle open={open} onToggle={() => setOpen((value) => !value)}>
         Inbox · {inbox.length}
-      </button>
+      </SectionToggle>
 
       {open && (
         <div className="mt-1 flex flex-col gap-1">

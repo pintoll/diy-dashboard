@@ -126,11 +126,18 @@ export function updateProjectDoc(
     const title = patch.title !== undefined ? normalizeDocTitle(patch.title) : row.title;
     const body = resolveDocBodyPatch(patch, row.body) ?? row.body;
 
+    // Only a body write moves updated_at, because project-stats.ts reads
+    // MAX(updated_at) as the project's last activity and the design is explicit
+    // that activity means a note written, never a rename
+    // (docs/design/projects-para.md). Stamping it on a tab rename would clear
+    // the stale badge of a project nobody has actually touched. The journal
+    // still records the rename — rowChanged sees the title.
     db.prepare(
       `UPDATE project_docs
-       SET title = ?, body = ?, updated_at = CURRENT_TIMESTAMP
+       SET title = ?, body = ?,
+           updated_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE updated_at END
        WHERE id = ?`
-    ).run(title, body, id);
+    ).run(title, body, body !== row.body ? 1 : 0, id);
 
     const after = getDocRow(db, id);
     if (rowChanged(row, after)) {

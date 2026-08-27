@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import {
   acquireProjectDetail,
+  acquireProjects,
   useProjectDetailStore,
   useProjectStore,
 } from "@/src/entities/project";
@@ -17,7 +18,6 @@ import { ProjectPane } from "./ProjectPane";
 // execution. Nothing here starts work — the only path from a project into doing
 // is pulling one of its backlog items onto a day.
 export function ProjectsPage() {
-  const ensureProjects = useProjectStore((s) => s.ensureLoaded);
   const projectStatus = useProjectStore((s) => s.status);
   const projectError = useProjectStore((s) => s.error);
   const projects = useProjectStore((s) => s.projects);
@@ -28,13 +28,18 @@ export function ProjectsPage() {
   const select = useProjectDetailStore((s) => s.select);
 
   // Selection is deliberately not persisted: the page is opened to review, and
-  // reopening on the inbox is the review's first step either way.
+  // reopening on the inbox is the review's first step either way — which is
+  // what acquireProjectDetail's release clears on the way out.
   useEffect(() => {
-    void ensureProjects();
     // The inbox pane and every backlog row read the todo store.
     void ensureTodos();
-    return acquireProjectDetail();
-  }, [ensureProjects, ensureTodos]);
+    const releaseProjects = acquireProjects();
+    const releaseDetail = acquireProjectDetail();
+    return () => {
+      releaseDetail();
+      releaseProjects();
+    };
+  }, [ensureTodos]);
 
   // A project the user deleted, or one archived away, must not leave the right
   // pane rendering a row that no longer exists.

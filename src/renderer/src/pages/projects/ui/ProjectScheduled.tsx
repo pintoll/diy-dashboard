@@ -1,5 +1,6 @@
 import { useProjectDetailStore } from "@/src/entities/project";
 import { TodoRow } from "@/src/features/manage-todo/client";
+import { SectionLabel } from "@/src/shared/ui/section-header";
 
 // Already pulled onto a day. Read-only on purpose: this is context, so that a
 // todo does not vanish from its project the moment it is scheduled. The day it
@@ -10,9 +11,7 @@ export function ProjectScheduled() {
 
   return (
     <section className="flex flex-col gap-1">
-      <h2 className="px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Scheduled · {scheduled.length}
-      </h2>
+      <SectionLabel>Scheduled · {scheduled.length}</SectionLabel>
       {scheduled.map((todo) => (
         <TodoRow key={todo.id} todo={todo} showDate />
       ))}

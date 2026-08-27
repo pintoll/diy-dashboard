@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { subscribeTodosChanged, todoErrorMessage } from "@/src/entities/todo";
+import { createRefreshGate, todoErrorMessage } from "@/src/entities/todo";
 import {
   NO_BRIDGE_MESSAGE,
   requireProjectsApi,
@@ -89,14 +89,14 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 // which is a rollup *of todos*: finishing one, filing one, or banking pomodoro
 // time against one all move a project's progress and its last-activity day
 // without touching a single projects row. "reorder" and "active" cannot.
-const REFRESH_REASONS = new Set(["project", "create", "update", "delete", "work"]);
-
-subscribeTodosChanged(
-  (payload) => REFRESH_REASONS.has(payload.reason),
-  () => {
-    const { status, refresh } = useProjectStore.getState();
-    // Nothing has been loaded yet; the first ensureLoaded will read fresh.
-    if (status === "idle") return;
-    void refresh();
+//
+// Every surface that shows projects acquires — the projects page, and each todo
+// picker — so the list stays warm exactly while something is reading it.
+export const acquireProjects = createRefreshGate(
+  useProjectStore,
+  ["project", "create", "update", "delete", "work"],
+  {
+    onAcquire: () => void useProjectStore.getState().ensureLoaded(),
+    onRelease: () => useProjectStore.setState({ status: "idle" }),
   }
 );

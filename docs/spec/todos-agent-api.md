@@ -51,7 +51,7 @@ AUTH="Authorization: Bearer $TOKEN"
   "note": null,
   "done": false,
   "completedOn": null,            // the day it was FINISHED; independent of `date`
-  "sortOrder": 0,                 // manual order within its date
+  "sortOrder": 0,                 // manual order within its list (its day, or its inbox/project backlog)
   "workedSec": 1500,              // pomodoro time accrued onto this todo
   "source": "agent",              // "user" | "agent" | "assistant"
   "projectId": null,              // the project it is filed under; null = unfiled
@@ -128,14 +128,17 @@ GET /api/todos/backlog
 → 200 { "todos": [ ...Todo ] }
 ```
 
-Todos with `"date": null`, in manual order. They are invisible to every dated query, so this route is the only way to reach them.
+Todos with `"date": null`. They are invisible to every dated query, so this route is the only way to reach them.
 
-This is the **whole** undated warehouse, project-filed rows included — the split
-into inbox and project backlogs is yours to make from `projectId`, so a review
-sweep here still sees everything. Two consequences worth knowing: the app's own
-inbox section shows only the `projectId: null` subset, and rows belonging to an
-**archived** project appear here too (filter them out if the sweep is about
-active work).
+This is the **whole** undated warehouse, project-filed rows included — so a
+review sweep here still sees everything. It arrives already grouped: the inbox
+first, then each project's backlog in that project's own manual order, projects
+by title. Grouping is the route's job because `sortOrder` numbers each of those
+lists separately and therefore repeats across them — sorting the rows yourself
+by `sortOrder` would interleave the lists. Two consequences worth knowing: the
+app's own inbox section shows only the `projectId: null` subset, and rows
+belonging to an **archived** project appear here too (filter them out if the
+sweep is about active work).
 
 ### `GET /api/todos/by-ids`
 

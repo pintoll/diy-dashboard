@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Inbox } from "lucide-react";
+import { Inbox } from "lucide-react";
 import { useProjectStore } from "@/src/entities/project";
 import { useTodoStore } from "@/src/entities/todo";
 import { cn } from "@/src/shared/lib/utils";
+import { SectionToggle } from "@/src/shared/ui/section-header";
 import { groupProjects, type ProjectSection } from "../lib/group-projects";
 import { ProjectListItem } from "./ProjectListItem";
 
@@ -27,19 +28,14 @@ function Section({
 
   return (
     <section className="flex flex-col gap-0.5">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
-        aria-expanded={open}
+      <SectionToggle
+        open={open}
+        onToggle={() => setOpen((value) => !value)}
+        size="sm"
+        className="py-1"
       >
-        {open ? (
-          <ChevronDown className="size-3" />
-        ) : (
-          <ChevronRight className="size-3" />
-        )}
         {section.label} · {section.projects.length}
-      </button>
+      </SectionToggle>
       {open &&
         section.projects.map((project) => (
           <ProjectListItem
