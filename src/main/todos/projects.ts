@@ -228,7 +228,7 @@ export function listProjectTodos(id: string): ProjectTodos {
     .prepare(
       `SELECT * FROM todos
        WHERE project_id = ? AND date IS NULL AND done = 0
-       ORDER BY sort_order, created_at`
+       ORDER BY sort_order, created_at, id`
     )
     .all(id) as TodoRow[];
   // Read-only context, not a second execution surface: these were consciously

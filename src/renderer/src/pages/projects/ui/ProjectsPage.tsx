@@ -52,7 +52,13 @@ export function ProjectsPage() {
   useEffect(() => {
     const target = searchParams.get("project");
     if (target === null) return;
-    setSearchParams({}, { replace: true });
+    setSearchParams(
+      (prev) => {
+        prev.delete("project");
+        return prev;
+      },
+      { replace: true }
+    );
     void select(target);
   }, [searchParams, setSearchParams, select]);
 

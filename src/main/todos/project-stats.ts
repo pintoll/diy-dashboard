@@ -82,16 +82,19 @@ export function listProjectStats(): ProjectStats[] {
     .all() as LastAt[];
 
   // The head of each project's backlog, under exactly the order
-  // listProjectTodos hands the page (`sort_order, created_at`) — the widget's
-  // next action and the page's first backlog row must be the same todo.
+  // listProjectTodos hands the page (`sort_order, created_at, id`) — the
+  // widget's next action and the page's first backlog row must be the same
+  // todo. `id` is what makes that literal: created_at is CURRENT_TIMESTAMP, one
+  // second wide, so two todos reordered into the same sort_order within a
+  // second would otherwise leave the two queries free to disagree.
   // ROW_NUMBER rather than the bare-column MIN(sort_order) trick, which cannot
-  // express the created_at tiebreaker.
+  // express the tiebreakers.
   const nextActions = db
     .prepare(
       `SELECT projectId, id, title FROM (
          SELECT project_id AS projectId, id, title,
                 ROW_NUMBER() OVER (
-                  PARTITION BY project_id ORDER BY sort_order, created_at
+                  PARTITION BY project_id ORDER BY sort_order, created_at, id
                 ) AS rn
          FROM todos
          WHERE project_id IS NOT NULL AND date IS NULL AND done = 0
