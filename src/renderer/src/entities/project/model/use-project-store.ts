@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { todoErrorMessage } from "@/src/entities/todo";
+import { subscribeTodosChanged, todoErrorMessage } from "@/src/entities/todo";
 import {
   NO_BRIDGE_MESSAGE,
   requireProjectsApi,
@@ -27,8 +27,13 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   status: "idle",
   error: null,
 
+  // "error" retries too: the only other trigger is a "project" broadcast, which
+  // takes a project write succeeding elsewhere, so without this a transient
+  // failure on the first load would leave the picker empty for good
+  // (use-plan-store carries the same guard).
   ensureLoaded: async () => {
-    if (get().status !== "idle") return;
+    const { status } = get();
+    if (status !== "idle" && status !== "error") return;
     await get().refresh();
   },
 
@@ -46,22 +51,15 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 }));
 
-const REFRESH_DEBOUNCE_MS = 50;
-
 // Projects ride the todos change bridge rather than a channel of their own:
 // both live in todos.db and one broadcast keeps them in step. Only "project"
 // writes concern this store.
-const bridge = window.electronAPI?.todos;
-if (bridge) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  bridge.onChanged((payload) => {
-    if (payload.reason !== "project") return;
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      const { status, refresh } = useProjectStore.getState();
-      // Nothing has been loaded yet; the first ensureLoaded will read fresh.
-      if (status === "idle") return;
-      void refresh();
-    }, REFRESH_DEBOUNCE_MS);
-  });
-}
+subscribeTodosChanged(
+  (payload) => payload.reason === "project",
+  () => {
+    const { status, refresh } = useProjectStore.getState();
+    // Nothing has been loaded yet; the first ensureLoaded will read fresh.
+    if (status === "idle") return;
+    void refresh();
+  }
+);

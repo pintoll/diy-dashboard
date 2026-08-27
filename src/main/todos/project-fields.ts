@@ -1,4 +1,4 @@
-import { assertDate } from "./date";
+import { normalizeName, normalizeOptionalDate } from "./fields";
 import {
   ValidationError,
   type ProjectDocPatch,
@@ -11,6 +11,10 @@ import {
 // under a plain node test run, so everything decidable without a connection
 // lives here and projects.ts / project-docs.ts stay thin SQL.
 //
+// The two shapes the todo layer normalizes the same way — a required name, an
+// optional date — come from fields.ts, so title and date rules cannot fork
+// between a todo and a project.
+//
 // The SQL CHECKs in schema.ts encode the same value sets. That duplication is
 // deliberate: these throw ValidationError (400) with a legible message, and the
 // CHECK is the backstop for anything that bypasses this layer.
@@ -21,20 +25,6 @@ const MAX_DOC_TITLE_LENGTH = 100;
 
 const KINDS: ProjectKind[] = ["project", "area"];
 const STATUSES: ProjectStatus[] = ["active", "someday", "done", "archived"];
-
-function normalizeName(value: unknown, field: string, max: number): string {
-  if (typeof value !== "string") {
-    throw new ValidationError(`${field} must be a string`);
-  }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    throw new ValidationError(`${field} must not be empty`);
-  }
-  if (trimmed.length > max) {
-    throw new ValidationError(`${field} must be at most ${max} characters`);
-  }
-  return trimmed;
-}
 
 export function normalizeProjectTitle(title: unknown): string {
   return normalizeName(title, "title", MAX_TITLE_LENGTH);
@@ -72,11 +62,7 @@ export function normalizeOutcome(outcome: unknown): string | null {
 
 // A soft marker, so null is a first-class value rather than a missing deadline.
 export function normalizeTargetDate(value: unknown): string | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value !== "string") {
-    throw new ValidationError("targetDate must be a yyyy-MM-dd string or null");
-  }
-  return assertDate(value, "targetDate");
+  return normalizeOptionalDate(value, "targetDate");
 }
 
 export function normalizeDocBody(body: unknown): string {

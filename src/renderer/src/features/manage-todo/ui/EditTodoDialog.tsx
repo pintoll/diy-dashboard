@@ -32,11 +32,26 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
   const [parked, setParked] = useState(todo.date === null);
   const [date, setDate] = useState(todo.date ?? today());
   const [projectId, setProjectId] = useState(todo.projectId);
+  // What the dialog opened on, kept so only a deliberate change is sent. The
+  // filing this form holds is a snapshot: another writer (the agent API, the
+  // other window) can detach the todo or delete the project while the dialog
+  // sits open, and resending the stale id would silently re-file the todo — or
+  // 404 an unrelated title edit on a project that no longer exists.
+  const [openedWith] = useState(todo.projectId);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // moveBucket goes through here too, so a bucket flip carries whatever the
-  // picker currently shows. An unchanged value is a no-op in the journal diff.
+  // Until the projects page lands (Phase 2 of docs/design/projects-para.md),
+  // the only lists in the app are the dated days and the unfiled inbox, so a
+  // todo that is both parked and filed would be visible nowhere and reachable
+  // only through the agent API. Each control therefore blocks the step that
+  // would create that state — never the step out of it, so a todo the agent
+  // API already parked and filed can still be freed from here.
+  const filed = projectId !== null;
+  const wouldVanish = parked && filed;
+
+  // moveBucket goes through here too, so a bucket flip carries a filing the
+  // user changed in the same visit — and only then.
   const commit = async (nextDate: string | null) => {
     setBusy(true);
     setError(null);
@@ -45,7 +60,7 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
         title: title.trim(),
         note: note.trim().length > 0 ? note.trim() : null,
         date: nextDate,
-        projectId,
+        ...(projectId !== openedWith ? { projectId } : {}),
       });
       onDone();
     } catch (err) {
@@ -97,7 +112,11 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
       </div>
       <div className="flex flex-col gap-2">
         <Label>Project</Label>
-        <ProjectSelect value={projectId} onChange={setProjectId} />
+        <ProjectSelect
+          value={projectId}
+          onChange={setProjectId}
+          disabled={parked && !filed}
+        />
       </div>
       <div className="flex flex-col gap-2">
         <Label htmlFor="todo-date">Date</Label>
@@ -116,11 +135,19 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
           <Label className="whitespace-nowrap font-normal text-muted-foreground">
             <Checkbox
               checked={parked}
+              disabled={filed && !parked}
               onCheckedChange={(checked) => setParked(checked === true)}
             />
             No date (backlog)
           </Label>
         </div>
+        {(parked || filed) && (
+          <p className="text-xs text-muted-foreground">
+            {wouldVanish
+              ? "Parked and filed at once: this todo shows up on no list until the projects page lands. Clear one of the two."
+              : "A todo cannot be parked and filed at once yet: a project backlog gets its own list on the projects page."}
+          </p>
+        )}
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -141,7 +168,9 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
             variant="outline"
             size="sm"
             onClick={moveBucket}
-            disabled={busy || title.trim().length === 0}
+            // Parking a filed todo is the same invisible state the checkbox
+            // above guards; unfile it first. "Move to today" always works.
+            disabled={busy || title.trim().length === 0 || (!parked && filed)}
           >
             {parked ? "Move to today" : "Move to backlog"}
           </Button>

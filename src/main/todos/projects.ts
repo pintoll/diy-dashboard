@@ -12,8 +12,8 @@ import {
   normalizeTargetDate,
   resolveArchivedAt,
 } from "./project-fields";
+import { getProjectRow } from "./project-row";
 import {
-  NotFoundError,
   ValidationError,
   rowToProject,
   rowToTodo,
@@ -40,14 +40,6 @@ import {
 // transaction commits. The renderer's todo store ignores that reason — project
 // rows are not todo rows — so deleteProject, which does move todos, emits a
 // second "update" alongside.
-
-function getProjectRow(db: Database.Database, id: string): ProjectRow {
-  const row = db
-    .prepare("SELECT * FROM projects WHERE id = ?")
-    .get(id) as ProjectRow | undefined;
-  if (!row) throw new NotFoundError(`No project with id "${id}"`);
-  return row;
-}
 
 export function listProjects(filter: ProjectListFilter = {}): Project[] {
   const db = getTodosDb();
@@ -167,11 +159,16 @@ function detachTodosFromProject(
   const rows = db
     .prepare("SELECT * FROM todos WHERE project_id = ? ORDER BY rowid")
     .all(projectId) as TodoRow[];
+  // Prepared above the loop: better-sqlite3 keeps no statement cache, so
+  // leaving these inside would compile two statements per filed todo — the
+  // per-row journaled UPDATE is by design, recompiling its SQL is not.
+  const detach = db.prepare(
+    "UPDATE todos SET project_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+  );
+  const reread = db.prepare("SELECT * FROM todos WHERE id = ?");
   for (const row of rows) {
-    db.prepare(
-      "UPDATE todos SET project_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-    ).run(row.id);
-    const after = db.prepare("SELECT * FROM todos WHERE id = ?").get(row.id) as TodoRow;
+    detach.run(row.id);
+    const after = reread.get(row.id) as TodoRow;
     recordOp(db, ctx, {
       entity: "todo",
       entityId: row.id,

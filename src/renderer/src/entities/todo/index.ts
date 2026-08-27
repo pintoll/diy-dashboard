@@ -27,5 +27,7 @@ export {
   dayOfMonth,
 } from "./model/todo-date";
 
+export { subscribeTodosChanged } from "./model/todos-changed";
+
 export { useTodoStore, shiftSelectedDate } from "./model/use-todo-store";
 export { usePlanStore, acquirePlanSheet } from "./model/use-plan-store";

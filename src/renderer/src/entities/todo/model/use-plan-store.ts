@@ -6,6 +6,7 @@ import {
   type PlanEntry,
   type Todo,
 } from "./todo.types";
+import { subscribeTodosChanged } from "./todos-changed";
 import { useTodoStore } from "./use-todo-store";
 
 type Status = "idle" | "loading" | "ready" | "error";
@@ -92,27 +93,20 @@ export function acquirePlanSheet(): () => void {
   };
 }
 
-const REFRESH_DEBOUNCE_MS = 50;
-
 // Reasons that can change what the sheet shows: "plan"/"fold" are its own
 // domain, "update"/"delete" change joined titles and done state, and "work"
 // can surface a new "yesterday" through the resolver's session leg. Todo
 // create/reorder/active cannot touch a rendered line.
 const REFRESH_REASONS = new Set(["plan", "fold", "update", "delete", "work"]);
 
-const bridge = window.electronAPI?.todos;
-if (bridge) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  bridge.onChanged((payload) => {
-    if (!REFRESH_REASONS.has(payload.reason)) return;
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      // With no sheet mounted there is nothing on screen to reconverge.
-      const { status, refresh } = usePlanStore.getState();
-      if (status !== "idle") void refresh();
-    }, REFRESH_DEBOUNCE_MS);
-  });
-}
+subscribeTodosChanged(
+  (payload) => REFRESH_REASONS.has(payload.reason),
+  () => {
+    // With no sheet mounted there is nothing on screen to reconverge.
+    const { status, refresh } = usePlanStore.getState();
+    if (status !== "idle") void refresh();
+  }
+);
 
 // Day rollover: at the 05:00 boundary the sheet flips to the new (blank) day.
 // Follows use-todo-store's currentDay clock instead of running a second

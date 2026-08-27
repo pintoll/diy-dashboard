@@ -10,39 +10,23 @@ import {
   listTodosByIds,
   updateTodo,
 } from "../todos/crud";
-import type { ReasonInput } from "../todos/journal";
 import { ValidationError } from "../todos/types";
 import type { TodoCreateInput, TodoPatch } from "../todos/types";
 import {
   asObject,
-  assertOnlyKeys,
   TODO_CREATE_KEYS,
   TODO_PATCH_KEYS,
 } from "../todos/validate";
+import { agentDeleteContext, readAgentWrite } from "./request";
 import { readJsonBody, sendJson, type Route } from "./router";
 
 // The todos surface of the agent API. Route handlers only translate
 // HTTP <-> the same domain functions the IPC layer calls, so validation,
 // semantics, and todos:changed pushes are identical no matter who writes.
 // Key policy comes from todos/validate.ts, shared with the batch parser
-// (todos/apply-ops.ts), so the two write surfaces accept the same bodies.
-
-// Validates an optional caller-supplied reason ("--reason" in dyd) for the
-// write context. The row itself is minted lazily by resolveReasonId inside the
-// write's transaction (journal.ts), so a write that journals nothing — failed
-// validation, unknown id, no-change patch — leaves no orphan reasons row.
-// JSON `null` is treated as absent, not rejected: the DELETE query param has
-// no way to distinguish the two (URLSearchParams.get returns null), and some
-// client serializers emit null for omitted optionals (docs/spec/todos-agent-api.md).
-// Exported for every routes file that journals (day-routes.ts) — the
-// null-vs-blank semantics must not fork per surface.
-export function agentReason(reason: unknown): ReasonInput | undefined {
-  if (reason === undefined || reason === null) return undefined;
-  if (typeof reason !== "string" || reason.trim().length === 0) {
-    throw new ValidationError("reason must be a non-empty string");
-  }
-  return { source: "agent", text: reason.trim() };
-}
+// (todos/apply-ops.ts), so the two write surfaces accept the same bodies;
+// reading a write's body and its journal reason comes from request.ts, shared
+// with every other routes file that journals.
 
 export const todosRoutes: Route[] = [
   // The app's day (05:00 to 05:00 Asia/Seoul, src/shared/day.ts). Clients must
@@ -110,36 +94,23 @@ export const todosRoutes: Route[] = [
     method: "POST",
     pattern: "/api/todos",
     handler: async (req, res) => {
-      const body = asObject(await readJsonBody(req), "body");
-      assertOnlyKeys(body, [...TODO_CREATE_KEYS, "reason"], "body");
-      // `reason` rides in the body but is journal metadata, not todo input —
-      // strip it so the cast below stays honest.
-      const reason = agentReason(body.reason);
-      delete body.reason;
-      // Anything created through this API is agent-authored by definition.
-      const todo = createTodo(body as TodoCreateInput, { source: "agent", reason });
-      sendJson(res, 201, { todo });
+      const { input, ctx } = await readAgentWrite<TodoCreateInput>(req, TODO_CREATE_KEYS);
+      sendJson(res, 201, { todo: createTodo(input, ctx) });
     },
   },
   {
     method: "PATCH",
     pattern: "/api/todos/:id",
     handler: async (req, res, params) => {
-      const body = asObject(await readJsonBody(req), "body");
-      assertOnlyKeys(body, [...TODO_PATCH_KEYS, "reason"], "body");
-      const reason = agentReason(body.reason);
-      delete body.reason;
-      const todo = updateTodo(params.id, body as TodoPatch, { source: "agent", reason });
-      sendJson(res, 200, { todo });
+      const { input, ctx } = await readAgentWrite<TodoPatch>(req, TODO_PATCH_KEYS);
+      sendJson(res, 200, { todo: updateTodo(params.id, input, ctx) });
     },
   },
   {
     method: "DELETE",
     pattern: "/api/todos/:id",
-    // DELETE reads no body, so the reason travels as a query param.
     handler: (_req, res, params, query) => {
-      const reason = agentReason(query.get("reason"));
-      deleteTodo(params.id, { source: "agent", reason });
+      deleteTodo(params.id, agentDeleteContext(query));
       sendJson(res, 204, undefined);
     },
   },

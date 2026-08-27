@@ -17,6 +17,7 @@ type Props = {
   value: string | null;
   onChange: (projectId: string | null) => void;
   placeholder?: string;
+  disabled?: boolean;
 };
 
 /**
@@ -25,7 +26,12 @@ type Props = {
  * dropping it from the list would render the trigger blank and read as if the
  * todo were unfiled.
  */
-export function ProjectSelect({ value, onChange, placeholder = "No project" }: Props) {
+export function ProjectSelect({
+  value,
+  onChange,
+  placeholder = "No project",
+  disabled = false,
+}: Props) {
   const projects = useProjectStore((s) => s.projects);
   const ensureLoaded = useProjectStore((s) => s.ensureLoaded);
 
@@ -42,6 +48,7 @@ export function ProjectSelect({ value, onChange, placeholder = "No project" }: P
     <Select
       value={value ?? NONE}
       onValueChange={(next) => onChange(next === NONE ? null : next)}
+      disabled={disabled}
     >
       <SelectTrigger>
         <SelectValue placeholder={placeholder} />

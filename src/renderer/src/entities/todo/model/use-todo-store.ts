@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { today } from "@shared/day";
 import { addDays, weekOf } from "./todo-date";
+import { OTHER_LAYER_REASONS, subscribeTodosChanged } from "./todos-changed";
 import {
   NO_BRIDGE_MESSAGE,
   todoErrorMessage,
@@ -122,8 +123,6 @@ export function shiftSelectedDate(days: number): Promise<void> {
 // import onward — the pomodoro store reads the desk synchronously at its
 // interval boundaries and must see it even when no todo UI has ever mounted
 // (status still "idle").
-const REFRESH_DEBOUNCE_MS = 50;
-
 const bridge = window.electronAPI?.todos;
 if (bridge) {
   const syncDesk = () =>
@@ -134,28 +133,19 @@ if (bridge) {
 
   void syncDesk();
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  bridge.onChanged((payload) => {
-    // Plan/fold writes never change todo rows; the plan store (use-plan-store)
-    // is their reader. Project writes are the same story — the project store
-    // reads them — and the one that does move todo rows (deleting a project
-    // detaches them) emits a separate "update" alongside.
-    if (
-      payload.reason === "plan" ||
-      payload.reason === "fold" ||
-      payload.reason === "project"
-    ) {
-      return;
-    }
-    clearTimeout(timer);
-    timer = setTimeout(() => {
+  subscribeTodosChanged(
+    // Plan/fold and project writes never change todo rows; those layers have
+    // their own reader stores, and the one project write that does move todo
+    // rows (deleting a project detaches them) emits a separate "update".
+    (payload) => !OTHER_LAYER_REASONS.has(payload.reason),
+    () => {
       const { status, refresh } = useTodoStore.getState();
       // Before the first list load there is nothing to refresh; keep only the
       // desk in sync.
       if (status === "idle") void syncDesk();
       else void refresh();
-    }, REFRESH_DEBOUNCE_MS);
-  });
+    }
+  );
 }
 
 // Day rollover: one clock, at module scope so it ticks whichever route is

@@ -3,8 +3,10 @@ import { nanoid } from "nanoid";
 import { getTodosDb } from "./db";
 import { assertDate, contextDay } from "./date";
 import { emitTodosChanged } from "./events";
+import { normalizeName, normalizeOptionalDate } from "./fields";
 import { recordOp, rowChanged } from "./journal";
 import { removePlanEntriesForTodo } from "./plan";
+import { assertProjectExists } from "./project-row";
 import {
   NotFoundError,
   ValidationError,
@@ -20,17 +22,7 @@ import {
 const MAX_TITLE_LENGTH = 500;
 
 function normalizeTitle(title: unknown): string {
-  if (typeof title !== "string") {
-    throw new ValidationError("title must be a string");
-  }
-  const trimmed = title.trim();
-  if (trimmed.length === 0) {
-    throw new ValidationError("title must not be empty");
-  }
-  if (trimmed.length > MAX_TITLE_LENGTH) {
-    throw new ValidationError(`title must be at most ${MAX_TITLE_LENGTH} characters`);
-  }
-  return trimmed;
+  return normalizeName(title, "title", MAX_TITLE_LENGTH);
 }
 
 function normalizeNote(note: unknown): string | null {
@@ -44,11 +36,7 @@ function normalizeNote(note: unknown): string | null {
 
 // null is the backlog, not a malformed date, so it bypasses assertDate.
 function normalizeDate(date: unknown): string | null {
-  if (date === null) return null;
-  if (typeof date !== "string") {
-    throw new ValidationError("date must be a yyyy-MM-dd string or null");
-  }
-  return assertDate(date);
+  return normalizeOptionalDate(date, "date");
 }
 
 // null means unfiled (the inbox, if the todo is also undated). No FK backs this
@@ -60,8 +48,7 @@ function normalizeProjectId(db: Database.Database, projectId: unknown): string |
   if (typeof projectId !== "string" || projectId.length === 0) {
     throw new ValidationError("projectId must be a project id string or null");
   }
-  const exists = db.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId);
-  if (!exists) throw new NotFoundError(`No project with id "${projectId}"`);
+  assertProjectExists(db, projectId);
   return projectId;
 }
 

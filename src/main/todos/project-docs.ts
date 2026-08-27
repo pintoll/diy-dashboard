@@ -8,6 +8,7 @@ import {
   normalizeDocTitle,
   resolveDocBodyPatch,
 } from "./project-fields";
+import { assertProjectExists } from "./project-row";
 import {
   NotFoundError,
   rowToProjectDoc,
@@ -35,11 +36,6 @@ function getDocRow(db: Database.Database, id: string): ProjectDocRow {
     .get(id) as ProjectDocRow | undefined;
   if (!row) throw new NotFoundError(`No project doc with id "${id}"`);
   return row;
-}
-
-function assertProjectExists(db: Database.Database, projectId: string): void {
-  const exists = db.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId);
-  if (!exists) throw new NotFoundError(`No project with id "${projectId}"`);
 }
 
 export function listProjectDocs(projectId: string): ProjectDoc[] {

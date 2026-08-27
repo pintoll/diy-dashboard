@@ -19,15 +19,13 @@ import type {
   ProjectPatch,
 } from "../todos/types";
 import {
-  asObject,
-  assertOnlyKeys,
   PROJECT_CREATE_KEYS,
   PROJECT_DOC_CREATE_KEYS,
   PROJECT_DOC_PATCH_KEYS,
   PROJECT_PATCH_KEYS,
 } from "../todos/validate";
-import { agentReason } from "./todos-routes";
-import { readJsonBody, sendJson, type Route } from "./router";
+import { agentDeleteContext, readAgentWrite } from "./request";
+import { sendJson, type Route } from "./router";
 
 // The steering surface of the agent API (docs/design/projects-para.md). Same
 // contract as todos-routes.ts: handlers only translate HTTP <-> the domain
@@ -53,28 +51,19 @@ export const projectsRoutes: Route[] = [
     method: "POST",
     pattern: "/api/projects",
     handler: async (req, res) => {
-      const body = asObject(await readJsonBody(req), "body");
-      assertOnlyKeys(body, [...PROJECT_CREATE_KEYS, "reason"], "body");
-      // `reason` rides in the body but is journal metadata, not project input.
-      const reason = agentReason(body.reason);
-      delete body.reason;
-      const project = createProject(body as ProjectCreateInput, { source: "agent", reason });
-      sendJson(res, 201, { project });
+      const { input, ctx } = await readAgentWrite<ProjectCreateInput>(
+        req,
+        PROJECT_CREATE_KEYS
+      );
+      sendJson(res, 201, { project: createProject(input, ctx) });
     },
   },
   {
     method: "PATCH",
     pattern: "/api/projects/:id",
     handler: async (req, res, params) => {
-      const body = asObject(await readJsonBody(req), "body");
-      assertOnlyKeys(body, [...PROJECT_PATCH_KEYS, "reason"], "body");
-      const reason = agentReason(body.reason);
-      delete body.reason;
-      const project = updateProject(params.id, body as ProjectPatch, {
-        source: "agent",
-        reason,
-      });
-      sendJson(res, 200, { project });
+      const { input, ctx } = await readAgentWrite<ProjectPatch>(req, PROJECT_PATCH_KEYS);
+      sendJson(res, 200, { project: updateProject(params.id, input, ctx) });
     },
   },
   {
@@ -85,8 +74,7 @@ export const projectsRoutes: Route[] = [
     method: "DELETE",
     pattern: "/api/projects/:id",
     handler: (_req, res, params, query) => {
-      const reason = agentReason(query.get("reason"));
-      deleteProject(params.id, { source: "agent", reason });
+      deleteProject(params.id, agentDeleteContext(query));
       sendJson(res, 204, undefined);
     },
   },
@@ -110,15 +98,11 @@ export const projectsRoutes: Route[] = [
     method: "POST",
     pattern: "/api/projects/:id/docs",
     handler: async (req, res, params) => {
-      const body = asObject(await readJsonBody(req), "body");
-      assertOnlyKeys(body, [...PROJECT_DOC_CREATE_KEYS, "reason"], "body");
-      const reason = agentReason(body.reason);
-      delete body.reason;
-      const doc = createProjectDoc(params.id, body as ProjectDocCreateInput, {
-        source: "agent",
-        reason,
-      });
-      sendJson(res, 201, { doc });
+      const { input, ctx } = await readAgentWrite<ProjectDocCreateInput>(
+        req,
+        PROJECT_DOC_CREATE_KEYS
+      );
+      sendJson(res, 201, { doc: createProjectDoc(params.id, input, ctx) });
     },
   },
   {
@@ -129,23 +113,18 @@ export const projectsRoutes: Route[] = [
     method: "PATCH",
     pattern: "/api/docs/:id",
     handler: async (req, res, params) => {
-      const body = asObject(await readJsonBody(req), "body");
-      assertOnlyKeys(body, [...PROJECT_DOC_PATCH_KEYS, "reason"], "body");
-      const reason = agentReason(body.reason);
-      delete body.reason;
-      const doc = updateProjectDoc(params.id, body as ProjectDocPatch, {
-        source: "agent",
-        reason,
-      });
-      sendJson(res, 200, { doc });
+      const { input, ctx } = await readAgentWrite<ProjectDocPatch>(
+        req,
+        PROJECT_DOC_PATCH_KEYS
+      );
+      sendJson(res, 200, { doc: updateProjectDoc(params.id, input, ctx) });
     },
   },
   {
     method: "DELETE",
     pattern: "/api/docs/:id",
     handler: (_req, res, params, query) => {
-      const reason = agentReason(query.get("reason"));
-      deleteProjectDoc(params.id, { source: "agent", reason });
+      deleteProjectDoc(params.id, agentDeleteContext(query));
       sendJson(res, 204, undefined);
     },
   },

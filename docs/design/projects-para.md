@@ -196,8 +196,12 @@ neither works, that's not a tooling problem.
    meaning (the secretary partitions by `projectId` itself) while the app's
    inbox got its own query and IPC channel; `kind` is editable and delete is
    exposed on both surfaces, since archive is a recommendation, not a
-   constraint.
+   constraint. The edit dialog also refuses to leave a todo both parked and
+   filed: until phase 2 the app lists dated days and the unfiled inbox and
+   nothing else, so such a todo would be visible on no surface at all.
 2. **`/projects` page**: master-detail, docs editor, triage, pull-to-today.
+   Drops the edit dialog's parked-or-filed guard — the project backlog it
+   renders is the missing surface that guard stands in for.
 3. **Widget**: steering card + stale badge + drill-down; fold-flow note
    prompts.
 4. **Secretary integration**: apply entities, `dyd projects`, morning brief /
