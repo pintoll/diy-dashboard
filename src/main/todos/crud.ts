@@ -257,8 +257,14 @@ export function updateTodo(
     // A todo that changes bucket appends to the end of its destination. Keeping
     // the old number would drop it into the middle of the other list — very
     // visible when pulling an item out of the backlog into today.
+    //
+    // Filing counts as a bucket change, because the undated bucket is split by
+    // project: the inbox and every project backlog are separate lists that each
+    // number from 0, so a todo carrying its inbox number into a backlog would
+    // tie with a row already sitting there and land mid-list.
+    const movedBucket = date !== row.date || projectId !== row.project_id;
     let sortOrder = patch.sortOrder ?? row.sort_order;
-    if (patch.sortOrder === undefined && date !== row.date) {
+    if (patch.sortOrder === undefined && movedBucket) {
       sortOrder = nextSortOrder(db, date);
     }
 
@@ -323,11 +329,13 @@ export function deleteTodo(id: string, ctx: WriteContext): void {
 /**
  * Rewrites sort_order for one date — or for the backlog (`null`).
  *
- * The undated bucket is now shared by the inbox and every project backlog, and
- * this scopes only by date, so reordering the inbox renumbers those ids alone
- * and leaves project-filed rows on their old numbers. Duplicate values across
- * the bucket are harmless under `ORDER BY sort_order, created_at`, but a
- * per-project reorder will need a project predicate of its own.
+ * The undated bucket is shared by the inbox and every project backlog, and this
+ * scopes only by date, so reordering one of those lists renumbers its own ids
+ * and leaves the rest of the bucket alone. Values therefore repeat across the
+ * bucket, which is harmless: no query ever reads the undated bucket whole —
+ * listInbox and listProjectTodos each add a project predicate first. What would
+ * not be harmless is a repeat *within* one list, and updateTodo prevents that
+ * by re-appending any todo whose project changes.
  */
 export function reorderTodos(date: string | null, ids: string[]): void {
   if (date !== null) assertDate(date);

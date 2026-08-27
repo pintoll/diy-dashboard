@@ -551,11 +551,28 @@ interface ProjectListFilter {
   status?: ProjectStatus;
 }
 
-// A project's undated open work in pull order, plus what it has finished.
-// Dated open todos are absent by design: they live on their day.
+// A project's work in three lists. `backlog` is the undated open work in pull
+// order and the only one anything acts on — its head is the next action.
+// `scheduled` is context: already pulled onto a day, worked there, never here.
 interface ProjectTodos {
   backlog: TodoItem[];
+  scheduled: TodoItem[];
   completed: TodoItem[];
+}
+
+// Progress and last-activity for every project at once — what the projects
+// page's left list needs on first paint.
+interface ProjectStatsItem {
+  projectId: string;
+  total: number;
+  done: number;
+  // Undated open todos. An active project at zero has no next action, which is
+  // what a weekly review looks for.
+  openBacklog: number;
+  workedSec: number;
+  // The last day the project moved: work banked, a todo finished, or a note
+  // written. A rename is not movement and does not count.
+  lastActivityDay: string | null;
 }
 
 // A project's freeform prose — goals, decisions, current state. Every project
@@ -590,6 +607,7 @@ interface ProjectsAPI {
   // detaches the project's todos (they survive, unfiled) and removes its docs.
   remove: (id: string) => Promise<void>;
   todos: (id: string) => Promise<ProjectTodos>;
+  stats: () => Promise<ProjectStatsItem[]>;
   docs: {
     list: (projectId: string) => Promise<ProjectDocItem[]>;
     create: (projectId: string, input: ProjectDocCreateInput) => Promise<ProjectDocItem>;

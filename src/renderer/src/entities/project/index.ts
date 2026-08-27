@@ -4,6 +4,7 @@ export type {
   ProjectUpdatePatch,
   ProjectFilter,
   ProjectBacklog,
+  ProjectStats,
   ProjectDoc,
   ProjectDocInput,
   ProjectDocUpdatePatch,
@@ -12,4 +13,9 @@ export type {
 
 export { NO_BRIDGE_MESSAGE, requireProjectsApi } from "./model/project.types";
 
-export { useProjectStore } from "./model/use-project-store";
+export { useProjectStore, statsOf } from "./model/use-project-store";
+
+export {
+  useProjectDetailStore,
+  acquireProjectDetail,
+} from "./model/use-project-detail-store";

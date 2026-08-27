@@ -5,6 +5,7 @@ import { registerAllWidgets } from "@/src/widgets/widget-registry";
 import { UpdateToast } from "@/src/features/check-app-update/client";
 import { FocusAnalyticsPage } from "@/src/pages/focus-analytics/client";
 import { FinancePage } from "@/src/pages/finance/client";
+import { ProjectsPage } from "@/src/pages/projects/client";
 import { TodosPage } from "@/src/pages/todos/client";
 import { FocusModeController } from "@/src/features/focus-mode/client";
 import { initFlushOnQuit } from "@/src/shared/lib/flush-on-quit";
@@ -65,6 +66,7 @@ export default function App() {
         <Route path="/focus-analytics" element={<FocusAnalyticsPage />} />
         <Route path="/finance" element={<FinancePage />} />
         <Route path="/todos" element={<TodosPage />} />
+        <Route path="/projects" element={<ProjectsPage />} />
       </Routes>
       <UpdateToast />
       <FocusModeController />

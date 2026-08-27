@@ -26,6 +26,7 @@ import {
   listProjectDocs,
   updateProjectDoc,
 } from "./project-docs";
+import { listProjectStats } from "./project-stats";
 import {
   createProject,
   deleteProject,
@@ -45,6 +46,7 @@ import type {
   ProjectDocPatch,
   ProjectListFilter,
   ProjectPatch,
+  ProjectStats,
   ProjectTodos,
   RecordWorkInput,
   Todo,
@@ -179,6 +181,11 @@ export function registerTodosIpc(): void {
   ipcMain.handle("projects:todos", (_event, id: string): ProjectTodos =>
     listProjectTodos(id)
   );
+
+  // Progress and last-activity for every project in one call: the projects
+  // page needs them for its whole left list, and per-project reads would be one
+  // round trip each.
+  ipcMain.handle("projects:stats", (): ProjectStats[] => listProjectStats());
 
   ipcMain.handle("projects:docs:list", (_event, projectId: string): ProjectDoc[] =>
     listProjectDocs(projectId)

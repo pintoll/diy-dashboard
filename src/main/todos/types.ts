@@ -251,12 +251,33 @@ export type ProjectListFilter = {
   status?: ProjectStatus;
 };
 
-// A project's undated work (its backlog, in pull order) and what it has
-// finished. Dated open todos are deliberately absent: they were consciously
-// scheduled and live on their day.
+// A project's undated work (its backlog, in pull order), the work already
+// pulled onto a day, and what it has finished. `scheduled` is read-only
+// context: a todo leaves the backlog the moment it is pulled, and without this
+// list it would vanish from the project until it was completed. Nothing
+// executes from it — the day it names is still the only place it can be worked.
 export type ProjectTodos = {
   backlog: Todo[];
+  scheduled: Todo[];
   completed: Todo[];
+};
+
+// The steering numbers, rolled up for every project in one pass rather than a
+// per-project round trip: the projects page needs them for its whole left list
+// at once (docs/design/projects-para.md).
+export type ProjectStats = {
+  projectId: string;
+  // Todos filed under the project, open and done alike.
+  total: number;
+  done: number;
+  // Undated open todos — the next-action supply. An active project at zero is
+  // effectively dead, which is exactly what a weekly review looks for.
+  openBacklog: number;
+  workedSec: number;
+  // The last day the project actually moved: work banked, a todo finished, or a
+  // note written. Renaming it is not movement, so `projects.updated_at` is
+  // deliberately not a source.
+  lastActivityDay: string | null;
 };
 
 export type ProjectDocRow = {

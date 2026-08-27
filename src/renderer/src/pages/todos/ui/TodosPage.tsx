@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useTodoStore } from "@/src/entities/todo";
 import { Card, CardContent } from "@/src/shared/ui/card";
 import { InboxSection } from "./InboxSection";
@@ -31,6 +31,15 @@ export function TodosPage() {
           >
             <ArrowLeft className="h-4 w-4" />
             Dashboard
+          </Link>
+          {/* The inbox below is where a review starts and the projects page is
+              where it finishes, so the path between them is one click. */}
+          <Link
+            to="/projects"
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Projects
+            <ArrowRight className="h-4 w-4" />
           </Link>
         </header>
 

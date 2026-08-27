@@ -8,6 +8,7 @@ export type ProjectInput = ProjectCreateInput;
 export type ProjectUpdatePatch = ProjectPatch;
 export type ProjectFilter = ProjectListFilter;
 export type ProjectBacklog = ProjectTodos;
+export type ProjectStats = ProjectStatsItem;
 export type ProjectDoc = ProjectDocItem;
 export type ProjectDocInput = ProjectDocCreateInput;
 export type ProjectDocUpdatePatch = ProjectDocPatch;

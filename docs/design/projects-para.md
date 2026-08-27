@@ -4,8 +4,9 @@ A mid/long-term steering layer above the day-scoped todo system, modeled on
 PARA but folded to fit an execution dashboard. Todos stay "finish today";
 projects answer "is the right work moving at all".
 
-Status: **Phase 1 implemented** (schema, CRUD/IPC/routes, todo project picker,
-inbox). Phases 2-4 not started.
+Status: **Phase 2 implemented** (schema and plumbing, plus the `/projects`
+page: master-detail, docs editor, triage, pull-to-today). Phases 3-4 not
+started.
 
 ## Why
 
@@ -136,8 +137,8 @@ holds *actions*. "Next: rotate the API key" written in prose rots; the ritual
   date, stale badge at 7+ days), areas, someday, archived.
 - **Right** (selected project): outcome + target date, progress (done/total +
   accrued time), doc tabs (default `notes`, plain textarea, autosave),
-  backlog list (reorderable, add form, per-item "to today"), collapsed
-  completed history.
+  backlog list (reorderable, add form, per-item "to today"), the read-only
+  scheduled list, collapsed completed history.
 - Selecting inbox turns the right pane into a triage UI: per-item project
   picker + date picker + delete.
 
@@ -196,12 +197,30 @@ neither works, that's not a tooling problem.
    meaning (the secretary partitions by `projectId` itself) while the app's
    inbox got its own query and IPC channel; `kind` is editable and delete is
    exposed on both surfaces, since archive is a recommendation, not a
-   constraint. The edit dialog also refuses to leave a todo both parked and
-   filed: until phase 2 the app lists dated days and the unfiled inbox and
-   nothing else, so such a todo would be visible on no surface at all.
-2. **`/projects` page**: master-detail, docs editor, triage, pull-to-today.
-   Drops the edit dialog's parked-or-filed guard — the project backlog it
-   renders is the missing surface that guard stands in for.
+   constraint.
+2. **`/projects` page** — *done*: master-detail, docs editor with a tab strip,
+   inbox triage, pull-to-today, and the edit dialog's parked-or-filed guard
+   dropped, since the project backlog is now a real surface. Deviations:
+   - `listProjectTodos` gained a third list, **`scheduled`** (dated and open).
+     Without it a todo vanished from its project the moment it was pulled onto
+     a day, which reads as data loss. It is read-only context; execution is
+     still only on the day.
+   - A new **`projects:stats`** rollup (`src/main/todos/project-stats.ts`) —
+     the sketch assumed the page could derive progress and last-activity from
+     what it already had, and it cannot: neither is on a project row, and one
+     `projects/:id/todos` call per project would be N round trips for one
+     screen. One grouped query returns progress, invested time, open-backlog
+     count and a last-activity day for every project at once. "Activity" means
+     work banked, a todo finished, or a note written — never a rename.
+   - The **stale badge fires at 7 days** (the review sweep still talks about
+     two weeks); an active project that has never moved counts as stale, and
+     areas never do, since an area has no end to drift from.
+   - "Master-detail, like finance" turned out to be wrong about finance, which
+     is a single stacked column. This page introduces the app's first two-pane
+     layout rather than reusing one.
+   - Filing a todo now re-appends its `sort_order`, because the undated bucket
+     is split by project: carrying an inbox number into a backlog dropped the
+     row into the middle of that list.
 3. **Widget**: steering card + stale badge + drill-down; fold-flow note
    prompts.
 4. **Secretary integration**: apply entities, `dyd projects`, morning brief /

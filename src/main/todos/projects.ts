@@ -214,9 +214,12 @@ export function deleteProject(id: string, ctx: WriteContext): void {
 }
 
 /**
- * A project's undated open work in pull order, plus what it has finished.
- * Dated open todos are deliberately absent: they were consciously scheduled and
- * belong to their day, not to a second execution surface here.
+ * A project's work in three lists: `backlog` (undated open, in pull order),
+ * `scheduled` (already pulled onto a day) and `completed`.
+ *
+ * The split is the point. `backlog` is the only one anything acts on — its head
+ * is the next action — while `scheduled` is context: those todos were
+ * consciously scheduled and are worked on their day, never here.
  */
 export function listProjectTodos(id: string): ProjectTodos {
   const db = getTodosDb();
@@ -228,6 +231,16 @@ export function listProjectTodos(id: string): ProjectTodos {
        ORDER BY sort_order, created_at`
     )
     .all(id) as TodoRow[];
+  // Read-only context, not a second execution surface: these were consciously
+  // scheduled and are worked on their day. Without them a pulled todo would
+  // disappear from its project until it was finished.
+  const scheduled = db
+    .prepare(
+      `SELECT * FROM todos
+       WHERE project_id = ? AND date IS NOT NULL AND done = 0
+       ORDER BY date, sort_order`
+    )
+    .all(id) as TodoRow[];
   const completed = db
     .prepare(
       `SELECT * FROM todos
@@ -235,7 +248,11 @@ export function listProjectTodos(id: string): ProjectTodos {
        ORDER BY completed_on DESC, sort_order`
     )
     .all(id) as TodoRow[];
-  return { backlog: backlog.map(rowToTodo), completed: completed.map(rowToTodo) };
+  return {
+    backlog: backlog.map(rowToTodo),
+    scheduled: scheduled.map(rowToTodo),
+    completed: completed.map(rowToTodo),
+  };
 }
 
 /** Narrows an untrusted status filter (query strings, IPC payloads). */

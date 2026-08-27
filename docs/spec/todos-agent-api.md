@@ -310,7 +310,7 @@ POST   /api/projects            { "title", "kind"?, "outcome"?, "status"?, "targ
 PATCH  /api/projects/:id        { "title"?, "kind"?, "outcome"?, "status"?, "targetDate"?, "sortOrder"? }
                                 → 200 { "project": {...} }
 DELETE /api/projects/:id        → 204
-GET    /api/projects/:id/todos  → 200 { "backlog": [ ...Todo ], "completed": [ ...Todo ] }
+GET    /api/projects/:id/todos  → 200 { "backlog": [...], "scheduled": [...], "completed": [...] }
 GET    /api/projects/:id/docs   → 200 { "docs": [ ...ProjectDoc ] }
 POST   /api/projects/:id/docs   { "title", "body"? } → 201 { "doc": {...} }
 PATCH  /api/docs/:id            { "title"?, "body"? | "append"? } → 200 { "doc": {...} }
@@ -323,11 +323,14 @@ Notes that matter in practice:
   narrow. An invalid status is a `400`.
 - `kind` may be changed on PATCH — promoting an area to a project (and back) is
   a real move, and the journal records it.
-- **`GET /api/projects/:id/todos`** gives the project's *undated open* work in
-  pull order plus what it has finished. Dated open todos are deliberately
-  absent: they were consciously scheduled and live on their day. The **next
-  action** is `backlog[0]`; an active project with an empty backlog is
-  effectively dead, which is what a weekly review looks for.
+- **`GET /api/projects/:id/todos`** splits the project's work three ways.
+  `backlog` is the *undated open* work in pull order — the **next action** is
+  `backlog[0]`, and an active project with an empty backlog is effectively
+  dead, which is what a weekly review looks for. `scheduled` is the dated open
+  work: read-only context, so a todo does not disappear from its project the
+  moment it is pulled onto a day. `completed` is what it has finished, newest
+  first. Only `backlog` is a list to act on; scheduling stays a
+  `PATCH /api/todos/:id` and the day is still where work happens.
 - **Prefer archiving over deleting.** `status: "archived"` keeps the project's
   full history, which is the point of the archive. Deleting is available for a
   mistyped project: it **detaches** its todos (they survive, `projectId` back to

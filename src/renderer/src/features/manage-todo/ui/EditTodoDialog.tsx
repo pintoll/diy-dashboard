@@ -41,15 +41,6 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Until the projects page lands (Phase 2 of docs/design/projects-para.md),
-  // the only lists in the app are the dated days and the unfiled inbox, so a
-  // todo that is both parked and filed would be visible nowhere and reachable
-  // only through the agent API. Each control therefore blocks the step that
-  // would create that state — never the step out of it, so a todo the agent
-  // API already parked and filed can still be freed from here.
-  const filed = projectId !== null;
-  const wouldVanish = parked && filed;
-
   // moveBucket goes through here too, so a bucket flip carries a filing the
   // user changed in the same visit — and only then.
   const commit = async (nextDate: string | null) => {
@@ -75,7 +66,8 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
   };
 
   // The one-click form of the checkbox above: flip the bucket and save, so the
-  // common "this can wait indefinitely" move is a single action.
+  // common "this can wait indefinitely" move is a single action. A filed todo
+  // parks into its project's backlog, which the projects page renders.
   const moveBucket = () => void commit(parked ? today() : null);
 
   const remove = async () => {
@@ -112,11 +104,7 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
       </div>
       <div className="flex flex-col gap-2">
         <Label>Project</Label>
-        <ProjectSelect
-          value={projectId}
-          onChange={setProjectId}
-          disabled={parked && !filed}
-        />
+        <ProjectSelect value={projectId} onChange={setProjectId} />
       </div>
       <div className="flex flex-col gap-2">
         <Label htmlFor="todo-date">Date</Label>
@@ -135,17 +123,16 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
           <Label className="whitespace-nowrap font-normal text-muted-foreground">
             <Checkbox
               checked={parked}
-              disabled={filed && !parked}
               onCheckedChange={(checked) => setParked(checked === true)}
             />
             No date (backlog)
           </Label>
         </div>
-        {(parked || filed) && (
+        {parked && (
           <p className="text-xs text-muted-foreground">
-            {wouldVanish
-              ? "Parked and filed at once: this todo shows up on no list until the projects page lands. Clear one of the two."
-              : "A todo cannot be parked and filed at once yet: a project backlog gets its own list on the projects page."}
+            {projectId === null
+              ? "Parked in the inbox until you give it a day."
+              : "Parked in this project's backlog, on the projects page."}
           </p>
         )}
       </div>
@@ -168,9 +155,7 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
             variant="outline"
             size="sm"
             onClick={moveBucket}
-            // Parking a filed todo is the same invisible state the checkbox
-            // above guards; unfile it first. "Move to today" always works.
-            disabled={busy || title.trim().length === 0 || (!parked && filed)}
+            disabled={busy || title.trim().length === 0}
           >
             {parked ? "Move to today" : "Move to backlog"}
           </Button>
