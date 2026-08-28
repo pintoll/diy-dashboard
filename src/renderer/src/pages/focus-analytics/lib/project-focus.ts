@@ -40,7 +40,6 @@ export type ProjectFocusRow = {
   // Null for the unfiled row; otherwise the project's own status, so the card
   // can mark history that is no longer active.
   status: Project["status"] | null;
-  kind: Project["kind"] | null;
   // Merged wall clock, todos.db.
   seconds: number;
   // Session time whose desk touched this project, pomodoro.db.
@@ -64,10 +63,6 @@ function emptyAccumulator(): Accumulator {
   return { deskSec: 0, focusSec: 0, collapseCount: 0, sessionCount: 0 };
 }
 
-// Object keys cannot be null, and the unfiled bucket is a real row, so it needs
-// a key of its own that no project id can be.
-const UNFILED_KEY = " unfiled";
-
 /**
  * One row per project that has either banked time or sat through a session,
  * ranked by merged time. Sessions with nothing on the desk land in no row at
@@ -81,13 +76,15 @@ export function buildProjectFocusRows(
 ): ProjectFocusRow[] {
   const byId = new Map(projects.map((project) => [project.id, project]));
 
-  const attention = new Map<string, Accumulator>();
+  // The unfiled bucket is a real row keyed by null - Maps and Sets take it as
+  // a key like any other, so no string stand-in is needed.
+  const attention = new Map<string | null, Accumulator>();
   for (const session of sessions) {
     // A todo missing from the map is either unfiled or since deleted; both are
     // honestly "not any project's time", so both fall to the unfiled bucket.
-    const touched = new Set<string>();
+    const touched = new Set<string | null>();
     for (const todoId of session.todoIds) {
-      touched.add(index.todoProject[todoId] ?? UNFILED_KEY);
+      touched.add(index.todoProject[todoId] ?? null);
     }
     if (touched.size === 0) continue;
 
@@ -107,15 +104,14 @@ export function buildProjectFocusRows(
     }
   }
 
-  const seconds = new Map<string, number>();
+  const seconds = new Map<string | null, number>();
   for (const row of index.time) {
-    const key = row.projectId ?? UNFILED_KEY;
-    seconds.set(key, (seconds.get(key) ?? 0) + row.seconds);
+    seconds.set(row.projectId, (seconds.get(row.projectId) ?? 0) + row.seconds);
   }
 
   const rows: ProjectFocusRow[] = [];
   for (const key of new Set([...seconds.keys(), ...attention.keys()])) {
-    const unfiled = key === UNFILED_KEY;
+    const unfiled = key === null;
     const project = unfiled ? undefined : byId.get(key);
     // A project id with time but no row is an orphan the service layer should
     // have detached. It gets no invented title; listProjectStatsWithStale drops
@@ -127,10 +123,9 @@ export function buildProjectFocusRows(
     if (merged === 0 && acc.sessionCount === 0) continue;
 
     rows.push({
-      projectId: unfiled ? null : key,
+      projectId: key,
       title: project?.title ?? UNFILED_TITLE,
       status: project?.status ?? null,
-      kind: project?.kind ?? null,
       seconds: merged,
       deskSec: acc.deskSec,
       focusSec: acc.focusSec,

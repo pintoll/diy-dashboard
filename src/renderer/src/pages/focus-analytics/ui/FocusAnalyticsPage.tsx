@@ -72,7 +72,23 @@ export function FocusAnalyticsPage() {
     };
   }, []);
   const projects = useProjectStore((s) => s.projects);
+  const projectsStatus = useProjectStore((s) => s.status);
+  const projectsError = useProjectStore((s) => s.error);
   const projectTime = useProjectTimeStore((s) => s.index);
+  const timeStatus = useProjectTimeStore((s) => s.status);
+  const timeError = useProjectTimeStore((s) => s.error);
+
+  // The card's readiness is the join's: a failure on either side must surface
+  // instead of masquerading as "no time recorded", and the rows are only
+  // trustworthy once both reads have landed - half a join files everything
+  // under "No project".
+  const projectStatus =
+    projectsStatus === "error" || timeStatus === "error"
+      ? ("error" as const)
+      : projectsStatus === "ready" && timeStatus === "ready"
+        ? ("ready" as const)
+        : ("loading" as const);
+  const projectError = projectsStatus === "error" ? projectsError : timeError;
 
   const projectRows = useMemo(
     () => buildProjectFocusRows(sessions, projectTime, projects),
@@ -129,7 +145,12 @@ export function FocusAnalyticsPage() {
 
         <TimeOfDayChart data={hourly} />
 
-        <ProjectFocusList rows={projectRows} unattributedSec={deskless} />
+        <ProjectFocusList
+          rows={projectRows}
+          status={projectStatus}
+          error={projectError}
+          unattributedSec={deskless}
+        />
 
         <AppBreakdownList apps={apps} />
       </div>

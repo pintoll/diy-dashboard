@@ -7,21 +7,20 @@ import {
 } from "@/src/shared/ui/card";
 import { formatSeconds } from "@/src/shared/lib/format-duration";
 import type { ProjectFocusRow } from "../lib/project-focus";
+import { EmptyState } from "./EmptyState";
+import { MeterBar } from "./MeterBar";
 
 type Props = {
   rows: ProjectFocusRow[];
+  // The joined state of the two stores behind the rows, resolved by the page.
+  // Rows are misfiled while either store is still loading (every todo falls to
+  // "No project" until the index lands), so the card renders them only on
+  // "ready" and never dresses a load or a failure up as "no time recorded".
+  status: "loading" | "ready" | "error";
+  error: string | null;
   // Session time no row can claim: the desk was empty. Shown as a footnote so
   // the card never pretends its bars add up to everything that was logged.
   unattributedSec: number;
-};
-
-// A project that is no longer being pushed still owns its history, so it stays
-// in the ranking with a tag rather than dropping out (the archive is a record
-// worth reading - docs/design/projects-para.md).
-const STATUS_TAG: Record<string, string> = {
-  someday: "someday",
-  done: "done",
-  archived: "archived",
 };
 
 function AttentionLine({ row }: { row: ProjectFocusRow }) {
@@ -49,7 +48,7 @@ function AttentionLine({ row }: { row: ProjectFocusRow }) {
   );
 }
 
-export function ProjectFocusList({ rows, unattributedSec }: Props) {
+export function ProjectFocusList({ rows, status, error, unattributedSec }: Props) {
   const max = rows.reduce((m, row) => Math.max(m, row.seconds), 0);
 
   return (
@@ -64,17 +63,26 @@ export function ProjectFocusList({ rows, unattributedSec }: Props) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {rows.length === 0 ? (
-          <div className="rounded-md border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+        {status === "error" ? (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {error}
+          </div>
+        ) : status !== "ready" ? null : rows.length === 0 ? (
+          <EmptyState>
             No project time recorded yet. Put a todo on the desk and its project
             shows up here.
-          </div>
+          </EmptyState>
         ) : (
           <div className="flex flex-col gap-3">
             {rows.map((row) => {
-              const pct = max > 0 ? (row.seconds / max) * 100 : 0;
+              // A project that is no longer being pushed still owns its
+              // history, so it stays in the ranking with its status as a tag
+              // rather than dropping out (the archive is a record worth
+              // reading - docs/design/projects-para.md).
               const tag =
-                row.status === null ? null : (STATUS_TAG[row.status] ?? null);
+                row.status !== null && row.status !== "active"
+                  ? row.status
+                  : null;
               return (
                 <div
                   key={row.projectId ?? "unfiled"}
@@ -101,12 +109,7 @@ export function ProjectFocusList({ rows, unattributedSec }: Props) {
                       {formatSeconds(row.seconds)}
                     </span>
                   </div>
-                  <div className="h-2 w-full overflow-hidden rounded-sm bg-muted/60">
-                    <div
-                      className="h-full rounded-sm bg-primary"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
+                  <MeterBar value={row.seconds} max={max} />
                   <div className="text-xs">
                     <AttentionLine row={row} />
                   </div>

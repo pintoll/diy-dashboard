@@ -43,10 +43,6 @@ export type ProjectInterval = {
   workedSec: number;
 };
 
-// Null has no string key of its own, so the unfiled group needs one no nanoid
-// can collide with.
-const UNFILED = " unfiled";
-
 type Credited = { startedAt: number; endedAt: number };
 
 /**
@@ -74,13 +70,14 @@ function creditedWindow(row: ProjectInterval): Credited | null {
  * credit contributes nothing rather than a negative.
  */
 export function mergeProjectSeconds(rows: ProjectInterval[]): ProjectTime[] {
-  const groups = new Map<string, Credited[]>();
+  // The unfiled group is keyed by null directly - a Map takes it like any
+  // other key.
+  const groups = new Map<string | null, Credited[]>();
   for (const row of rows) {
     const credited = creditedWindow(row);
     if (credited === null) continue;
-    const key = row.projectId ?? UNFILED;
-    const group = groups.get(key);
-    if (group === undefined) groups.set(key, [credited]);
+    const group = groups.get(row.projectId);
+    if (group === undefined) groups.set(row.projectId, [credited]);
     else group.push(credited);
   }
 
@@ -104,7 +101,7 @@ export function mergeProjectSeconds(rows: ProjectInterval[]): ProjectTime[] {
     }
     ms += end - start;
     out.push({
-      projectId: key === UNFILED ? null : key,
+      projectId: key,
       seconds: Math.round(ms / 1000),
     });
   }

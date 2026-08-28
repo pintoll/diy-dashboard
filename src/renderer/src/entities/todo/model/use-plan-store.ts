@@ -64,17 +64,28 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
         api.byIds([...new Set(entries.map((e) => e.todoId))]),
         api.yesterday(),
       ]);
-      set({
-        entries,
-        todosById: Object.fromEntries(todos.map((t) => [t.id, t])),
-        yesterday,
-        status: "ready",
-        error: null,
-      });
+      // A result landing after the last reader released must not resurrect
+      // "ready" over the release's "idle" - the next acquire's ensureLoaded
+      // would then skip its fresh read (use-project-time-store has the why).
+      set((state) =>
+        state.status === "idle"
+          ? state
+          : {
+              entries,
+              todosById: Object.fromEntries(todos.map((t) => [t.id, t])),
+              yesterday,
+              status: "ready",
+              error: null,
+            }
+      );
     } catch (error) {
       // Entries are kept: the sheet stays rendered (with an inline error note)
       // instead of vanishing behind a transient refresh failure.
-      set({ status: "error", error: todoErrorMessage(error) });
+      set((state) =>
+        state.status === "idle"
+          ? state
+          : { status: "error", error: todoErrorMessage(error) }
+      );
     }
   },
 }));

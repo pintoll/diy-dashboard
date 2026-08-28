@@ -55,13 +55,21 @@ export const useProjectTimeStore = create<ProjectTimeStore>((set, get) => ({
     }
     if (get().status === "idle") set({ status: "loading" });
     try {
-      set({
-        index: await requireProjectsApi().time(),
-        status: "ready",
-        error: null,
-      });
+      const index = await requireProjectsApi().time();
+      // A release while the read was in flight parked the store idle; the late
+      // result must stay dead, or the next acquire would see "ready" and skip
+      // the fresh read (the sibling gated stores carry the same guard).
+      set((state) =>
+        state.status === "idle"
+          ? state
+          : { index, status: "ready", error: null }
+      );
     } catch (error) {
-      set({ status: "error", error: todoErrorMessage(error) });
+      set((state) =>
+        state.status === "idle"
+          ? state
+          : { status: "error", error: todoErrorMessage(error) }
+      );
     }
   },
 }));

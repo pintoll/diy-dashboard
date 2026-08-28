@@ -82,7 +82,11 @@ def merge_seconds(intervals: list[tuple[int, int]]) -> int:
             start, end = lo, hi
     if start is not None:
         total += end - start
-    return round(total / 1000)
+    # Half-up like the route's Math.round. Python's round() is half-to-even
+    # (round(2.5) == 2, Math.round(2.5) === 3), and interval bounds are raw
+    # epoch ms, so a merged total landing on an exact half second is reachable
+    # and would flake the comparison on correct route output.
+    return (total + 500) // 1000
 
 
 def main() -> int:

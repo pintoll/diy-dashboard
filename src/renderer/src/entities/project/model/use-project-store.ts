@@ -71,14 +71,25 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     try {
       const api = requireProjectsApi();
       const [projects, stats] = await Promise.all([api.list(), api.stats()]);
-      set({
-        projects,
-        stats: Object.fromEntries(stats.map((s) => [s.projectId, s])),
-        status: "ready",
-        error: null,
-      });
+      // A result landing after the last reader released must not resurrect
+      // "ready" over the release's "idle" - the next acquire's ensureLoaded
+      // would then skip its fresh read (use-project-time-store has the why).
+      set((state) =>
+        state.status === "idle"
+          ? state
+          : {
+              projects,
+              stats: Object.fromEntries(stats.map((s) => [s.projectId, s])),
+              status: "ready",
+              error: null,
+            }
+      );
     } catch (error) {
-      set({ status: "error", error: todoErrorMessage(error) });
+      set((state) =>
+        state.status === "idle"
+          ? state
+          : { status: "error", error: todoErrorMessage(error) }
+      );
     }
   },
 }));

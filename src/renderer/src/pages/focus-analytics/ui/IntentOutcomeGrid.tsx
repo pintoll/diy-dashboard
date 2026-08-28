@@ -10,6 +10,7 @@ import type {
   IntentOutcomeMatrix,
 } from "@/src/entities/pomodoro-session";
 import { formatHours } from "@/src/shared/lib/format-duration";
+import { EmptyState } from "./EmptyState";
 
 type Props = {
   matrix: IntentOutcomeMatrix;
@@ -48,9 +49,9 @@ export function IntentOutcomeGrid({ matrix }: Props) {
       </CardHeader>
       <CardContent>
         {total === 0 ? (
-          <div className="rounded-md border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+          <EmptyState>
             Declare focus or leisure at session start to unlock this.
-          </div>
+          </EmptyState>
         ) : (
           <div className="flex flex-col gap-3">
             <div className="grid grid-cols-2 gap-2">
