@@ -760,7 +760,6 @@ interface PomodoroAPI {
   list: () => Promise<PomodoroSessionDTO[]>;
   record: (session: PomodoroSessionDTO) => Promise<void>;
   updateNote: (id: string, note: string | null) => Promise<void>;
-  import: (sessions: PomodoroSessionDTO[]) => Promise<{ imported: number }>;
 }
 
 // Renderer-authoritative pomodoro bridge wire types. The raw snapshot carries

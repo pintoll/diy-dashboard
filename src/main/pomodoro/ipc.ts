@@ -1,6 +1,5 @@
 import { ipcMain } from "electron";
 import {
-  importSessions,
   listSessions,
   recordSession,
   updateSessionNote,
@@ -22,12 +21,5 @@ export function registerPomodoroIpc(): void {
     (_event, payload: { id: string; note: string | null }): void => {
       updateSessionNote(payload.id, payload.note);
     }
-  );
-
-  ipcMain.handle(
-    "pomodoro:sessions:import",
-    (_event, sessions: PomodoroSession[]): { imported: number } => ({
-      imported: importSessions(Array.isArray(sessions) ? sessions : []),
-    })
   );
 }

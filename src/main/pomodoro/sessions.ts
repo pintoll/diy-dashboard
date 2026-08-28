@@ -127,16 +127,3 @@ export function recordSession(session: PomodoroSession): void {
 export function updateSessionNote(id: string, note: string | null): void {
   getPomodoroDb().prepare("UPDATE sessions SET note = ? WHERE id = ?").run(note, id);
 }
-
-export function importSessions(sessions: PomodoroSession[]): number {
-  const db = getPomodoroDb();
-  const insert = db.prepare(INSERT_SQL);
-  const run = db.transaction((rows: PomodoroSession[]) => {
-    let inserted = 0;
-    for (const s of rows) {
-      inserted += insert.run(toInsertParams(s)).changes;
-    }
-    return inserted;
-  });
-  return run(sessions);
-}

@@ -119,8 +119,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("pomodoro:sessions:record", session),
     updateNote: (id: string, note: string | null) =>
       ipcRenderer.invoke("pomodoro:sessions:update-note", { id, note }),
-    import: (sessions: PomodoroSessionDTO[]) =>
-      ipcRenderer.invoke("pomodoro:sessions:import", sessions),
   },
   todos: {
     list: (filter?: TodoListFilter) => ipcRenderer.invoke("todos:list", filter),
