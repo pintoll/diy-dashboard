@@ -1,10 +1,12 @@
+import { today } from "@shared/day";
+import { countInbox } from "../todos/crud";
 import {
   createProjectDoc,
   deleteProjectDoc,
   listProjectDocs,
   updateProjectDoc,
 } from "../todos/project-docs";
-import { listProjectStats } from "../todos/project-stats";
+import { listProjectStatsWithStale } from "../todos/project-stats";
 import {
   asProjectStatus,
   createProject,
@@ -50,15 +52,22 @@ export const projectsRoutes: Route[] = [
   },
   {
     // The steering glance in one call: progress, invested time, open backlog,
-    // last activity, the next action and the stale verdict for every project.
-    // Reading it per project would be one round trip each, which is what a
-    // glance cannot afford. Derived state — no reason, no journal — and the
-    // literal path is registered ahead of the `:id` routes so a later
-    // GET /api/projects/:id could not shadow it.
+    // last activity, the next action and the stale verdict for every project,
+    // plus the inbox badge. Reading it per project would be one round trip
+    // each, which is what a glance cannot afford. Derived state — no reason,
+    // no journal — and the literal path is registered ahead of the `:id`
+    // routes so a later GET /api/projects/:id could not shadow it.
+    //
+    // The stale verdict is stamped here, at the HTTP boundary, because over
+    // the wire today is the server's call; the bare rollup crosses IPC and the
+    // renderer judges staleness itself (project-stats.ts).
     method: "GET",
     pattern: "/api/projects/stats",
     handler: (_req, res) => {
-      sendJson(res, 200, { stats: listProjectStats() });
+      sendJson(res, 200, {
+        stats: listProjectStatsWithStale(today()),
+        inboxCount: countInbox(),
+      });
     },
   },
   {

@@ -13,7 +13,9 @@ export type ProjectFormValues = {
 // Every field spelled out, so the result satisfies both `create` (which needs
 // a title) and `update` (which needs nothing). Status is not a form field —
 // creating always starts active, and changing it is one click on the pane.
-type ProjectFields = Required<Omit<ProjectInput, "status">>;
+// Neither is `notes`, the default doc's seed body: it exists for the agent
+// API's batch, and in the app the doc pane is one click away.
+type ProjectFields = Required<Omit<ProjectInput, "status" | "notes">>;
 
 /** Trims the form's strings back into the nullable shape the API expects. */
 export function toProjectPatch(values: ProjectFormValues): ProjectFields {

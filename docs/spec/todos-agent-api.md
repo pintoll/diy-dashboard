@@ -280,7 +280,10 @@ clears it, and staying archived keeps the original stamp.
 ### The ProjectDoc object
 
 A project's freeform prose — goals, decisions found mid-work, current state.
-Every project is created with one doc titled `notes`.
+Every project is created with one doc titled `notes`; the create's optional
+`notes` field seeds that doc's body. **Titles are unique within a project** —
+they double as addresses (`dyd projects note --doc <title>` resolves by
+title), so creating or renaming a doc into an existing title is a `400`.
 
 ```jsonc
 {
@@ -310,8 +313,8 @@ review sweep lands demotions, note appends and inbox filing as one intent.
 ```
 GET    /api/projects            → 200 { "projects": [ ...Project ] }
 GET    /api/projects?status=active
-GET    /api/projects/stats      → 200 { "stats": [ ...ProjectStats ] }
-POST   /api/projects            { "title", "kind"?, "outcome"?, "status"?, "targetDate"? }
+GET    /api/projects/stats      → 200 { "stats": [ ...ProjectStats ], "inboxCount": 3 }
+POST   /api/projects            { "title", "kind"?, "outcome"?, "status"?, "targetDate"?, "notes"? }
                                 → 201 { "project": {...} }
 PATCH  /api/projects/:id        { "title"?, "kind"?, "outcome"?, "status"?, "targetDate"?, "sortOrder"? }
                                 → 200 { "project": {...} }
@@ -353,6 +356,11 @@ Notes that matter in practice:
 
   It takes no `status` filter and returns a row per project, including archived
   ones. There is no `reason` and nothing is journaled: it is derived state.
+
+  The response also carries **`inboxCount`** — the number of undated, unfiled
+  todos (the inbox badge). It exists so the steering glance (`dyd projects`,
+  the secretary's session load) never has to pull the whole
+  `GET /api/todos/backlog` body just to count one subset of it.
 - `kind` may be changed on PATCH — promoting an area to a project (and back) is
   a real move, and the journal records it.
 - **`GET /api/projects/:id/todos`** splits the project's work three ways.
@@ -619,10 +627,12 @@ POST /api/apply
   what lets a split stay one intent.
 - **A new project's `notes` doc is not `"$N"`-addressable.** `project.create`
   mints the project, and the default doc it creates alongside (journaled as a
-  second op under the same reason) has an id the batch never sees. Write that
-  first note afterwards, through `GET /api/projects/:id/docs` +
-  `PATCH /api/docs/:id` or `dyd projects note`. `project_doc.create` is for a
-  genuinely additional doc.
+  second op under the same reason) has an id the batch never sees. To seed it
+  in the same intent, use the create's own `notes` field:
+  `{ "op": "project.create", "title": "…", "notes": "why this exists" }`.
+  A `project_doc.create` titled `notes` next to it is a `400` (doc titles are
+  unique within a project), never a silent second doc. `project_doc.create` is
+  for a genuinely additional doc.
 - **Atomicity** — ops run in order inside one transaction; any failure
   (validation, unknown id) rolls back the entire batch, reason row included,
   and returns that op's `400`/`404`. `results` mirrors `ops` by index:
@@ -663,7 +673,7 @@ deciding that todo's time gets recorded.
 
 | Code | Meaning |
 |---|---|
-| `400` | Bad input — malformed date, empty title, non-JSON body, an unknown key in a write body (every write surface is strict, and they share one allowlist), empty or non-string `reason` (`null` counts as absent), activating a completed todo, a plan time that is not strict "HH:MM", an entry whose end does not come after its start within the 05:00 day, folding a future or empty day, blank remarks, a batch with a missing reason / empty `ops` / more than 100 ops / an unknown op kind / a bad `"$N"` reference |
+| `400` | Bad input — malformed date, empty title, non-JSON body, an unknown key in a write body (every write surface is strict, and they share one allowlist), empty or non-string `reason` (`null` counts as absent), activating a completed todo, a plan time that is not strict "HH:MM", an entry whose end does not come after its start within the 05:00 day, folding a future or empty day, blank remarks, a doc created or renamed into a title its project already uses, a batch with a missing reason / empty `ops` / more than 100 ops / an unknown op kind / a bad `"$N"` reference |
 | `401` | Missing or invalid bearer token |
 | `404` | Unknown todo, plan-entry, project or project-doc id, or unknown route |
 | `405` | Route exists, wrong method |

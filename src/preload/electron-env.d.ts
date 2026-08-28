@@ -536,6 +536,8 @@ interface ProjectCreateInput {
   outcome?: string | null;
   status?: ProjectStatus;
   targetDate?: string | null;
+  // Seed body for the default `notes` doc the create mints alongside.
+  notes?: string;
 }
 
 interface ProjectPatch {
@@ -576,16 +578,11 @@ interface ProjectStatsItem {
   // The head of the backlog: the one thing that would move this project next,
   // or null when there is nothing pullable.
   nextAction: { id: string; title: string } | null;
-  // Derived from lastActivityDay against the app's day: an active project that
-  // has not moved in STALE_AFTER_DAYS. Areas never go stale, and neither do
-  // someday/done/archived projects, which are quiet on purpose.
-  //
-  // It exists for the agent API's readers (`dyd projects`, the secretary's
-  // session load), which have no day of their own — over HTTP, today is the
-  // server's call. Renderer surfaces deliberately ignore it and call isStale
-  // themselves against useToday(), because a dashboard window stays open across
-  // the 05:00 boundary and this flag would not roll over without a refetch.
-  isStale: boolean;
+  // Deliberately no stale verdict here. It turns on "today", and a dashboard
+  // window stays open across the 05:00 boundary, so renderer surfaces compute
+  // it themselves against useToday() (@shared/project-stale). The agent API's
+  // readers, which have no day of their own, get a server-stamped `isStale` on
+  // GET /api/projects/stats instead.
 }
 
 // A project's freeform prose — goals, decisions, current state. Every project

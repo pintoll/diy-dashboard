@@ -184,8 +184,11 @@ list.
 
 #### `dyd projects` · `dyd projects list [--status <s>] [--stale]`
 
-One screen from four concurrent reads (`/api/projects`,
-`/api/projects/stats`, `/api/todos/backlog`, `/api/today`).
+One screen from three concurrent reads (`/api/projects`,
+`/api/projects/stats`, `/api/today`); the inbox badge is `inboxCount` on the
+stats response, so the glance never pulls the whole backlog to count one
+subset. `--json` keeps the four-read shape, backlog body included, for callers
+that parse it.
 
 ```
 ── projects 2026-08-28 ─────────────

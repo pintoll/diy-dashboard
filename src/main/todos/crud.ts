@@ -178,6 +178,21 @@ export function listInbox(): Todo[] {
   return rows.map(rowToTodo);
 }
 
+/**
+ * listInbox's count alone, for glances that only badge it. The steering glance
+ * (`dyd projects`, the secretary's session load) reads this off
+ * GET /api/projects/stats instead of pulling the whole backlog to count one
+ * subset — the warehouse grows without bound, the badge does not.
+ */
+export function countInbox(): number {
+  const { n } = getTodosDb()
+    .prepare(
+      "SELECT COUNT(*) AS n FROM todos WHERE date IS NULL AND project_id IS NULL"
+    )
+    .get() as { n: number };
+  return n;
+}
+
 /** Open todos planned before `before` (exclusive) — the Overdue section. */
 export function listOverdue(before: string): Todo[] {
   assertDate(before, "before");

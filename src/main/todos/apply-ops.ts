@@ -1,6 +1,7 @@
 import { ValidationError } from "./types";
 import {
   asObject,
+  assertNonEmptyPatch,
   assertOnlyKeys,
   PLAN_CREATE_KEYS,
   PLAN_PATCH_KEYS,
@@ -142,6 +143,35 @@ function parseRef(
   return { kind: "created", index: target };
 }
 
+// The update shape three kinds share — an id ref plus a non-empty patch.
+// todo.update stays bespoke in parseOp: it lifts a "$N" projectId out of its
+// patch, which no other update does.
+function parsePatch(
+  obj: Record<string, unknown>,
+  entity: "plan" | "project" | "project_doc",
+  keys: readonly string[],
+  what: string,
+  index: number,
+  prior: ParsedOp[]
+): { ref: OpRef; patch: Record<string, unknown> } {
+  assertOnlyKeys(obj, ["op", "id", ...keys], what);
+  const patch = pick(obj, keys);
+  assertNonEmptyPatch(patch, `${entity}.update`, keys, what);
+  return { ref: parseRef(obj.id, "id", index, prior, entity), patch };
+}
+
+// The delete shape all four kinds share — an id and nothing else.
+function parseDelete(
+  obj: Record<string, unknown>,
+  entity: "todo" | "plan" | "project" | "project_doc",
+  what: string,
+  index: number,
+  prior: ParsedOp[]
+): { ref: OpRef } {
+  assertOnlyKeys(obj, ["op", "id"], what);
+  return { ref: parseRef(obj.id, "id", index, prior, entity) };
+}
+
 function parseOp(raw: unknown, index: number, prior: ParsedOp[]): ParsedOp {
   const what = `ops[${index}]`;
   const obj = asObject(raw, what);
@@ -161,11 +191,7 @@ function parseOp(raw: unknown, index: number, prior: ParsedOp[]): ParsedOp {
       // Emptiness is judged on the patch as sent, before a "$N" projectId is
       // lifted out of it: the executor puts the resolved id back, so a patch
       // that is only a project ref is a real one.
-      if (Object.keys(patch).length === 0) {
-        throw new ValidationError(
-          `${what}: todo.update needs at least one of ${TODO_PATCH_KEYS.join(", ")}`
-        );
-      }
+      assertNonEmptyPatch(patch, "todo.update", TODO_PATCH_KEYS, what);
       return {
         kind: "todo.update",
         ref: parseRef(obj.id, "id", index, prior, "todo"),
@@ -174,8 +200,7 @@ function parseOp(raw: unknown, index: number, prior: ParsedOp[]): ParsedOp {
       };
     }
     case "todo.delete":
-      assertOnlyKeys(obj, ["op", "id"], what);
-      return { kind: "todo.delete", ref: parseRef(obj.id, "id", index, prior, "todo") };
+      return { kind: "todo.delete", ...parseDelete(obj, "todo", what, index, prior) };
     case "plan.create":
       assertOnlyKeys(obj, ["op", ...PLAN_CREATE_KEYS], what);
       return {
@@ -183,45 +208,25 @@ function parseOp(raw: unknown, index: number, prior: ParsedOp[]): ParsedOp {
         todoRef: parseRef(obj.todoId, "todoId", index, prior, "todo"),
         input: pick(obj, PLAN_CREATE_INPUT_KEYS),
       };
-    case "plan.update": {
-      assertOnlyKeys(obj, ["op", "id", ...PLAN_PATCH_KEYS], what);
-      const patch = pick(obj, PLAN_PATCH_KEYS);
-      if (Object.keys(patch).length === 0) {
-        throw new ValidationError(
-          `${what}: plan.update needs at least one of ${PLAN_PATCH_KEYS.join(", ")}`
-        );
-      }
+    case "plan.update":
       return {
         kind: "plan.update",
-        ref: parseRef(obj.id, "id", index, prior, "plan"),
-        patch,
+        ...parsePatch(obj, "plan", PLAN_PATCH_KEYS, what, index, prior),
       };
-    }
     case "plan.delete":
-      assertOnlyKeys(obj, ["op", "id"], what);
-      return { kind: "plan.delete", ref: parseRef(obj.id, "id", index, prior, "plan") };
+      return { kind: "plan.delete", ...parseDelete(obj, "plan", what, index, prior) };
     case "project.create":
       assertOnlyKeys(obj, ["op", ...PROJECT_CREATE_KEYS], what);
       return { kind: "project.create", input: pick(obj, PROJECT_CREATE_KEYS) };
-    case "project.update": {
-      assertOnlyKeys(obj, ["op", "id", ...PROJECT_PATCH_KEYS], what);
-      const patch = pick(obj, PROJECT_PATCH_KEYS);
-      if (Object.keys(patch).length === 0) {
-        throw new ValidationError(
-          `${what}: project.update needs at least one of ${PROJECT_PATCH_KEYS.join(", ")}`
-        );
-      }
+    case "project.update":
       return {
         kind: "project.update",
-        ref: parseRef(obj.id, "id", index, prior, "project"),
-        patch,
+        ...parsePatch(obj, "project", PROJECT_PATCH_KEYS, what, index, prior),
       };
-    }
     case "project.delete":
-      assertOnlyKeys(obj, ["op", "id"], what);
       return {
         kind: "project.delete",
-        ref: parseRef(obj.id, "id", index, prior, "project"),
+        ...parseDelete(obj, "project", what, index, prior),
       };
     // The project id travels as a ref, like plan.create's todoId. Unlike
     // PLAN_CREATE_KEYS it is not part of the create body to filter back out:
@@ -234,27 +239,17 @@ function parseOp(raw: unknown, index: number, prior: ParsedOp[]): ParsedOp {
         projectRef: parseRef(obj.projectId, "projectId", index, prior, "project"),
         input: pick(obj, PROJECT_DOC_CREATE_KEYS),
       };
-    case "project_doc.update": {
-      assertOnlyKeys(obj, ["op", "id", ...PROJECT_DOC_PATCH_KEYS], what);
-      const patch = pick(obj, PROJECT_DOC_PATCH_KEYS);
-      if (Object.keys(patch).length === 0) {
-        throw new ValidationError(
-          `${what}: project_doc.update needs at least one of ${PROJECT_DOC_PATCH_KEYS.join(", ")}`
-        );
-      }
+    case "project_doc.update":
       // body/append exclusivity is resolveDocBodyPatch's call, inside the
       // batch transaction — duplicating it here would fork the rule.
       return {
         kind: "project_doc.update",
-        ref: parseRef(obj.id, "id", index, prior, "project_doc"),
-        patch,
+        ...parsePatch(obj, "project_doc", PROJECT_DOC_PATCH_KEYS, what, index, prior),
       };
-    }
     case "project_doc.delete":
-      assertOnlyKeys(obj, ["op", "id"], what);
       return {
         kind: "project_doc.delete",
-        ref: parseRef(obj.id, "id", index, prior, "project_doc"),
+        ...parseDelete(obj, "project_doc", what, index, prior),
       };
     default:
       throw new ValidationError(

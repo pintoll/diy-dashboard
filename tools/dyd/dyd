@@ -152,6 +152,17 @@ except Exception: print("")' 2>/dev/null)
   esac
 }
 
+# Validates every api_get_all response, in argument order: each one is loaded
+# into HTTP_STATUS/BODY and run through api_ok_or_die, so a failure dies with
+# that response's own error message. A view that tolerates one endpoint
+# failing (the overview's pomodoro read) keeps its hand-rolled loop instead.
+par_ok_or_die() {
+  local i
+  for (( i = 0; i < ${#PAR_STATUS[@]}; i++ )); do
+    HTTP_STATUS="${PAR_STATUS[$i]}"; BODY="${PAR_BODY[$i]}"; api_ok_or_die
+  done
+}
+
 jget() { # jget JSON 'python-expr on d'
   printf '%s' "$1" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(eval(sys.argv[1]))' "$2"
 }
@@ -588,11 +599,11 @@ elif mode == "desk_set":
 
 elif mode == "projects":
     projects = numbered((load(sys.argv[2]) or {}).get("projects", []))
-    stats = {s["projectId"]: s for s in (load(sys.argv[3]) or {}).get("stats", [])}
-    backlog = (load(sys.argv[4]) or {}).get("todos", [])
-    today = sys.argv[5]
-    want = sys.argv[6]          # a status, "all", or "" for the default glance
-    stale_only = sys.argv[7] == "1"
+    stats_body = load(sys.argv[3]) or {}
+    stats = {s["projectId"]: s for s in stats_body.get("stats", [])}
+    today = sys.argv[4]
+    want = sys.argv[5]          # a status, "all", or "" for the default glance
+    stale_only = sys.argv[6] == "1"
 
     if stale_only:
         rows = [p for p in projects if stats.get(p["id"], {}).get("isStale")]
@@ -636,7 +647,9 @@ elif mode == "projects":
             rest = [f"{st}: {n}" for st, n in rest if n]
             if rest:
                 print("── " + "   ".join(rest) + "   (dyd projects list --status all)")
-        inbox = sum(1 for t in backlog if t["projectId"] is None)
+        # Counted by the stats route, so the glance never pays for the whole
+        # backlog body just to badge its unfiled subset.
+        inbox = stats_body.get("inboxCount", 0)
         if inbox:
             print(f"── inbox: {inbox} (dyd todo backlog)")
         stale = sum(1 for p in projects if stats.get(p["id"], {}).get("isStale"))
@@ -888,8 +901,11 @@ if p is None:
     # A bad p<n> is a client-side error; an unknown id goes to the API.
     print("" if pos else arg); print(""); print(""); print("null")
 else:
-    # json.dumps escapes any newline, so the row stays one readable line.
-    print(p["id"]); print(f"p{n}"); print(p["title"]); print(json.dumps(p))' "$arg" "$pos"
+    # The shell reads these as exactly four lines, so none may span two:
+    # json.dumps escapes the row, and the title -- which may carry interior
+    # newlines (normalizeName only edge-trims) -- is flattened for display.
+    # The exact title still reaches every formatter inside the row.
+    print(p["id"]); print(f"p{n}"); print(" ".join(p["title"].splitlines())); print(json.dumps(p))' "$arg" "$pos"
   )
   if [ -z "$RESOLVED_PID" ]; then
     echo "${PROG}: no project at position $arg" >&2
@@ -999,10 +1015,7 @@ cmd_todo() {
     fi
     # /api/today rides along for the header date (the app's 05:00-bounded day).
     api_get_all /api/todos /api/desk /api/today
-    local i
-    for i in 0 1 2; do
-      HTTP_STATUS="${PAR_STATUS[$i]}"; BODY="${PAR_BODY[$i]}"; api_ok_or_die
-    done
+    par_ok_or_die
     fmt todo "${PAR_BODY[0]}" "${PAR_BODY[1]}" "$(jget "${PAR_BODY[2]}" 'd["date"]')"
     return
   fi
@@ -1020,10 +1033,7 @@ cmd_todo() {
       # The projects read only supplies the group headers; the API already
       # returns the rows grouped, so the numbering does not depend on it.
       api_get_all /api/todos/backlog /api/projects
-      local i
-      for i in 0 1; do
-        HTTP_STATUS="${PAR_STATUS[$i]}"; BODY="${PAR_BODY[$i]}"; api_ok_or_die
-      done
+      par_ok_or_die
       fmt backlog "${PAR_BODY[0]}" "${PAR_BODY[1]}" ;;
     add)
       [ $# -ge 1 ] || die_usage
@@ -1155,15 +1165,11 @@ cmd_projects() {
           *) die_usage ;;
         esac
       done
-      # One screen, one round trip: the list names them, stats carries every
-      # number, the backlog yields the inbox count, and /api/today is the day
-      # the ages are measured against (never this machine's).
-      api_get_all /api/projects /api/projects/stats /api/todos/backlog /api/today
-      local i
-      for i in 0 1 2 3; do
-        HTTP_STATUS="${PAR_STATUS[$i]}"; BODY="${PAR_BODY[$i]}"; api_ok_or_die
-      done
+      # --json keeps the four-read contract, backlog body included, for
+      # callers that parse it.
       if [ "$JSON_OUT" = 1 ]; then
+        api_get_all /api/projects /api/projects/stats /api/todos/backlog /api/today
+        par_ok_or_die
         python3 -c '
 import json, sys
 def load(s):
@@ -1176,8 +1182,14 @@ print(json.dumps({
 }))' "${PAR_BODY[0]}" "${PAR_BODY[1]}" "${PAR_BODY[2]}" "${PAR_BODY[3]}"
         return
       fi
-      fmt projects "${PAR_BODY[0]}" "${PAR_BODY[1]}" "${PAR_BODY[2]}" \
-        "$(jget "${PAR_BODY[3]}" 'd["date"]')" "$want" "$stale_only" ;;
+      # One screen, one round trip: the list names them, stats carries every
+      # number AND the inbox badge (inboxCount), and /api/today is the day the
+      # ages are measured against (never this machine's). No backlog fetch:
+      # this is the layer's hottest read and the warehouse grows without bound.
+      api_get_all /api/projects /api/projects/stats /api/today
+      par_ok_or_die
+      fmt projects "${PAR_BODY[0]}" "${PAR_BODY[1]}" \
+        "$(jget "${PAR_BODY[2]}" 'd["date"]')" "$want" "$stale_only" ;;
     show)
       [ $# -ge 1 ] && [ $# -le 3 ] || die_usage
       local target="$1"; shift
@@ -1192,10 +1204,7 @@ print(json.dumps({
       local prow="{\"project\":$RESOLVED_PROW}"
       api_get_all "/api/projects/$(urlenc "$RESOLVED_PID")/todos" \
         "/api/projects/$(urlenc "$RESOLVED_PID")/docs" /api/projects/stats /api/today
-      local i
-      for i in 0 1 2 3; do
-        HTTP_STATUS="${PAR_STATUS[$i]}"; BODY="${PAR_BODY[$i]}"; api_ok_or_die
-      done
+      par_ok_or_die
       if [ "$JSON_OUT" = 1 ]; then
         python3 -c '
 import json, sys

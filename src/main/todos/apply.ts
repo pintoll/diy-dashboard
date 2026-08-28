@@ -107,6 +107,18 @@ function withProject(
 // a silent null.
 type OpOutcome = { result: ApplyOpResult; createdId?: string };
 
+// The one delete outcome shape, shared by all four entities.
+function runDelete(
+  ref: OpRef,
+  created: (string | null)[],
+  ctx: WriteContext,
+  remove: (id: string, ctx: WriteContext) => void
+): OpOutcome {
+  const id = resolveRef(ref, created);
+  remove(id, ctx);
+  return { result: { deleted: id } };
+}
+
 function runOp(op: ParsedOp, created: (string | null)[], ctx: WriteContext): OpOutcome {
   switch (op.kind) {
     case "todo.create": {
@@ -126,11 +138,8 @@ function runOp(op: ParsedOp, created: (string | null)[], ctx: WriteContext): OpO
           ),
         },
       };
-    case "todo.delete": {
-      const id = resolveRef(op.ref, created);
-      deleteTodo(id, ctx);
-      return { result: { deleted: id } };
-    }
+    case "todo.delete":
+      return runDelete(op.ref, created, ctx, deleteTodo);
     case "plan.create": {
       const entry = createPlanEntry(
         { ...op.input, todoId: resolveRef(op.todoRef, created) } as PlanEntryCreateInput,
@@ -148,15 +157,13 @@ function runOp(op: ParsedOp, created: (string | null)[], ctx: WriteContext): OpO
           ),
         },
       };
-    case "plan.delete": {
-      const id = resolveRef(op.ref, created);
-      deletePlanEntry(id, ctx);
-      return { result: { deleted: id } };
-    }
+    case "plan.delete":
+      return runDelete(op.ref, created, ctx, deletePlanEntry);
     case "project.create": {
       // Journals two ops, not one: createProject mints the default `notes` doc
       // in the same transaction and context. Only the project id is minted for
-      // "$N" — that doc is reached through its project afterwards.
+      // "$N" — the doc's id is unreachable by ref, which is why its seed body
+      // travels inside the create input (`notes`).
       const project = createProject(op.input as ProjectCreateInput, ctx);
       return { result: { project }, createdId: project.id };
     }
@@ -170,11 +177,8 @@ function runOp(op: ParsedOp, created: (string | null)[], ctx: WriteContext): OpO
           ),
         },
       };
-    case "project.delete": {
-      const id = resolveRef(op.ref, created);
-      deleteProject(id, ctx);
-      return { result: { deleted: id } };
-    }
+    case "project.delete":
+      return runDelete(op.ref, created, ctx, deleteProject);
     case "project_doc.create": {
       const doc = createProjectDoc(
         resolveRef(op.projectRef, created),
@@ -193,10 +197,7 @@ function runOp(op: ParsedOp, created: (string | null)[], ctx: WriteContext): OpO
           ),
         },
       };
-    case "project_doc.delete": {
-      const id = resolveRef(op.ref, created);
-      deleteProjectDoc(id, ctx);
-      return { result: { deleted: id } };
-    }
+    case "project_doc.delete":
+      return runDelete(op.ref, created, ctx, deleteProjectDoc);
   }
 }

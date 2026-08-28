@@ -108,6 +108,16 @@ describe("op shapes", () => {
     });
   });
 
+  // `notes` seeds the default doc the create mints alongside — the one write a
+  // "$N" ref can never address, so it rides the create input.
+  it("keeps a project create's notes seed in its input", () => {
+    const [op] = parseOps({ op: "project.create", title: "P", notes: "seeded" });
+    expect(op).toEqual({
+      kind: "project.create",
+      input: { title: "P", notes: "seeded" },
+    });
+  });
+
   // body/append exclusivity belongs to resolveDocBodyPatch inside the batch
   // transaction; the parser must let the pair through rather than fork the rule.
   it("passes a doc patch carrying both body and append to the executor", () => {

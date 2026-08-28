@@ -2,7 +2,7 @@ import { dayOf } from "@shared/day";
 import { isStale, type StaleSubject } from "@shared/project-stale";
 import { sqliteUtcToMs } from "@shared/sqlite-time";
 import { getTodosDb } from "./db";
-import type { ProjectStats } from "./types";
+import type { ProjectStats, ProjectStatsWithStale } from "./types";
 
 // The steering numbers behind the projects page and the projects widget
 // (docs/design/projects-para.md): progress for the detail pane, a last-activity
@@ -14,9 +14,14 @@ import type { ProjectStats } from "./types";
 // round trip each. One project scan plus four grouped ones, merged here;
 // `idx_todos_project` covers the rollups and `idx_todos_open` the next-action
 // pick. `nextAction` is the odd one out: not an aggregate but a pick — the row
-// that would come first out of the backlog. `isStale` is the other: derived
-// from lastActivityDay against the app's day, resolved here because the CLI and
-// the secretary read this over HTTP, where today is the server's call.
+// that would come first out of the backlog.
+//
+// The stale verdict is deliberately NOT part of this rollup: it turns on
+// "today", and this module serves two transports whose today differs. The HTTP
+// route stamps it via listProjectStatsWithStale below (over the wire, today is
+// the server's call); the same rollup crosses IPC bare, and the renderer judges
+// staleness against its own useToday(), because a dashboard window stays open
+// across the 05:00 boundary and a stamped flag would freeze there.
 //
 // "Activity" means the project moved: time banked against one of its todos, a
 // todo finished, or a note written. `projects.updated_at` is deliberately not a
@@ -47,14 +52,10 @@ function laterDay(a: string | null, b: string | null): string | null {
 export function listProjectStats(): ProjectStats[] {
   const db = getTodosDb();
 
-  // Read first so every project gets a row even with nothing filed under it,
-  // and so the stale verdict has the status and kind it turns on. An id that
-  // appears only in a rollup is an orphan the service layer should have
-  // detached; it still gets stats, but never a stale verdict invented for a
-  // project that is not there.
-  const subjects = db
-    .prepare("SELECT id AS projectId, status, kind FROM projects")
-    .all() as Subject[];
+  // Read first so every project gets a row even with nothing filed under it.
+  const subjects = db.prepare("SELECT id AS projectId FROM projects").all() as {
+    projectId: string;
+  }[];
 
   const rollups = db
     .prepare(
@@ -127,7 +128,6 @@ export function listProjectStats(): ProjectStats[] {
         workedSec: 0,
         lastActivityDay: null,
         nextAction: null,
-        isStale: false,
       };
       byId.set(projectId, stats);
     }
@@ -160,12 +160,35 @@ export function listProjectStats(): ProjectStats[] {
     stats.lastActivityDay = laterDay(stats.lastActivityDay, dayOf(ms));
   }
 
-  // Last, because it reads lastActivityDay after every source has folded in.
-  const today = dayOf(Date.now());
-  for (const subject of subjects) {
-    const stats = ensure(subject.projectId);
-    stats.isStale = isStale(subject, stats.lastActivityDay, today);
-  }
+  for (const subject of subjects) ensure(subject.projectId);
 
   return [...byId.values()];
+}
+
+/**
+ * The rollup as the agent API serves it: every row plus the stale verdict
+ * judged against `today` — the app's current day, which over HTTP is the
+ * server's call (projects-routes.ts passes `today()` from @shared/day). Kept
+ * out of listProjectStats so the IPC payload can never carry a verdict the
+ * renderer would be tempted to read across the 05:00 boundary.
+ */
+export function listProjectStatsWithStale(today: string): ProjectStatsWithStale[] {
+  // An id that appears only in a rollup is an orphan the service layer should
+  // have detached; it still gets stats, but never a stale verdict invented for
+  // a project that is not there.
+  const subjects = new Map(
+    (
+      getTodosDb()
+        .prepare("SELECT id AS projectId, status, kind FROM projects")
+        .all() as Subject[]
+    ).map((subject) => [subject.projectId, subject])
+  );
+  return listProjectStats().map((stats) => {
+    const subject = subjects.get(stats.projectId);
+    return {
+      ...stats,
+      isStale:
+        subject !== undefined && isStale(subject, stats.lastActivityDay, today),
+    };
+  });
 }

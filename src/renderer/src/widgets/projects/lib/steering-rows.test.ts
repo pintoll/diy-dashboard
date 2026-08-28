@@ -27,7 +27,6 @@ const stats = (over: Partial<ProjectStats> = {}): ProjectStats => ({
   workedSec: 0,
   lastActivityDay: null,
   nextAction: null,
-  isStale: false,
   ...over,
 });
 

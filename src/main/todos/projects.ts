@@ -90,8 +90,9 @@ export function createProject(input: ProjectCreateInput, ctx: WriteContext): Pro
     });
     // The default doc is part of this intent — same context, so same reason and
     // same `at` stamp — and is journaled after the project it belongs to, so a
-    // rewind's reverse replay removes the doc before the project.
-    createDefaultNotesDoc(db, id, ctx);
+    // rewind's reverse replay removes the doc before the project. `notes` seeds
+    // its body; insertProjectDoc validates it inside this transaction.
+    createDefaultNotesDoc(db, id, ctx, input.notes);
     return created;
   })();
 

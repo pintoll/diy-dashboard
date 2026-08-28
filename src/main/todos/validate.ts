@@ -43,6 +43,21 @@ export function assertOnlyKeys(
   }
 }
 
+// An update op carrying no patch field is a caller mistake, not a no-op: a 200
+// for a patch that applied nothing teaches the caller a wrong shape works.
+// Shared by the batch parser's four update kinds (apply-ops.ts) so the rule
+// and its message cannot drift per entity.
+export function assertNonEmptyPatch(
+  patch: Record<string, unknown>,
+  kind: string,
+  keys: readonly string[],
+  what: string
+): void {
+  if (Object.keys(patch).length === 0) {
+    throw new ValidationError(`${what}: ${kind} needs at least one of ${keys.join(", ")}`);
+  }
+}
+
 // The allowlists, pinned to the DTOs they parse into: `satisfies Record<keyof
 // T, true>` turns a field added to or renamed in types.ts into a compile error
 // here, instead of a key one surface accepts and the other rejects. Transport
@@ -70,6 +85,7 @@ export const PROJECT_CREATE_KEYS = Object.keys({
   outcome: true,
   status: true,
   targetDate: true,
+  notes: true,
 } satisfies Record<keyof ProjectCreateInput, true>);
 
 export const PROJECT_PATCH_KEYS = Object.keys({

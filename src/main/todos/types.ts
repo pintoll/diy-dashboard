@@ -257,6 +257,10 @@ export type ProjectCreateInput = {
   outcome?: string | null;
   status?: ProjectStatus;
   targetDate?: string | null;
+  // Seed body for the default `notes` doc. This is the only way to write that
+  // doc in the same intent that creates the project: its id is minted inside
+  // the create, so no "$N" ref and no second op can reach it.
+  notes?: string;
 };
 
 export type ProjectPatch = {
@@ -303,12 +307,15 @@ export type ProjectStats = {
   // Null when there is nothing pullable, which is the same emptiness
   // `openBacklog: 0` reports.
   nextAction: { id: string; title: string } | null;
-  // Derived from lastActivityDay against the app's day (@shared/project-stale).
-  // Computed here rather than by each reader because the CLI and the
-  // secretary's session load reach this through HTTP, where today is the
-  // server's call and a bash client has no business deciding it.
-  isStale: boolean;
 };
+
+// The HTTP shape of a stats row: the rollup plus the stale verdict, judged
+// against the server's day — the CLI and the secretary's session load have no
+// day of their own (@shared/project-stale). Deliberately NOT part of
+// ProjectStats: the same rollup crosses IPC, and a renderer window stays open
+// across the 05:00 boundary, so it must judge staleness against its own
+// useToday() rather than read a verdict frozen at fetch time.
+export type ProjectStatsWithStale = ProjectStats & { isStale: boolean };
 
 export type ProjectDocRow = {
   id: string;

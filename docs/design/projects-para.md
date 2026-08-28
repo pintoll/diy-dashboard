@@ -293,5 +293,14 @@ neither works, that's not a tooling problem.
    - Along the way: `dyd day` now prints the fold snapshot's `projects moved`
      rollup, which had been shipping unread since phase 3, and the repo's two
      `~/workspace/secretary` references were corrected to `~/secretary`.
+   - Post-review follow-ups: **doc titles are unique per project** (they double
+     as addresses, so a duplicate would swallow writes silently), and
+     **`project.create` takes a `notes` seed body** — the default doc's id is
+     minted inside the create, so no `"$N"` ref can reach it and "open the
+     project with its first note" needed a first-class path. The stale verdict
+     moved out of `listProjectStats` into the HTTP route alone (`ProjectStats`
+     stays transport-neutral; the IPC payload can no longer carry a day frozen
+     at fetch time), and the stats route grew `inboxCount` so the CLI glance
+     stopped fetching the whole backlog for one badge.
 5. **Focus analytics per-project view** — not started. Split out of phase 4;
    see the note above for why it is a separate problem.

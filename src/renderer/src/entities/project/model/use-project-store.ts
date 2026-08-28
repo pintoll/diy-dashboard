@@ -31,9 +31,6 @@ const EMPTY_STATS: ProjectStats = Object.freeze({
   workedSec: 0,
   lastActivityDay: null,
   nextAction: null,
-  // A project the rollup never mentioned has nothing filed under it at all, so
-  // there is no activity to judge. The real verdict comes from the rollup.
-  isStale: false,
 });
 
 /** A project's rollup, or zeros when it has no todos and no notes yet. */

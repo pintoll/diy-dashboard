@@ -11,6 +11,7 @@ import {
 import { assertProjectExists } from "./project-row";
 import {
   NotFoundError,
+  ValidationError,
   rowToProjectDoc,
   type ProjectDoc,
   type ProjectDocCreateInput,
@@ -29,6 +30,28 @@ import {
 // `project_id` has no FK, like plan_entries.todo_id: deleting a project sweeps
 // its docs through removeDocsForProject below so each removal is journaled,
 // where a cascade would erase them silently.
+
+// Titles are addresses: `dyd projects note/notes --doc <title>` and the show
+// view resolve a doc by title within its project, first match wins. A duplicate
+// would make every later write land in whichever copy sorts first while the
+// other rots invisibly, so uniqueness is enforced here at the only write path
+// (a UNIQUE index could not say why in a legible 400, and a migration would
+// have to invent names for duplicates that already exist).
+function assertTitleFree(
+  db: Database.Database,
+  projectId: string,
+  title: string,
+  exceptId: string | null = null
+): void {
+  const clash = db
+    .prepare(
+      "SELECT id FROM project_docs WHERE project_id = ? AND title = ? AND id IS NOT ?"
+    )
+    .get(projectId, title, exceptId);
+  if (clash !== undefined) {
+    throw new ValidationError(`a doc titled "${title}" already exists on this project`);
+  }
+}
 
 function getDocRow(db: Database.Database, id: string): ProjectDocRow {
   const row = db
@@ -64,6 +87,7 @@ export function insertProjectDoc(
   ctx: WriteContext
 ): ProjectDocRow {
   const title = normalizeDocTitle(input.title);
+  assertTitleFree(db, projectId, title);
   const body = normalizeDocBody(input.body);
   const id = nanoid();
   const { next } = db
@@ -90,13 +114,19 @@ export function insertProjectDoc(
   return created;
 }
 
-/** The `notes` doc every project starts with: one place for prose, no ceremony. */
+/**
+ * The `notes` doc every project starts with: one place for prose, no ceremony.
+ * `body` is ProjectCreateInput.notes — the seed a batch sends through
+ * project.create, because this doc's id is minted here and a "$N" ref can
+ * never reach it.
+ */
 export function createDefaultNotesDoc(
   db: Database.Database,
   projectId: string,
-  ctx: WriteContext
+  ctx: WriteContext,
+  body?: string
 ): ProjectDocRow {
-  return insertProjectDoc(db, projectId, { title: "notes" }, ctx);
+  return insertProjectDoc(db, projectId, { title: "notes", body }, ctx);
 }
 
 export function createProjectDoc(
@@ -124,6 +154,7 @@ export function updateProjectDoc(
   const updated = db.transaction((): ProjectDocRow => {
     const row = getDocRow(db, id);
     const title = patch.title !== undefined ? normalizeDocTitle(patch.title) : row.title;
+    if (title !== row.title) assertTitleFree(db, row.project_id, title, id);
     const body = resolveDocBodyPatch(patch, row.body) ?? row.body;
 
     // Only a body write moves updated_at, because project-stats.ts reads
