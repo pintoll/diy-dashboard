@@ -15,6 +15,7 @@ import {
   CardTitle,
 } from "@/src/shared/ui/card";
 import type { HourBucket } from "@/src/entities/pomodoro-session";
+import { EmptyState } from "./EmptyState";
 
 type Props = {
   data: HourBucket[];
@@ -49,9 +50,7 @@ export function TimeOfDayChart({ data }: Props) {
       </CardHeader>
       <CardContent>
         {total === 0 ? (
-          <div className="rounded-md border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-            No sessions logged yet.
-          </div>
+          <EmptyState>No sessions logged yet.</EmptyState>
         ) : (
           <div className="flex flex-col gap-3">
             <div className="h-56 w-full">

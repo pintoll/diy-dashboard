@@ -2,7 +2,8 @@
 
 A personal desktop dashboard built with Electron. It composes independent
 widgets on a draggable, resizable grid: a Pomodoro timer with focus tracking,
-market indicators, an AI-curated news feed, a personal ledger, and daily todos.
+market indicators, an AI-curated news feed, a personal ledger, daily todos, and
+a project layer over them.
 State is local (localStorage + SQLite under the app's user-data directory); the
 only network calls are to the external data APIs you configure.
 
@@ -24,8 +25,14 @@ only network calls are to the external data APIs you configure.
   release calendar.
 - **Money Flow** (`/finance`): a double-entry-ish personal ledger with accounts,
   transactions, monthly summaries, and USD/KRW handling.
-- **Todo Today** (`/todos`): date-scoped todos, also reachable by a local agent
-  over HTTP (see `docs/spec/todos-agent-api.md`).
+- **Todo Today** (`/todos`): date-scoped todos plus an undated inbox, also
+  reachable by a local agent over HTTP (see `docs/spec/todos-agent-api.md`).
+- **Projects** (`/projects`): PARA-style projects and areas over the todos —
+  per-project backlog, notes and progress, and a widget for what is moving and
+  what has gone stale.
+- **Day Sheet**: today's plan as one editable sheet; changes are journaled and
+  read back as a natural-language day log.
+- **Memo Pad**: a scratch memo widget with undo history and snapshots.
 
 ## Tech Stack
 
@@ -50,17 +57,15 @@ If the native build for `better-sqlite3`/`electron` does not run on install, run
 
 ## Configuration (API keys)
 
-All API keys are entered at runtime in the app's **Settings** dialog and stored
+All secrets are entered at runtime in the app's **Settings** dialog and stored
 under the app's user-data directory, encrypted with Electron `safeStorage`
 where the OS supports it. Nothing is read from `.env` and no key is ever baked
 into a build.
 
-- **FRED API key** — required for the Macro Indicators and Economic Calendar
-  widgets. Free key: https://fredaccount.stlouisfed.org/apikey
 - **Gemini API key** — powers the Daily News pipeline.
-
-Without a FRED key the market widgets show a setup hint; enter the key in
-Settings and hit the widget's refresh button.
+- **Data-source credentials** — a credential is a named secret pinned to one
+  host; each data source in Settings names the credential it needs. FRED backs
+  the default macro sources: https://fredaccount.stlouisfed.org/apikey
 
 ## Build
 
@@ -69,14 +74,14 @@ pnpm build           # electron-vite build -> out/
 pnpm preview         # preview the production build
 pnpm electron:build  # package with electron-builder -> dist-electron/
 pnpm lint            # ESLint
+pnpm test            # vitest
 ```
-
-No test runner is configured.
 
 ## Releases
 
-Tagging `v*` triggers `.github/workflows/release.yml`, which builds the Windows
-`.exe` and uploads it to GitHub Releases.
+A push to `main` triggers `.github/workflows/release.yml`, which builds the
+Windows `.exe` and uploads it to a **draft** GitHub Release tagged from
+`package.json`'s version. Publish the draft by hand.
 
 ## Platform Support
 

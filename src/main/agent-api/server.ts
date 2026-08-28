@@ -11,6 +11,7 @@ import { dayRoutes } from "./day-routes";
 import { applyRoutes } from "./apply-routes";
 import { pomodoroRoutes } from "./pomodoro-routes";
 import { connectorsRoutes } from "./connectors-routes";
+import { projectsRoutes } from "./projects-routes";
 
 // Local agent API: lets an external local process (a CLI agent, Claude Code,
 // a script) read and mutate app data while the app runs. This HTTP surface is
@@ -118,7 +119,14 @@ export function startAgentApi(): void {
   if (server !== null) return;
   const token = ensureToken();
   const instance = buildServer(
-    [...todosRoutes, ...dayRoutes, ...applyRoutes, ...pomodoroRoutes, ...connectorsRoutes],
+    [
+      ...todosRoutes,
+      ...dayRoutes,
+      ...applyRoutes,
+      ...pomodoroRoutes,
+      ...connectorsRoutes,
+      ...projectsRoutes,
+    ],
     token
   );
   server = instance;

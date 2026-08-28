@@ -6,6 +6,7 @@ import {
   type PlanEntry,
   type Todo,
 } from "./todo.types";
+import { createRefreshGate } from "./todos-changed";
 import { useTodoStore } from "./use-todo-store";
 
 type Status = "idle" | "loading" | "ready" | "error";
@@ -63,56 +64,47 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
         api.byIds([...new Set(entries.map((e) => e.todoId))]),
         api.yesterday(),
       ]);
-      set({
-        entries,
-        todosById: Object.fromEntries(todos.map((t) => [t.id, t])),
-        yesterday,
-        status: "ready",
-        error: null,
-      });
+      // A result landing after the last reader released must not resurrect
+      // "ready" over the release's "idle" - the next acquire's ensureLoaded
+      // would then skip its fresh read (use-project-time-store has the why).
+      set((state) =>
+        state.status === "idle"
+          ? state
+          : {
+              entries,
+              todosById: Object.fromEntries(todos.map((t) => [t.id, t])),
+              yesterday,
+              status: "ready",
+              error: null,
+            }
+      );
     } catch (error) {
       // Entries are kept: the sheet stays rendered (with an inline error note)
       // instead of vanishing behind a transient refresh failure.
-      set({ status: "error", error: todoErrorMessage(error) });
+      set((state) =>
+        state.status === "idle"
+          ? state
+          : { status: "error", error: todoErrorMessage(error) }
+      );
     }
   },
 }));
-
-// The subscriptions below live at module scope for the renderer's lifetime;
-// `status` is their gate. Sheets acquire the store on mount and release on
-// unmount, dropping back to "idle" when the last one goes — otherwise every
-// todos:changed event would keep refreshing a store nothing reads.
-let sheetMounts = 0;
-export function acquirePlanSheet(): () => void {
-  sheetMounts += 1;
-  void usePlanStore.getState().ensureLoaded();
-  return () => {
-    sheetMounts -= 1;
-    if (sheetMounts === 0) usePlanStore.setState({ status: "idle" });
-  };
-}
-
-const REFRESH_DEBOUNCE_MS = 50;
 
 // Reasons that can change what the sheet shows: "plan"/"fold" are its own
 // domain, "update"/"delete" change joined titles and done state, and "work"
 // can surface a new "yesterday" through the resolver's session leg. Todo
 // create/reorder/active cannot touch a rendered line.
-const REFRESH_REASONS = new Set(["plan", "fold", "update", "delete", "work"]);
-
-const bridge = window.electronAPI?.todos;
-if (bridge) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  bridge.onChanged((payload) => {
-    if (!REFRESH_REASONS.has(payload.reason)) return;
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      // With no sheet mounted there is nothing on screen to reconverge.
-      const { status, refresh } = usePlanStore.getState();
-      if (status !== "idle") void refresh();
-    }, REFRESH_DEBOUNCE_MS);
-  });
-}
+//
+// Sheets acquire on mount and release on unmount; createRefreshGate holds the
+// count and the reasoning behind it.
+export const acquirePlanSheet = createRefreshGate(
+  usePlanStore,
+  ["plan", "fold", "update", "delete", "work"],
+  {
+    onAcquire: () => void usePlanStore.getState().ensureLoaded(),
+    onRelease: () => usePlanStore.setState({ status: "idle" }),
+  }
+);
 
 // Day rollover: at the 05:00 boundary the sheet flips to the new (blank) day.
 // Follows use-todo-store's currentDay clock instead of running a second

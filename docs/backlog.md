@@ -10,17 +10,6 @@ High-level direction and headline tasks per widget. Concrete work notes live und
 
 **Headline tasks** → [`wip/pomodoro.md`](wip/pomodoro.md)
 
-- Circular progress ring (visual countdown)
-- Sound alert + auto-start next phase (uninterrupted flow)
-- Session stats + keyboard shortcuts
-- Task label, tray timer display
-
-**Cleanup — remove the localStorage→SQLite migration shim** (added in `86affec`, when the session log moved to `pomodoro.db`). The shim in `use-session-log-store.ts` (`migrateLegacyIfNeeded` / `readLegacySessions` / `normalizeLegacySessions` + the `pomodoro-session-log-migrated` flag, ~40 lines) is a one-shot per install and single-user only.
-
-- Trigger: after the migrating release has actually run on every machine you use (dev and packaged migrate their own localStorage independently) and focus-analytics confirms the history is intact in `pomodoro.db`.
-- Do it in a *later* release, never the migrating one — a machine must pass through the migrating version first.
-- Scope: delete the three legacy functions + the flag/keys. Optionally add a one-shot `localStorage.removeItem("pomodoro-session-log")` + remove the flag to clear the orphaned backup blob, then drop that too a release later. Removing the shim leaves the store working; fresh installs just start empty.
-
 ---
 
 ## Todos
@@ -57,13 +46,29 @@ High-level direction and headline tasks per widget. Concrete work notes live und
 **Direction**: a thought-organizing secretary living inside the app. Behavior
 contract is fixed in [`design/assistant-behavior.md`](design/assistant-behavior.md),
 architecture in [`design/assistant-architecture.md`](design/assistant-architecture.md);
-phases 1-6 (day record, journal, log view, analytics boundary, day-sheet
-widget) are implemented — next up is the assistant shell (phase 7).
+phases 1-8 (day record, journal, log view, analytics boundary, day-sheet
+widget, batch apply route, secretary workspace) are implemented. The brain is
+Claude Code in `~/secretary`, not an in-app shell — the second-window design
+was dropped. Phase 9 (rewind) stays deferred: reverting is compensating ops
+under a `revert: ...` reason.
 
-- PARA layer: AI-managed PARA docs above the day layer, linked to todos via
-  project tags (split todos inherit tags). Only after the day layer ships.
 - Widget access expansion: widen the assistant's reach beyond todos/pomodoro
   widget by widget, keeping widgets isolated from each other.
+
+---
+
+## Projects (PARA)
+
+**Status**: shipped — the steering layer above the day list. Projects and areas
+as first-class rows, per-project docs, the backlog split into inbox and project
+backlogs, the steering widget, the fold's project attribution, `dyd projects`,
+and the focus-analytics per-project view. Design and every as-built deviation
+live in [`design/projects-para.md`](design/projects-para.md). No headline tasks
+queued.
+
+Deliberately not built, and not to be promoted here without a rethink:
+sub-projects, dependencies, deadline pressure from `target_date`,
+project-level timers. Execution happens only in today's list.
 
 ---
 

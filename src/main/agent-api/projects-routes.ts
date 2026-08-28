@@ -1,0 +1,175 @@
+import { today } from "@shared/day";
+import { countInbox } from "../todos/crud";
+import {
+  createProjectDoc,
+  deleteProjectDoc,
+  listProjectDocs,
+  updateProjectDoc,
+} from "../todos/project-docs";
+import {
+  listProjectStatsWithStale,
+  listProjectTime,
+} from "../todos/project-stats";
+import {
+  asProjectStatus,
+  createProject,
+  deleteProject,
+  listProjectTodos,
+  listProjects,
+  updateProject,
+} from "../todos/projects";
+import type {
+  ProjectCreateInput,
+  ProjectDocCreateInput,
+  ProjectDocPatch,
+  ProjectPatch,
+} from "../todos/types";
+import {
+  PROJECT_CREATE_KEYS,
+  PROJECT_DOC_CREATE_KEYS,
+  PROJECT_DOC_PATCH_KEYS,
+  PROJECT_PATCH_KEYS,
+} from "../todos/validate";
+import { agentDeleteContext, readAgentWrite } from "./request";
+import { sendJson, type Route } from "./router";
+
+// The steering surface of the agent API (docs/design/projects-para.md). Same
+// contract as todos-routes.ts: handlers only translate HTTP <-> the domain
+// functions IPC also calls, so validation and journaling cannot fork per
+// surface, and key policy comes from todos/validate.ts.
+//
+// Nothing here executes work. Pulling a project's backlog item onto a day is an
+// ordinary PATCH /api/todos/:id — projects must never become a second
+// execution surface.
+
+export const projectsRoutes: Route[] = [
+  {
+    method: "GET",
+    pattern: "/api/projects",
+    handler: (_req, res, _params, query) => {
+      const status = query.get("status");
+      const projects =
+        status === null ? listProjects() : listProjects({ status: asProjectStatus(status) });
+      sendJson(res, 200, { projects });
+    },
+  },
+  {
+    // The steering glance in one call: progress, invested time, open backlog,
+    // last activity, the next action and the stale verdict for every project,
+    // plus the inbox badge. Reading it per project would be one round trip
+    // each, which is what a glance cannot afford. Derived state — no reason,
+    // no journal — and the literal path is registered ahead of the `:id`
+    // routes so a later GET /api/projects/:id could not shadow it.
+    //
+    // The stale verdict is stamped here, at the HTTP boundary, because over
+    // the wire today is the server's call; the bare rollup crosses IPC and the
+    // renderer judges staleness itself (project-stats.ts).
+    method: "GET",
+    pattern: "/api/projects/stats",
+    handler: (_req, res) => {
+      sendJson(res, 200, {
+        stats: listProjectStatsWithStale(today()),
+        inboxCount: countInbox(),
+      });
+    },
+  },
+  {
+    // Where the time actually went, per project: every banked interval merged
+    // so a desk holding two todos of one project counts once
+    // (todos/project-time.ts). The weekly review's other half - `stats` says
+    // what moved, this says what it cost.
+    //
+    // Two different projects on the desk at once each keep the overlap, so
+    // these seconds can sum past the wall clock; that is the desk model's own
+    // rule, not a bug (docs/design/multi-pomo-todo.md). `projectId: null` is
+    // the unfiled bucket. No attention verdict here - it lives in pomodoro.db,
+    // which this server does not serve. Derived state: no reason, no journal,
+    // and the literal path is registered ahead of the `:id` routes.
+    method: "GET",
+    pattern: "/api/projects/time",
+    handler: (_req, res) => {
+      sendJson(res, 200, { time: listProjectTime() });
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/projects",
+    handler: async (req, res) => {
+      const { input, ctx } = await readAgentWrite<ProjectCreateInput>(
+        req,
+        PROJECT_CREATE_KEYS
+      );
+      sendJson(res, 201, { project: createProject(input, ctx) });
+    },
+  },
+  {
+    method: "PATCH",
+    pattern: "/api/projects/:id",
+    handler: async (req, res, params) => {
+      const { input, ctx } = await readAgentWrite<ProjectPatch>(req, PROJECT_PATCH_KEYS);
+      sendJson(res, 200, { project: updateProject(params.id, input, ctx) });
+    },
+  },
+  {
+    // Archiving is the recommended way to retire a project — it keeps the
+    // history a retrospective wants — but a mistyped one has to be removable.
+    // Deleting detaches its todos (they survive, unfiled) and removes its docs,
+    // every consequence journaled.
+    method: "DELETE",
+    pattern: "/api/projects/:id",
+    handler: (_req, res, params, query) => {
+      deleteProject(params.id, agentDeleteContext(query));
+      sendJson(res, 204, undefined);
+    },
+  },
+  {
+    // A project's undated open work in pull order, plus what it finished. Dated
+    // open todos are absent by design: they live on their day.
+    method: "GET",
+    pattern: "/api/projects/:id/todos",
+    handler: (_req, res, params) => {
+      sendJson(res, 200, listProjectTodos(params.id));
+    },
+  },
+  {
+    method: "GET",
+    pattern: "/api/projects/:id/docs",
+    handler: (_req, res, params) => {
+      sendJson(res, 200, { docs: listProjectDocs(params.id) });
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/projects/:id/docs",
+    handler: async (req, res, params) => {
+      const { input, ctx } = await readAgentWrite<ProjectDocCreateInput>(
+        req,
+        PROJECT_DOC_CREATE_KEYS
+      );
+      sendJson(res, 201, { doc: createProjectDoc(params.id, input, ctx) });
+    },
+  },
+  {
+    // Docs are addressed directly, not under their project: an id identifies
+    // one doc globally, and nesting would invite a mismatched pair.
+    // `append` adds a line (the evening ritual's worklog write); `body`
+    // replaces. The two are mutually exclusive — 400 if both.
+    method: "PATCH",
+    pattern: "/api/docs/:id",
+    handler: async (req, res, params) => {
+      const { input, ctx } = await readAgentWrite<ProjectDocPatch>(
+        req,
+        PROJECT_DOC_PATCH_KEYS
+      );
+      sendJson(res, 200, { doc: updateProjectDoc(params.id, input, ctx) });
+    },
+  },
+  {
+    method: "DELETE",
+    pattern: "/api/docs/:id",
+    handler: (_req, res, params, query) => {
+      deleteProjectDoc(params.id, agentDeleteContext(query));
+      sendJson(res, 204, undefined);
+    },
+  },
+];

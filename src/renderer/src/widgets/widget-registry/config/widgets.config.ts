@@ -7,6 +7,7 @@ import { economicCalendarWidget } from "@/src/widgets/economic-calendar";
 import { moneyFlowWidget } from "@/src/widgets/money-flow";
 import { todoTodayWidget } from "@/src/widgets/todo-today";
 import { daySheetWidget } from "@/src/widgets/day-sheet";
+import { projectsWidget } from "@/src/widgets/projects";
 import { memoPadWidget } from "@/src/widgets/memo-pad";
 import {
   testSmallWidget,
@@ -24,6 +25,7 @@ export function registerAllWidgets() {
   widgetRegistry.register(moneyFlowWidget);
   widgetRegistry.register(todoTodayWidget);
   widgetRegistry.register(daySheetWidget);
+  widgetRegistry.register(projectsWidget);
   widgetRegistry.register(memoPadWidget);
 
   if (import.meta.env.DEV) {

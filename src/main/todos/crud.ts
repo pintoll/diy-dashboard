@@ -3,8 +3,10 @@ import { nanoid } from "nanoid";
 import { getTodosDb } from "./db";
 import { assertDate, contextDay } from "./date";
 import { emitTodosChanged } from "./events";
+import { movedBucket, normalizeName, normalizeOptionalDate } from "./fields";
 import { recordOp, rowChanged } from "./journal";
 import { removePlanEntriesForTodo } from "./plan";
+import { assertProjectExists } from "./project-row";
 import {
   NotFoundError,
   ValidationError,
@@ -20,17 +22,7 @@ import {
 const MAX_TITLE_LENGTH = 500;
 
 function normalizeTitle(title: unknown): string {
-  if (typeof title !== "string") {
-    throw new ValidationError("title must be a string");
-  }
-  const trimmed = title.trim();
-  if (trimmed.length === 0) {
-    throw new ValidationError("title must not be empty");
-  }
-  if (trimmed.length > MAX_TITLE_LENGTH) {
-    throw new ValidationError(`title must be at most ${MAX_TITLE_LENGTH} characters`);
-  }
-  return trimmed;
+  return normalizeName(title, "title", MAX_TITLE_LENGTH);
 }
 
 function normalizeNote(note: unknown): string | null {
@@ -44,11 +36,20 @@ function normalizeNote(note: unknown): string | null {
 
 // null is the backlog, not a malformed date, so it bypasses assertDate.
 function normalizeDate(date: unknown): string | null {
-  if (date === null) return null;
-  if (typeof date !== "string") {
-    throw new ValidationError("date must be a yyyy-MM-dd string or null");
+  return normalizeOptionalDate(date, "date");
+}
+
+// null means unfiled (the inbox, if the todo is also undated). No FK backs this
+// reference — deleteProject detaches through the journal instead — so filing
+// under a project that does not exist is a caller bug worth rejecting here, the
+// same rule plan.ts applies to todoId. Call inside the caller's transaction.
+function normalizeProjectId(db: Database.Database, projectId: unknown): string | null {
+  if (projectId === null) return null;
+  if (typeof projectId !== "string" || projectId.length === 0) {
+    throw new ValidationError("projectId must be a project id string or null");
   }
-  return assertDate(date);
+  assertProjectExists(db, projectId);
+  return projectId;
 }
 
 // Appends to the end of a bucket — a day, or the backlog (`null`). `IS` rather
@@ -136,12 +137,60 @@ export function listTodos(filter: TodoListFilter): Todo[] {
  * Done rows are included — a todo can only be completed while parked by an
  * explicit `{ done: true, date: null }` patch, but if one exists the section
  * has to be able to show it.
+ *
+ * The bucket is split by project into lists that each renumber from 0
+ * (reorderTodos below), so sort_order alone does not order it: the split comes
+ * first. The result is the inbox, then each project's backlog in its own pull
+ * order — one sequence a positional reader (`dyd todo backlog`, which addresses
+ * rows as `b<n>`) can rely on not to reshuffle when one project is reordered.
  */
 export function listBacklog(): Todo[] {
   const rows = getTodosDb()
-    .prepare("SELECT * FROM todos WHERE date IS NULL ORDER BY sort_order, created_at")
+    .prepare(
+      `SELECT t.* FROM todos t
+       LEFT JOIN projects p ON p.id = t.project_id
+       WHERE t.date IS NULL
+       ORDER BY t.project_id IS NOT NULL, p.title, t.project_id,
+                t.sort_order, t.created_at`
+    )
     .all() as TodoRow[];
   return rows.map(rowToTodo);
+}
+
+/**
+ * The inbox: the undated todos filed under no project — unclassified capture
+ * waiting for review (docs/design/projects-para.md). It is the todos page's
+ * section; the rest of the backlog now belongs to the projects that own it and
+ * is read per-project (projects.ts listProjectTodos).
+ *
+ * listBacklog above deliberately keeps its whole-warehouse meaning — the agent
+ * API serves the secretary from it — which is why ordering the bucket's several
+ * lists into one sequence is that query's job and not its callers'.
+ */
+export function listInbox(): Todo[] {
+  const rows = getTodosDb()
+    .prepare(
+      `SELECT * FROM todos
+       WHERE date IS NULL AND project_id IS NULL
+       ORDER BY sort_order, created_at`
+    )
+    .all() as TodoRow[];
+  return rows.map(rowToTodo);
+}
+
+/**
+ * listInbox's count alone, for glances that only badge it. The steering glance
+ * (`dyd projects`, the secretary's session load) reads this off
+ * GET /api/projects/stats instead of pulling the whole backlog to count one
+ * subset — the warehouse grows without bound, the badge does not.
+ */
+export function countInbox(): number {
+  const { n } = getTodosDb()
+    .prepare(
+      "SELECT COUNT(*) AS n FROM todos WHERE date IS NULL AND project_id IS NULL"
+    )
+    .get() as { n: number };
+  return n;
 }
 
 /** Open todos planned before `before` (exclusive) — the Overdue section. */
@@ -163,10 +212,11 @@ export function createTodo(input: TodoCreateInput, ctx: WriteContext): Todo {
   const id = nanoid();
 
   const row = db.transaction((): TodoRow => {
+    const projectId = normalizeProjectId(db, input.projectId ?? null);
     db.prepare(
-      `INSERT INTO todos (id, date, title, note, sort_order, source)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(id, date, title, note, nextSortOrder(db, date), ctx.source);
+      `INSERT INTO todos (id, date, title, note, sort_order, source, project_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, date, title, note, nextSortOrder(db, date), ctx.source, projectId);
 
     // Re-read: done, created_at and updated_at come from SQL defaults, and the
     // journal snapshot must be the row as stored.
@@ -202,6 +252,10 @@ export function updateTodo(
     const title = patch.title !== undefined ? normalizeTitle(patch.title) : row.title;
     const note = patch.note !== undefined ? normalizeNote(patch.note) : row.note;
     let date = patch.date !== undefined ? normalizeDate(patch.date) : row.date;
+    const projectId =
+      patch.projectId !== undefined
+        ? normalizeProjectId(db, patch.projectId)
+        : row.project_id;
     if (patch.sortOrder !== undefined && !Number.isInteger(patch.sortOrder)) {
       throw new ValidationError("sortOrder must be an integer");
     }
@@ -231,17 +285,21 @@ export function updateTodo(
     // A todo that changes bucket appends to the end of its destination. Keeping
     // the old number would drop it into the middle of the other list — very
     // visible when pulling an item out of the backlog into today.
+    //
+    // What counts as a change of bucket — including why filing a dated todo
+    // does not — lives in fields.ts, where it is testable without a connection.
+    const moved = movedBucket(date, projectId, row);
     let sortOrder = patch.sortOrder ?? row.sort_order;
-    if (patch.sortOrder === undefined && date !== row.date) {
+    if (patch.sortOrder === undefined && moved) {
       sortOrder = nextSortOrder(db, date);
     }
 
     db.prepare(
       `UPDATE todos
        SET title = ?, note = ?, date = ?, sort_order = ?, done = ?,
-           completed_on = ?, updated_at = CURRENT_TIMESTAMP
+           completed_on = ?, project_id = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`
-    ).run(title, note, date, sortOrder, done ? 1 : 0, completedOn, id);
+    ).run(title, note, date, sortOrder, done ? 1 : 0, completedOn, projectId, id);
 
     // A todo steps off the desk the moment it can no longer be worked on there:
     // it is finished, or it has just been parked. Both drop membership in this
@@ -294,7 +352,18 @@ export function deleteTodo(id: string, ctx: WriteContext): void {
   emitTodosChanged({ reason: "delete", id });
 }
 
-/** Rewrites sort_order for one date — or for the backlog (`null`). */
+/**
+ * Rewrites sort_order for one date — or for the backlog (`null`).
+ *
+ * The undated bucket is shared by the inbox and every project backlog, and this
+ * scopes only by date, so reordering one of those lists renumbers its own ids
+ * and leaves the rest of the bucket alone. Values therefore repeat across the
+ * bucket, so every read of it orders by the split before sort_order: listInbox
+ * and listProjectTodos add a project predicate, and listBacklog — which does
+ * read the bucket whole — groups by project first. What would not be harmless
+ * is a repeat *within* one list, and updateTodo prevents that by re-appending
+ * any todo whose project changes.
+ */
 export function reorderTodos(date: string | null, ids: string[]): void {
   if (date !== null) assertDate(date);
   const db = getTodosDb();

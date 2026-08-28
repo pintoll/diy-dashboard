@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { referencedTodoIds, renderLogLines, type LogOp } from "./log-render";
-import type { PlanEntryRow, TodoRow } from "./types";
+import type { PlanEntryRow, ProjectDocRow, ProjectRow, TodoRow } from "./types";
 
 // Only the pure rendering is unit-tested; the queries feeding it live in
 // log.ts, which needs better-sqlite3 (Electron ABI) and is covered by the
@@ -20,6 +20,32 @@ const todoRow = (over: Partial<TodoRow> = {}): TodoRow => ({
   sort_order: 0,
   worked_sec: 0,
   source: "user",
+  project_id: null,
+  created_at: "2026-08-25 01:00:00",
+  updated_at: "2026-08-25 01:00:00",
+  ...over,
+});
+
+const projectRow = (over: Partial<ProjectRow> = {}): ProjectRow => ({
+  id: "pr1",
+  kind: "project",
+  title: "Ship v1",
+  outcome: null,
+  status: "active",
+  target_date: null,
+  sort_order: 0,
+  created_at: "2026-08-25 01:00:00",
+  updated_at: "2026-08-25 01:00:00",
+  archived_at: null,
+  ...over,
+});
+
+const docRow = (over: Partial<ProjectDocRow> = {}): ProjectDocRow => ({
+  id: "d1",
+  project_id: "pr1",
+  title: "notes",
+  body: "",
+  sort_order: 0,
   created_at: "2026-08-25 01:00:00",
   updated_at: "2026-08-25 01:00:00",
   ...over,
@@ -400,6 +426,131 @@ describe("renderLogLines: line envelope", () => {
 
   it("returns no lines for no ops", () => {
     expect(render([])).toEqual([]);
+  });
+});
+
+describe("renderLogLines: project grammar", () => {
+  const projectOp = (over: Partial<LogOp> = {}): LogOp =>
+    op({ entity: "project", entityId: "pr1", before: null, after: projectRow(), ...over });
+
+  it("names the kind on create and delete", () => {
+    expect(render([projectOp()])[0].text).toBe('created project "Ship v1"');
+    expect(
+      render([projectOp({ after: projectRow({ kind: "area", title: "Health" }) })])[0].text
+    ).toBe('created area "Health"');
+    expect(
+      render([projectOp({ op: "delete", before: projectRow(), after: null })])[0].text
+    ).toBe('deleted project "Ship v1"');
+  });
+
+  it("gives each status destination its own verb", () => {
+    const flip = (status: ProjectRow["status"]): string =>
+      render([
+        projectOp({
+          op: "update",
+          before: projectRow(),
+          after: projectRow({ status, archived_at: status === "archived" ? AT : null }),
+        }),
+      ])[0].text;
+    expect(flip("archived")).toBe('archived "Ship v1"');
+    expect(flip("done")).toBe('marked "Ship v1" done');
+    expect(flip("someday")).toBe('moved "Ship v1" to someday');
+  });
+
+  it("does not mention archived_at alongside the status flip", () => {
+    const text = render([
+      projectOp({
+        op: "update",
+        before: projectRow({ status: "archived", archived_at: AT }),
+        after: projectRow({ status: "active", archived_at: null }),
+      }),
+    ])[0].text;
+    expect(text).toBe('reactivated "Ship v1"');
+  });
+
+  it("renders a kind change and a rename, naming the title once", () => {
+    const text = render([
+      projectOp({
+        op: "update",
+        before: projectRow(),
+        after: projectRow({ title: "Health", kind: "area" }),
+      }),
+    ])[0].text;
+    expect(text).toBe('renamed "Ship v1" to "Health", turned it into an area');
+  });
+
+  it("renders outcome and target date changes", () => {
+    const text = render([
+      projectOp({
+        op: "update",
+        before: projectRow(),
+        after: projectRow({ outcome: "released", target_date: "2026-09-30" }),
+      }),
+    ])[0].text;
+    expect(text).toBe(
+      'set the outcome of "Ship v1", set the target date of it to 2026-09-30'
+    );
+  });
+
+  it("falls back loudly for an unknown column", () => {
+    const text = render([
+      projectOp({
+        op: "update",
+        before: { ...projectRow(), owner: "a" } as unknown as Record<string, unknown>,
+        after: { ...projectRow(), owner: "b" } as unknown as Record<string, unknown>,
+      }),
+    ])[0].text;
+    expect(text).toBe('changed owner of "Ship v1"');
+  });
+});
+
+describe("renderLogLines: project doc grammar", () => {
+  const docOp = (over: Partial<LogOp> = {}): LogOp =>
+    op({ entity: "project_doc", entityId: "d1", before: null, after: docRow(), ...over });
+
+  it("renders create, delete and rename", () => {
+    expect(render([docOp()])[0].text).toBe('added the doc "notes"');
+    expect(render([docOp({ op: "delete", before: docRow(), after: null })])[0].text).toBe(
+      'removed the doc "notes"'
+    );
+    expect(
+      render([
+        docOp({ op: "update", before: docRow(), after: docRow({ title: "decisions" }) }),
+      ])[0].text
+    ).toBe('renamed the doc "notes" to "decisions"');
+  });
+
+  it("never renders the body of a doc", () => {
+    const text = render([
+      docOp({
+        op: "update",
+        before: docRow(),
+        after: docRow({ body: "a secret worth not printing" }),
+      }),
+    ])[0].text;
+    expect(text).toBe('updated the doc "notes"');
+  });
+});
+
+describe("renderLogLines: filing a todo", () => {
+  it("renders filing and detaching without naming the project", () => {
+    const filed = render([
+      op({
+        op: "update",
+        before: todoRow(),
+        after: todoRow({ project_id: "pr1" }),
+      }),
+    ])[0].text;
+    expect(filed).toBe('filed "Write tests" into a project');
+
+    const detached = render([
+      op({
+        op: "update",
+        before: todoRow({ project_id: "pr1" }),
+        after: todoRow(),
+      }),
+    ])[0].text;
+    expect(detached).toBe('detached "Write tests" from its project');
   });
 });
 

@@ -43,6 +43,7 @@ export type TodoRow = {
   sort_order: number;
   worked_sec: number;
   source: TodoSource;
+  project_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -57,6 +58,7 @@ export type Todo = {
   sortOrder: number;
   workedSec: number;
   source: TodoSource;
+  projectId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -64,10 +66,14 @@ export type Todo = {
 // `date` omitted means today; `date: null` means the backlog. The two are
 // deliberately distinct, so a caller that simply does not care about the day
 // still gets today rather than silently parking the todo.
+//
+// `projectId` is never required: capture stays zero-friction, and filing is
+// review's job (docs/design/projects-para.md).
 export type TodoCreateInput = {
   title: string;
   date?: string | null;
   note?: string | null;
+  projectId?: string | null;
 };
 
 export type TodoPatch = {
@@ -76,6 +82,7 @@ export type TodoPatch = {
   date?: string | null;
   done?: boolean;
   sortOrder?: number;
+  projectId?: string | null;
 };
 
 // Either a single date or an inclusive range. Empty filter = today (resolved
@@ -134,11 +141,12 @@ export type PlanEntryPatch = {
   end?: string;
 };
 
-// The fold's frozen record of a day: the final plan plus each involved todo's
-// outcome. Computed deterministically by code (day-snapshot.ts); versioned so
-// later readers can still render old folds if the shape ever grows.
+// The fold's frozen record of a day: the final plan, each involved todo's
+// outcome, and which projects the day actually moved. Computed deterministically
+// by code (day-snapshot.ts); versioned so later readers can still render old
+// folds if the shape ever grows.
 export type DaySnapshot = {
-  v: 1;
+  v: 2;
   day: string;
   // The final plan, in lived order (planMinutes(start); insertion breaks ties).
   entries: { todoId: string; start: string; end: string }[];
@@ -151,8 +159,28 @@ export type DaySnapshot = {
     done: boolean;
     completedOn: string | null;
     workedSec: number;
+    projectId: string | null;
   }[];
+  // The projects the day actually MOVED: time banked against one of their
+  // todos, or one of their todos completed on it (docs/design/projects-para.md,
+  // the evening ritual). A todo merely dated on the day is not movement, so it
+  // puts no project here. `title` is denormalized for the same reason todo
+  // titles are.
+  projects: { id: string; title: string; workedSec: number; doneCount: number }[];
 };
+
+// A fold written before project attribution existed. Nothing produces this
+// shape any more; it is what still sits in `day_folds` for days folded earlier,
+// and re-folding such a day upgrades it. Only rowToDayFold admits it.
+export type DaySnapshotV1 = {
+  v: 1;
+  day: string;
+  entries: DaySnapshot["entries"];
+  todos: Omit<DaySnapshot["todos"][number], "projectId">[];
+};
+
+/** What a `day_folds` row may hold: the current shape, or an older one. */
+export type StoredDaySnapshot = DaySnapshot | DaySnapshotV1;
 
 export type DayFoldRow = {
   day: string;
@@ -163,7 +191,7 @@ export type DayFoldRow = {
 
 export type DayFold = {
   day: string;
-  snapshot: DaySnapshot;
+  snapshot: StoredDaySnapshot;
   remarks: string | null;
   foldedAt: string;
 };
@@ -178,7 +206,170 @@ export type TodosChangedReason =
   // A plan entry was written (`id` is the plan entry id, not a todo id).
   | "plan"
   // A day was folded; folds carry no id.
-  | "fold";
+  | "fold"
+  // A project or one of its docs was written (`id` is that row's id, not a
+  // todo id). A write that also touches todo rows — the detach sweep in
+  // deleteProject — emits a separate "update" alongside.
+  | "project";
+
+// --- The steering layer: projects and their docs (docs/design/projects-para.md) ---
+
+// A project has an end; an area doesn't. One table, because everything else
+// about them — status, docs, filed todos — is identical.
+export type ProjectKind = "project" | "area";
+
+// `archived` is a status rather than a separate bucket: PARA's Archives folded
+// into the row it describes.
+export type ProjectStatus = "active" | "someday" | "done" | "archived";
+
+export type ProjectRow = {
+  id: string;
+  kind: ProjectKind;
+  title: string;
+  outcome: string | null;
+  status: ProjectStatus;
+  target_date: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+};
+
+export type Project = {
+  id: string;
+  kind: ProjectKind;
+  title: string;
+  // One line: what "done" means. Advisory for areas, which have no end.
+  outcome: string | null;
+  status: ProjectStatus;
+  // A soft marker, never a deadline: nothing notifies off it.
+  targetDate: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  // Stamped when status becomes "archived", cleared when it leaves.
+  archivedAt: string | null;
+};
+
+export type ProjectCreateInput = {
+  title: string;
+  kind?: ProjectKind;
+  outcome?: string | null;
+  status?: ProjectStatus;
+  targetDate?: string | null;
+  // Seed body for the default `notes` doc. This is the only way to write that
+  // doc in the same intent that creates the project: its id is minted inside
+  // the create, so no "$N" ref and no second op can reach it.
+  notes?: string;
+};
+
+export type ProjectPatch = {
+  title?: string;
+  kind?: ProjectKind;
+  outcome?: string | null;
+  status?: ProjectStatus;
+  targetDate?: string | null;
+  sortOrder?: number;
+};
+
+export type ProjectListFilter = {
+  status?: ProjectStatus;
+};
+
+// A project's undated work (its backlog, in pull order), the work already
+// pulled onto a day, and what it has finished. `scheduled` is read-only
+// context: a todo leaves the backlog the moment it is pulled, and without this
+// list it would vanish from the project until it was completed. Nothing
+// executes from it — the day it names is still the only place it can be worked.
+export type ProjectTodos = {
+  backlog: Todo[];
+  scheduled: Todo[];
+  completed: Todo[];
+};
+
+// The steering numbers, rolled up for every project in one pass rather than a
+// per-project round trip: the projects page needs them for its whole left list
+// at once (docs/design/projects-para.md).
+export type ProjectStats = {
+  projectId: string;
+  // Todos filed under the project, open and done alike.
+  total: number;
+  done: number;
+  // Undated open todos — the next-action supply. An active project at zero is
+  // effectively dead, which is exactly what a weekly review looks for.
+  openBacklog: number;
+  workedSec: number;
+  // The last day the project actually moved: work banked, a todo finished, or a
+  // note written. Renaming it is not movement, so `projects.updated_at` is
+  // deliberately not a source.
+  lastActivityDay: string | null;
+  // The head of the backlog — the one thing that would move this project next.
+  // Null when there is nothing pullable, which is the same emptiness
+  // `openBacklog: 0` reports.
+  nextAction: { id: string; title: string } | null;
+};
+
+// The HTTP shape of a stats row: the rollup plus the stale verdict, judged
+// against the server's day — the CLI and the secretary's session load have no
+// day of their own (@shared/project-stale). Deliberately NOT part of
+// ProjectStats: the same rollup crosses IPC, and a renderer window stays open
+// across the 05:00 boundary, so it must judge staleness against its own
+// useToday() rather than read a verdict frozen at fetch time.
+export type ProjectStatsWithStale = ProjectStats & { isStale: boolean };
+
+// Wall-clock time invested in one project, overlapping ledger intervals merged
+// (project-time.ts). Deliberately not a field on ProjectStats: that rollup's
+// `workedSec` is the additive `todos.worked_sec` sum, which double-counts a desk
+// holding two todos of the same project, and the two numbers answer different
+// questions. `projectId: null` is the unfiled bucket, not an absence.
+export type ProjectTime = {
+  projectId: string | null;
+  seconds: number;
+};
+
+// Both halves of the focus-analytics project view in one round trip. `time` is
+// the todos.db side; `todoProject` lets the renderer resolve a pomodoro session
+// record's desk union (`todoIds`, the only link the two databases have) onto
+// projects without a second call. Ids missing from the map are unfiled or
+// deleted - the consumer treats both as the unfiled bucket.
+export type ProjectTimeIndex = {
+  time: ProjectTime[];
+  todoProject: Record<string, string>;
+};
+
+export type ProjectDocRow = {
+  id: string;
+  project_id: string;
+  title: string;
+  body: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectDoc = {
+  id: string;
+  projectId: string;
+  title: string;
+  body: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectDocCreateInput = {
+  title: string;
+  body?: string;
+};
+
+// `body` replaces, `append` adds a line — mutually exclusive, because a patch
+// carrying both has no honest ordering. Ritual writes (the evening fold's
+// worklog line) use `append`.
+export type ProjectDocPatch = {
+  title?: string;
+  body?: string;
+  append?: string;
+};
 
 export type TodosChangedPayload = {
   reason: TodosChangedReason;
@@ -201,6 +392,34 @@ export function rowToTodo(row: TodoRow): Todo {
     sortOrder: row.sort_order,
     workedSec: row.worked_sec,
     source: row.source,
+    projectId: row.project_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function rowToProject(row: ProjectRow): Project {
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    outcome: row.outcome,
+    status: row.status,
+    targetDate: row.target_date,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    archivedAt: row.archived_at,
+  };
+}
+
+export function rowToProjectDoc(row: ProjectDocRow): ProjectDoc {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    body: row.body,
+    sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -219,7 +438,7 @@ export function rowToPlanEntry(row: PlanEntryRow): PlanEntry {
 export function rowToDayFold(row: DayFoldRow): DayFold {
   return {
     day: row.day,
-    snapshot: JSON.parse(row.snapshot) as DaySnapshot,
+    snapshot: JSON.parse(row.snapshot) as StoredDaySnapshot,
     remarks: row.remarks,
     foldedAt: row.folded_at,
   };

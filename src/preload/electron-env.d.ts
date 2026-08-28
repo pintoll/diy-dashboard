@@ -359,7 +359,9 @@ interface FinanceAPI {
 //
 // `date: null` means the todo is in the backlog — wanted, but with no planned
 // day (docs/design/todo-backlog.md). Backlog todos appear in no date query,
-// including Overdue; `todos.backlog()` is the only way to list them.
+// including Overdue. The undated bucket is split by `projectId`: filed under a
+// project it is that project's backlog (`projects.todos()`), unfiled it is the
+// inbox (`todos.inbox()`, the todos page's section).
 type TodoSource = "user" | "agent" | "assistant";
 
 interface TodoItem {
@@ -372,15 +374,18 @@ interface TodoItem {
   sortOrder: number;
   workedSec: number;
   source: TodoSource;
+  projectId: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-// Omitting `date` means today; `date: null` means the backlog.
+// Omitting `date` means today; `date: null` means the backlog. `projectId` is
+// never required — capture stays zero-friction and filing is review's job.
 interface TodoCreateInput {
   title: string;
   date?: string | null;
   note?: string | null;
+  projectId?: string | null;
 }
 
 interface TodoPatch {
@@ -389,6 +394,7 @@ interface TodoPatch {
   date?: string | null;
   done?: boolean;
   sortOrder?: number;
+  projectId?: string | null;
 }
 
 interface TodoListFilter {
@@ -445,7 +451,10 @@ type TodosChangedReason =
   // A plan entry was written (`id` is the plan entry id, not a todo id).
   | "plan"
   // A day was folded; folds carry no id.
-  | "fold";
+  | "fold"
+  // A project or one of its docs was written (`id` is that row's id, not a
+  // todo id). A write that also moves todos emits a separate "update" too.
+  | "project";
 
 interface TodosChangedPayload {
   reason: TodosChangedReason;
@@ -455,7 +464,9 @@ interface TodosChangedPayload {
 interface TodosAPI {
   list: (filter?: TodoListFilter) => Promise<TodoItem[]>;
   overdue: (before?: string) => Promise<TodoItem[]>;
-  backlog: () => Promise<TodoItem[]>;
+  // The inbox: undated todos filed under no project. A project's own undated
+  // work is read through projects.todos().
+  inbox: () => Promise<TodoItem[]>;
   create: (input: TodoCreateInput) => Promise<TodoItem>;
   update: (id: string, patch: TodoPatch) => Promise<TodoItem>;
   remove: (id: string) => Promise<void>;
@@ -491,6 +502,152 @@ interface TodosAPI {
   byIds: (ids: string[]) => Promise<TodoItem[]>;
   recordWork: (input: TodoRecordWorkInput) => Promise<void>;
   onChanged: (callback: (payload: TodosChangedPayload) => void) => () => void;
+}
+
+// The steering layer above the day (docs/design/projects-para.md): PARA folded
+// so a project (has an end) and an area (doesn't) share one shape, and
+// archiving is a status rather than a second bucket. Projects never execute —
+// the only path into doing is pulling one of their backlog todos onto a date,
+// which is an ordinary todos.update().
+//
+// Project writes broadcast through todos.onChanged with reason "project".
+type ProjectKind = "project" | "area";
+type ProjectStatus = "active" | "someday" | "done" | "archived";
+
+interface ProjectItem {
+  id: string;
+  kind: ProjectKind;
+  title: string;
+  // One line: what "done" means. Advisory for areas, which have no end.
+  outcome: string | null;
+  status: ProjectStatus;
+  // A soft marker, never a deadline: nothing notifies off it.
+  targetDate: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  // Stamped when status becomes "archived", cleared when it leaves.
+  archivedAt: string | null;
+}
+
+interface ProjectCreateInput {
+  title: string;
+  kind?: ProjectKind;
+  outcome?: string | null;
+  status?: ProjectStatus;
+  targetDate?: string | null;
+  // Seed body for the default `notes` doc the create mints alongside.
+  notes?: string;
+}
+
+interface ProjectPatch {
+  title?: string;
+  kind?: ProjectKind;
+  outcome?: string | null;
+  status?: ProjectStatus;
+  targetDate?: string | null;
+  sortOrder?: number;
+}
+
+interface ProjectListFilter {
+  status?: ProjectStatus;
+}
+
+// A project's work in three lists. `backlog` is the undated open work in pull
+// order and the only one anything acts on — its head is the next action.
+// `scheduled` is context: already pulled onto a day, worked there, never here.
+interface ProjectTodos {
+  backlog: TodoItem[];
+  scheduled: TodoItem[];
+  completed: TodoItem[];
+}
+
+// Progress and last-activity for every project at once — what the projects
+// page's left list needs on first paint.
+interface ProjectStatsItem {
+  projectId: string;
+  total: number;
+  done: number;
+  // Undated open todos. An active project at zero has no next action, which is
+  // what a weekly review looks for.
+  openBacklog: number;
+  workedSec: number;
+  // The last day the project moved: work banked, a todo finished, or a note
+  // written. A rename is not movement and does not count.
+  lastActivityDay: string | null;
+  // The head of the backlog: the one thing that would move this project next,
+  // or null when there is nothing pullable.
+  nextAction: { id: string; title: string } | null;
+  // Deliberately no stale verdict here. It turns on "today", and a dashboard
+  // window stays open across the 05:00 boundary, so renderer surfaces compute
+  // it themselves against useToday() (@shared/project-stale). The agent API's
+  // readers, which have no day of their own, get a server-stamped `isStale` on
+  // GET /api/projects/stats instead.
+}
+
+// Wall-clock time invested in one project: every banked ledger interval merged,
+// so a desk holding two todos of the same project counts the block once. This is
+// NOT ProjectStatsItem.workedSec, which is the additive todos.worked_sec sum and
+// double-counts exactly that case.
+//
+// Two *different* projects on the desk at once each keep the overlap (the desk
+// model does not divide time), so these seconds can sum past the wall clock.
+// Read them as a ranked list, never as shares of a whole.
+interface ProjectTimeItem {
+  // Null is the unfiled bucket, not a missing project.
+  projectId: string | null;
+  seconds: number;
+}
+
+// Both halves of the focus-analytics project card in one call. `todoProject`
+// (todo id -> project id, filed todos only) is what lets the renderer resolve a
+// pomodoro session's desk union onto projects: `sessions.todoIds` is the sole
+// link between pomodoro.db and todos.db, which share no session key.
+interface ProjectTimeIndexDTO {
+  time: ProjectTimeItem[];
+  todoProject: Record<string, string>;
+}
+
+// A project's freeform prose — goals, decisions, current state. Every project
+// starts with one doc titled "notes".
+interface ProjectDocItem {
+  id: string;
+  projectId: string;
+  title: string;
+  body: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ProjectDocCreateInput {
+  title: string;
+  body?: string;
+}
+
+// `body` replaces, `append` adds a line; passing both is rejected.
+interface ProjectDocPatch {
+  title?: string;
+  body?: string;
+  append?: string;
+}
+
+interface ProjectsAPI {
+  list: (filter?: ProjectListFilter) => Promise<ProjectItem[]>;
+  create: (input: ProjectCreateInput) => Promise<ProjectItem>;
+  update: (id: string, patch: ProjectPatch) => Promise<ProjectItem>;
+  // Archiving is the recommended retirement — it keeps the history. Deleting
+  // detaches the project's todos (they survive, unfiled) and removes its docs.
+  remove: (id: string) => Promise<void>;
+  todos: (id: string) => Promise<ProjectTodos>;
+  stats: () => Promise<ProjectStatsItem[]>;
+  time: () => Promise<ProjectTimeIndexDTO>;
+  docs: {
+    list: (projectId: string) => Promise<ProjectDocItem[]>;
+    create: (projectId: string, input: ProjectDocCreateInput) => Promise<ProjectDocItem>;
+    update: (id: string, patch: ProjectDocPatch) => Promise<ProjectDocItem>;
+    remove: (id: string) => Promise<void>;
+  };
 }
 
 // The dashboard's scratch memory: one memo per memo-pad widget instance, keyed
@@ -603,7 +760,6 @@ interface PomodoroAPI {
   list: () => Promise<PomodoroSessionDTO[]>;
   record: (session: PomodoroSessionDTO) => Promise<void>;
   updateNote: (id: string, note: string | null) => Promise<void>;
-  import: (sessions: PomodoroSessionDTO[]) => Promise<{ imported: number }>;
 }
 
 // Renderer-authoritative pomodoro bridge wire types. The raw snapshot carries
@@ -682,6 +838,7 @@ interface ElectronAPI {
   settings: SettingsAPI;
   pomodoro: PomodoroAPI;
   todos: TodosAPI;
+  projects: ProjectsAPI;
   memos: MemosAPI;
   finance: FinanceAPI;
 }

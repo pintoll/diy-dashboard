@@ -6,7 +6,7 @@ import {
   createTodo,
   deleteTodo,
   getTodoTitlesByIds,
-  listBacklog,
+  listInbox,
   listOverdue,
   listTodos,
   listTodosByIds,
@@ -20,11 +20,39 @@ import {
   listPlanEntries,
   updatePlanEntry,
 } from "./plan";
+import {
+  createProjectDoc,
+  deleteProjectDoc,
+  listProjectDocs,
+  updateProjectDoc,
+} from "./project-docs";
+import {
+  listProjectStats,
+  listProjectTime,
+  listTodoProjectIndex,
+} from "./project-stats";
+import {
+  createProject,
+  deleteProject,
+  listProjectTodos,
+  listProjects,
+  updateProject,
+} from "./projects";
 import { recordWork } from "./sessions";
 import type {
   PlanEntry,
   PlanEntryCreateInput,
   PlanEntryPatch,
+  Project,
+  ProjectCreateInput,
+  ProjectDoc,
+  ProjectDocCreateInput,
+  ProjectDocPatch,
+  ProjectListFilter,
+  ProjectPatch,
+  ProjectStats,
+  ProjectTimeIndex,
+  ProjectTodos,
   RecordWorkInput,
   Todo,
   TodoCreateInput,
@@ -45,9 +73,11 @@ export function registerTodosIpc(): void {
     listOverdue(before ?? today())
   );
 
-  // The backlog: todos with no planned day. Not reachable through todos:list,
-  // whose filters are date-based by construction.
-  ipcMain.handle("todos:backlog", (): Todo[] => listBacklog());
+  // The inbox: undated todos filed under no project — unclassified capture.
+  // Not reachable through todos:list, whose filters are date-based by
+  // construction. The rest of the undated warehouse belongs to the projects
+  // that own it and is read through projects:todos below.
+  ipcMain.handle("todos:inbox", (): Todo[] => listInbox());
 
   ipcMain.handle("todos:create", (_event, input: TodoCreateInput): Todo =>
     createTodo(input, { source: "user" })
@@ -131,5 +161,67 @@ export function registerTodosIpc(): void {
   // Full-row batch resolve for the plan-entry join; deleted ids drop out.
   ipcMain.handle("todos:by-ids", (_event, ids: string[]): Todo[] =>
     listTodosByIds(ids)
+  );
+
+  // The steering layer (docs/design/projects-para.md). Renderer writes are
+  // ordinary journaled ops: source "user", never a reason.
+  ipcMain.handle("projects:list", (_event, filter?: ProjectListFilter): Project[] =>
+    listProjects(filter ?? {})
+  );
+
+  ipcMain.handle("projects:create", (_event, input: ProjectCreateInput): Project =>
+    createProject(input, { source: "user" })
+  );
+
+  ipcMain.handle(
+    "projects:update",
+    (_event, payload: { id: string; patch: ProjectPatch }): Project =>
+      updateProject(payload.id, payload.patch, { source: "user" })
+  );
+
+  ipcMain.handle("projects:delete", (_event, id: string): void =>
+    deleteProject(id, { source: "user" })
+  );
+
+  ipcMain.handle("projects:todos", (_event, id: string): ProjectTodos =>
+    listProjectTodos(id)
+  );
+
+  // Progress and last-activity for every project in one call: the projects
+  // page needs them for its whole left list, and per-project reads would be one
+  // round trip each.
+  ipcMain.handle("projects:stats", (): ProjectStats[] => listProjectStats());
+
+  // The focus-analytics project card, in one round trip. Two payloads because
+  // the card's two numbers come from two places: `time` is the merged ledger
+  // (todos.db), while the attention half is computed in the renderer from the
+  // session log (pomodoro.db) using `todoProject` to resolve each session's desk
+  // union. The databases have no join key of their own, so the map crosses here.
+  ipcMain.handle(
+    "projects:time",
+    (): ProjectTimeIndex => ({
+      time: listProjectTime(),
+      todoProject: listTodoProjectIndex(),
+    })
+  );
+
+  ipcMain.handle("projects:docs:list", (_event, projectId: string): ProjectDoc[] =>
+    listProjectDocs(projectId)
+  );
+
+  ipcMain.handle(
+    "projects:docs:create",
+    (_event, payload: { projectId: string; input: ProjectDocCreateInput }): ProjectDoc =>
+      createProjectDoc(payload.projectId, payload.input, { source: "user" })
+  );
+
+  ipcMain.handle(
+    "projects:docs:update",
+    (_event, payload: { id: string; patch: ProjectDocPatch }): ProjectDoc =>
+      updateProjectDoc(payload.id, payload.patch, { source: "user" })
+  );
+
+  ipcMain.handle("projects:docs:delete", (_event, id: string): void =>
+    deleteProjectDoc(id, { source: "user" })
   );
 }

@@ -17,14 +17,20 @@ and 8 (the secretary workspace) implemented; 9 (rewind) deferred.**
   third source, `assistant`, writing through the agent API's batch route
   (`POST /api/apply` → `src/main/todos/apply.ts`): one required reason plus
   the ops it explains, applied atomically through those same functions, with
-  `"$N"` references so a multi-op intent (a split) stays one reason.
+  `"$N"` references so a multi-op intent (a split) stays one reason. The op
+  set grew with the layers built on this one: `todo.*`, `plan.*`, `project.*`
+  and `project_doc.*` (`docs/spec/todos-agent-api.md`), and `"$N"` resolves in
+  a todo's `projectId` as well as a doc op's, so "open the project and file its
+  first actions" stays a single reason.
 - Two new concepts, both in todos.db (the journal must be written inside crud
   transactions):
   - `reasons`: one row per intent — id, source (`assistant`|`agent`),
     session_id (assistant only), text (one NL line), created_at. Created
     before the ops it explains; many ops reference one reason.
-  - `ops`: unified append-only journal of todo **and** plan changes, one
-    time-ordered stream — seq, entity (`todo`|`plan`), entity_id, op
+  - `ops`: unified append-only journal of every steering and execution
+    change — todo, plan, and (since the projects layer) project and
+    project_doc — as one time-ordered stream: seq, entity
+    (`todo`|`plan`|`project`|`project_doc`), entity_id, op
     (`create`|`update`|`delete`), before/after (full row snapshots as JSON),
     source, reason_id (nullable), at.
 - The behavior contract's "log" is a **derived view** over `ops` + `reasons`,
@@ -87,7 +93,7 @@ reasons (
 );
 ops (
   seq        INTEGER PRIMARY KEY AUTOINCREMENT,
-  entity     TEXT NOT NULL,        -- 'todo' | 'plan'
+  entity     TEXT NOT NULL,        -- 'todo' | 'plan' | 'project' | 'project_doc'
   entity_id  TEXT NOT NULL,        -- deliberately no FK
   op         TEXT NOT NULL,        -- 'create' | 'update' | 'delete'
   before     TEXT,                 -- row JSON; NULL on create
@@ -116,6 +122,11 @@ day_folds (
   conversation.
 - "Yesterday" resolver: last day with ops or plan entries after
   `max(day_folds.day)` — gap days skip for free.
+- The `entity` CHECK is not fixed at two values: schema migration 6 rebuilt it
+  to admit `'project'` and `'project_doc'` when the projects layer landed
+  (`projects-para.md`), so project and doc writes get this journal, the log
+  view and `/api/apply`'s reason for free. A later entity pays the same
+  table-rebuild price — SQLite cannot ALTER a CHECK.
 
 ## Sessions & rewind
 
@@ -143,7 +154,7 @@ day_folds (
 
 The original design embedded a LangGraph JS loop with a Gemini provider in
 the main process. Before implementation it was replaced by Claude Code acting
-as the assistant from a dedicated workspace (`~/workspace/secretary`),
+as the assistant from a dedicated workspace (`~/secretary`),
 talking to the app through `dyd` over the agent API. Phases 1-6 carried over
 untouched — they never contained model code.
 
@@ -232,10 +243,14 @@ LangChain base-URL gate the original design carried is moot.
    apply.ts (outer transaction over the same crud/plan functions, whose inner
    transactions become savepoints) + events.ts emit buffering;
    docs/spec/todos-agent-api.md and dyd-cli.md updated)*
-8. **Secretary workspace** — `~/workspace/secretary`: CLAUDE.md (the
+8. **Secretary workspace** — `~/secretary`: CLAUDE.md (the
    distilled contract), SessionStart hook (loads the triple + session id),
    `dyd` allowlist. Outside this repo by design — the workspace is user
-   configuration, not app code. *(done)*
+   configuration, not app code, which is also why it sits beside `~/workspace`
+   rather than inside it. *(done — and later taught the projects layer: a
+   `## Projects` section, the three review rituals, and an active-projects
+   block in the SessionStart hook, so the steering layer arrives in context
+   with the day triple)*
 9. **Rewind** — deferred until compensating ops (see Sessions & rewind) hurt.
 
 Steps 1–7 carry no model code: the day record, its journal, and the batch

@@ -106,6 +106,13 @@ CREATE TABLE todo_sessions (
 );
 ```
 
+`session_id` here is the **attribution engine's** block id, minted at work-block
+start. It is not `pomodoro.db`'s `sessions.id`, which is minted separately when
+the log record is written; the two databases share no key. The only link across
+them is the session record's `todo_ids` below — which is why the focus-analytics
+project view resolves its verdicts per session rather than per interval
+(`focus-analytics.md`).
+
 `recordWork` stays **idempotent**: `INSERT OR IGNORE` on `attribution_id`, bump
 `todos.worked_sec` only when the row is actually inserted (unchanged logic,
 `sessions.ts:29-45`), so a retried IPC/HTTP call still can't double-count. Each

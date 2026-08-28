@@ -1,6 +1,6 @@
 # Focus Analytics Page
 
-A dedicated **page** (not a widget) that analyzes the collected pomodoro/focus session log, reached via a "See more" link from the `pomodoro-stats` widget. Read-only view over `useSessionLogStore`; the intent-declaration and site/app blocking mechanism it visualizes is documented separately in [`focus-mode.md`](focus-mode.md).
+A dedicated **page** (not a widget) that analyzes the collected pomodoro/focus session log, reached via a "See more" link from the `pomodoro-stats` widget. Read-only, and no longer over one store: the pomodoro session log (`useSessionLogStore`) carries the page, and the projects card adds a second, cross-database read of the todos.db time ledger (`use-project-time-store`) — see **Project attribution** below. The intent-declaration and site/app blocking mechanism the page visualizes is documented separately in [`focus-mode.md`](focus-mode.md).
 
 ## Purpose — two lenses
 
@@ -35,7 +35,34 @@ Route `/focus-analytics` (`App.tsx`), rendered by `FocusAnalyticsPage` (`pages/f
 | Intent × outcome grid | `IntentOutcomeGrid` | `intentOutcomeMatrix` | Hand-rolled 2×2 — held-line / **collapse** (intent focus, outcome leisure) / bonus / honest-rest — collapse cell emphasized. Locked empty state when no session has a declared intent yet. |
 | Time-of-day chart | `TimeOfDayChart` | `timeOfDayPattern` | 24 local-hour buckets, stacked focus/leisure bars with collapse split out and highlighted — surfaces which hour is where focus tends to slip. |
 | App breakdown | `AppBreakdownList` | `appBreakdown` | Top-N apps by total foreground seconds across all sessions. Note: focus mode blocks distracting sites/apps, so a collapse leaves little trace here — the blocked browser never loads. Collapse is caught by the intent×outcome grid (manual re-label / idle), not by app-usage stats. |
+| Projects | `ProjectFocusList` | `buildProjectFocusRows` (page lib) | Ranked bars of wall-clock time per project, each with the focus share and collapse count of the sessions it sat through. Includes a `No project` row (unfiled or deleted todos) and a footnote for session time that had nothing on the desk. All-time, like the two cards around it. See **Project attribution** below. |
 | Day drill-down | `DayDrillDown` (Radix `Dialog`) | `sessionsOnDate` | Opened by clicking a heatmap cell. Lists that day's sessions with intent/outcome badges (collapse emphasized), top apps per session, and an editable note textarea (saved on blur). Only the heatmap is a drill-in entry point — the hero and trend chart are aggregates that don't map to a single day. |
+
+## Project attribution
+
+The projects card is the page's only cross-database read, and the two databases
+share no session key. `todo_sessions.session_id` (todos.db) is minted by the
+attribution engine at work-block start; `sessions.id` (pomodoro.db) is minted
+when the log record is written. They have never been the same value, despite
+comments that once claimed otherwise. The one real link is the session record's
+`todoIds` - the desk union stamped at record time.
+
+So the card's two numbers come from two places and are deliberately never
+combined:
+
+| Number | Source | Rule |
+|---|---|---|
+| Time bar | todos.db `todo_sessions`, merged per project (`src/main/todos/project-time.ts`, served by `projects:time` / `GET /api/projects/time`) | Wall clock. Two todos of the *same* project on the desk through one block count that block once. Merged on each row's **credited window** (`started_at` + `worked_sec`), not its raw span: `worked_sec` already excludes idle and trimmed/capped overtime, and a real ledger over-reported by ~0.6% on spans. |
+| Focus share, collapses | pomodoro.db session log, resolved through `todoIds` -> `todos.project_id` | Session-weighted. A session counts in full for every project its desk touched. |
+
+`focusSec / deskSec` therefore reads "how focused were the sessions this project
+sat through", not "how many of its merged seconds were focused".
+
+Both halves inherit the desk model's no-division rule ([`multi-pomo-todo.md`](multi-pomo-todo.md)):
+two *different* projects on one desk each keep the whole block, so the rows can
+sum past the day's wall clock. That is why this is a ranked bar list and never a
+pie. Attribution follows a todo's *current* `project_id`, so refiling moves
+history - the same behaviour `listProjectStats` already has.
 
 ## Design decisions
 
@@ -43,3 +70,5 @@ Route `/focus-analytics` (`App.tsx`), rendered by `FocusAnalyticsPage` (`pages/f
 - **No-history state**: hero omits the comparison bar and shows a placeholder instead of a misleading zero.
 - **Layout**: one scrolling page, celebration above a "Diagnosis" header, no lens toggle — reads celebration-then-diagnosis top to bottom.
 - **Heatmap reuse**: promoted to the entity layer instead of forking a second implementation for the page's larger scale.
+- **Projects sit in the Diagnosis half**, between the time-of-day chart and the app breakdown: the section reads what slipped, when it slipped, which work it slipped on, and which app took it.
+- **No project drill-down and no time window** on the card. The page has exactly one drill-in entry point (the heatmap) and one navigable range (the daily trend); a project's own history is the `/projects` page's job.

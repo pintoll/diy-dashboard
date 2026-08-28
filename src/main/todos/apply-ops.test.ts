@@ -68,7 +68,13 @@ describe("op shapes", () => {
       { op: "todo.delete", id: "t2" },
       { op: "plan.create", todoId: "t3", start: "10:00", end: "12:00" },
       { op: "plan.update", id: "p1", start: "11:00" },
-      { op: "plan.delete", id: "p2" }
+      { op: "plan.delete", id: "p2" },
+      { op: "project.create", title: "P" },
+      { op: "project.update", id: "pr1", status: "archived" },
+      { op: "project.delete", id: "pr2" },
+      { op: "project_doc.create", projectId: "pr3", title: "decisions" },
+      { op: "project_doc.update", id: "d1", append: "2026-08-28: wired it" },
+      { op: "project_doc.delete", id: "d2" }
     );
     expect(ops.map((op) => op.kind)).toEqual([
       "todo.create",
@@ -77,7 +83,46 @@ describe("op shapes", () => {
       "plan.create",
       "plan.update",
       "plan.delete",
+      "project.create",
+      "project.update",
+      "project.delete",
+      "project_doc.create",
+      "project_doc.update",
+      "project_doc.delete",
     ]);
+  });
+
+  // projectId is the ref, not part of the doc's create body: PROJECT_DOC_CREATE_KEYS
+  // does not carry it, so it must not survive into the input the executor passes on.
+  it("keeps a doc create's projectId out of its input", () => {
+    const [op] = parseOps({
+      op: "project_doc.create",
+      projectId: "pr1",
+      title: "decisions",
+      body: "why sqlite",
+    });
+    expect(op).toEqual({
+      kind: "project_doc.create",
+      projectRef: { kind: "id", id: "pr1" },
+      input: { title: "decisions", body: "why sqlite" },
+    });
+  });
+
+  // `notes` seeds the default doc the create mints alongside — the one write a
+  // "$N" ref can never address, so it rides the create input.
+  it("keeps a project create's notes seed in its input", () => {
+    const [op] = parseOps({ op: "project.create", title: "P", notes: "seeded" });
+    expect(op).toEqual({
+      kind: "project.create",
+      input: { title: "P", notes: "seeded" },
+    });
+  });
+
+  // body/append exclusivity belongs to resolveDocBodyPatch inside the batch
+  // transaction; the parser must let the pair through rather than fork the rule.
+  it("passes a doc patch carrying both body and append to the executor", () => {
+    const [op] = parseOps({ op: "project_doc.update", id: "d1", body: "x", append: "y" });
+    expect(op).toMatchObject({ patch: { body: "x", append: "y" } });
   });
 
   it.each([
@@ -87,6 +132,11 @@ describe("op shapes", () => {
     [{ op: "plan.update", id: "p1" }, /at least one/],
     [{ op: "plan.create", todoId: "t1", start: "10:00", end: "11:00", reason: "x" }, /unknown key/],
     [{ op: "todo.delete", id: "" }, /non-empty string/],
+    [{ op: "project.update", id: "pr1" }, /at least one/],
+    [{ op: "project_doc.update", id: "d1" }, /at least one/],
+    [{ op: "project.create", title: "P", note: "x" }, /unknown key/],
+    [{ op: "project_doc.create", projectId: "pr1", title: "t", sortOrder: 0 }, /unknown key/],
+    [{ op: "project_doc.create", title: "t" }, /non-empty string/],
     ["not an object", /ops\[0\]/],
   ])("rejects %j", (op, message) => {
     expect(() => parseOps(op)).toThrowError(message);
@@ -133,6 +183,81 @@ describe("op references", () => {
         { op: "plan.delete", id: "$0" }
       )
     ).toThrowError(/must reference a plan\.create/);
+  });
+
+  it("resolves a doc create's projectId to an earlier project create", () => {
+    const ops = parseOps(
+      { op: "project.create", title: "P" },
+      { op: "project_doc.create", projectId: "$0", title: "decisions" },
+      { op: "project_doc.update", id: "$1", append: "first line" }
+    );
+    expect(ops[1]).toMatchObject({ projectRef: { kind: "created", index: 0 } });
+    expect(ops[2]).toMatchObject({ ref: { kind: "created", index: 1 } });
+  });
+
+  it("lifts a $N projectId out of a todo body", () => {
+    const ops = parseOps(
+      { op: "project.create", title: "P" },
+      { op: "todo.create", title: "first action", date: null, projectId: "$0" },
+      { op: "todo.update", id: "t9", projectId: "$0" }
+    );
+    expect(ops[1]).toEqual({
+      kind: "todo.create",
+      input: { title: "first action", date: null },
+      projectRef: { kind: "created", index: 0 },
+    });
+    // Only the ref: the executor puts the resolved id back, so this is still
+    // a real patch and not an empty one.
+    expect(ops[2]).toMatchObject({
+      patch: {},
+      projectRef: { kind: "created", index: 0 },
+    });
+  });
+
+  it("leaves a literal or null projectId in the todo body", () => {
+    const [literal, unfiled] = parseOps(
+      { op: "todo.create", title: "A", projectId: "pr1" },
+      { op: "todo.update", id: "t1", projectId: null }
+    );
+    expect(literal).toEqual({
+      kind: "todo.create",
+      input: { title: "A", projectId: "pr1" },
+      projectRef: undefined,
+    });
+    expect(unfiled).toMatchObject({ patch: { projectId: null } });
+  });
+
+  it("rejects a todo's projectId pointed at anything but a project create", () => {
+    expect(() =>
+      parseOps(
+        { op: "todo.create", title: "A" },
+        { op: "todo.create", title: "B", projectId: "$0" }
+      )
+    ).toThrowError(/must reference a project\.create/);
+  });
+
+  it("rejects a doc create pointed at a todo create", () => {
+    expect(() =>
+      parseOps(
+        { op: "todo.create", title: "A" },
+        { op: "project_doc.create", projectId: "$0", title: "decisions" }
+      )
+    ).toThrowError(/must reference a project\.create/);
+  });
+
+  it("rejects a project op pointed at a doc create and the reverse", () => {
+    expect(() =>
+      parseOps(
+        { op: "project_doc.create", projectId: "pr1", title: "t" },
+        { op: "project.delete", id: "$0" }
+      )
+    ).toThrowError(/must reference a project\.create/);
+    expect(() =>
+      parseOps(
+        { op: "project.create", title: "P" },
+        { op: "project_doc.delete", id: "$0" }
+      )
+    ).toThrowError(/must reference a project_doc\.create/);
   });
 
   it("rejects a malformed $ reference instead of treating it as an id", () => {

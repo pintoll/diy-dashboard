@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { today } from "@shared/day";
 import { addDays, weekOf } from "./todo-date";
+import { OTHER_LAYER_REASONS, subscribeTodosChanged } from "./todos-changed";
 import {
   NO_BRIDGE_MESSAGE,
   todoErrorMessage,
@@ -24,10 +25,11 @@ type TodoStore = DaySlice & {
   // so after the 05:00 rollover "is this today?" would stay stale until some
   // unrelated re-render happened to flip it mid-interaction.
   currentDay: string;
-  // Todos with no planned day (docs/design/todo-backlog.md). Not part of
-  // DaySlice: the backlog does not depend on the browsed date, so changing the
-  // date must leave it alone.
-  backlog: Todo[];
+  // The inbox: todos with no planned day and no project — unclassified capture
+  // (docs/design/projects-para.md). Not part of DaySlice: it does not depend on
+  // the browsed date, so changing the date must leave it alone. A project's own
+  // undated work is read per-project, not from here.
+  inbox: Todo[];
   // The desk: todos currently receiving the running work clock, oldest member
   // first (docs/design/multi-pomo-todo.md). Empty when nothing is on the desk.
   desk: Todo[];
@@ -66,7 +68,7 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
 
   selectedDate: today(),
   currentDay: today(),
-  backlog: [],
+  inbox: [],
   desk: [],
   status: "idle",
   error: null,
@@ -85,12 +87,12 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
 
     if (get().status === "idle") set({ status: "loading" });
     try {
-      const [day, backlog, desk] = await Promise.all([
+      const [day, inbox, desk] = await Promise.all([
         fetchDay(api, get().selectedDate),
-        api.backlog(),
+        api.inbox(),
         api.desk.get(),
       ]);
-      set({ ...day, backlog, desk, status: "ready", error: null });
+      set({ ...day, inbox, desk, status: "ready", error: null });
     } catch (error) {
       set({ status: "error", error: todoErrorMessage(error) });
     }
@@ -121,8 +123,6 @@ export function shiftSelectedDate(days: number): Promise<void> {
 // import onward — the pomodoro store reads the desk synchronously at its
 // interval boundaries and must see it even when no todo UI has ever mounted
 // (status still "idle").
-const REFRESH_DEBOUNCE_MS = 50;
-
 const bridge = window.electronAPI?.todos;
 if (bridge) {
   const syncDesk = () =>
@@ -133,20 +133,19 @@ if (bridge) {
 
   void syncDesk();
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  bridge.onChanged((payload) => {
-    // Plan/fold writes never change todo rows; the plan store (use-plan-store)
-    // is their reader.
-    if (payload.reason === "plan" || payload.reason === "fold") return;
-    clearTimeout(timer);
-    timer = setTimeout(() => {
+  subscribeTodosChanged(
+    // Plan/fold and project writes never change todo rows; those layers have
+    // their own reader stores, and the one project write that does move todo
+    // rows (deleting a project detaches them) emits a separate "update".
+    (payload) => !OTHER_LAYER_REASONS.has(payload.reason),
+    () => {
       const { status, refresh } = useTodoStore.getState();
       // Before the first list load there is nothing to refresh; keep only the
       // desk in sync.
       if (status === "idle") void syncDesk();
       else void refresh();
-    }, REFRESH_DEBOUNCE_MS);
-  });
+    }
+  );
 }
 
 // Day rollover: one clock, at module scope so it ticks whichever route is

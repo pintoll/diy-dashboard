@@ -25,7 +25,11 @@ FSD rules and naming conventions are defined in `.claude/rules/ARCHITECTURE.md` 
 
 Electron structure: `src/main/` (main process), `src/preload/` (IPC bridge), `src/renderer/src/` (React app). Config: `electron.vite.config.ts`.
 
-Key slices in renderer: `shared/` (Radix UI kit, types, utilities), `features/manage-widget`, `widgets/dashboard-grid`, `widgets/pomodoro-timer`, `widgets/widget-registry`. Routes: `/` → DashboardGrid.
+Renderer layers: `shared/` (Radix UI kit, types, utilities), `entities/`, `features/`, `widgets/`, `pages/`. Separately, `src/shared/` (alias `@shared`) is code both processes import: day boundary, pomodoro/plan/sqlite time, project stale rule, memo/text history.
+
+Routes: `/` → DashboardGrid, `/todos`, `/projects`, `/finance`, `/focus-analytics`.
+
+Widgets: daily-news, day-sheet, economic-calendar, macro-indicators, memo-pad, money-flow, pomodoro-stats, pomodoro-timer, projects, todo-today, plus dashboard-grid and widget-registry.
 
 System tray: close hides to tray, context menu to show/quit. Native notifications via IPC (`window.electronAPI`).
 
@@ -48,6 +52,8 @@ To add a widget:
 
 ## Deployment
 
+Branches: `feature/*` → `dev` → `main`, each via PR.
+
 GitHub Actions builds the Windows `.exe` on **push to `main`** (normally a `dev` -> `main` PR merge). Workflow: `.github/workflows/release.yml`. electron-builder uploads to a **draft** GitHub Release tagged from `package.json`'s version, which you then publish by hand.
 
-Bump `package.json` before merging to `main`. If the version already has a published release, electron-builder skips every upload (`existing type not compatible with publishing type`) and the run still goes green, so a stale version ships nothing while looking like a success.
+Bump `package.json` before merging to `main` (semver; minor for features). Do not create git tags by hand — the published release carries the tag. If the version already has a published release, electron-builder skips every upload (`existing type not compatible with publishing type`) and the run still goes green, so a stale version ships nothing while looking like a success.

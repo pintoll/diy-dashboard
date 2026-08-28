@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { today } from "@shared/day";
+import { ProjectSelect } from "@/src/entities/project/client";
 import {
   requireTodosApi,
   todoErrorMessage,
@@ -30,9 +31,18 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
   // to the moment the box is unchecked.
   const [parked, setParked] = useState(todo.date === null);
   const [date, setDate] = useState(todo.date ?? today());
+  const [projectId, setProjectId] = useState(todo.projectId);
+  // What the dialog opened on, kept so only a deliberate change is sent. The
+  // filing this form holds is a snapshot: another writer (the agent API, the
+  // other window) can detach the todo or delete the project while the dialog
+  // sits open, and resending the stale id would silently re-file the todo — or
+  // 404 an unrelated title edit on a project that no longer exists.
+  const [openedWith] = useState(todo.projectId);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // moveBucket goes through here too, so a bucket flip carries a filing the
+  // user changed in the same visit — and only then.
   const commit = async (nextDate: string | null) => {
     setBusy(true);
     setError(null);
@@ -41,6 +51,7 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
         title: title.trim(),
         note: note.trim().length > 0 ? note.trim() : null,
         date: nextDate,
+        ...(projectId !== openedWith ? { projectId } : {}),
       });
       onDone();
     } catch (err) {
@@ -55,7 +66,8 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
   };
 
   // The one-click form of the checkbox above: flip the bucket and save, so the
-  // common "this can wait indefinitely" move is a single action.
+  // common "this can wait indefinitely" move is a single action. A filed todo
+  // parks into its project's backlog, which the projects page renders.
   const moveBucket = () => void commit(parked ? today() : null);
 
   const remove = async () => {
@@ -91,6 +103,10 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
         />
       </div>
       <div className="flex flex-col gap-2">
+        <Label>Project</Label>
+        <ProjectSelect value={projectId} onChange={setProjectId} />
+      </div>
+      <div className="flex flex-col gap-2">
         <Label htmlFor="todo-date">Date</Label>
         <div className="flex items-center gap-3">
           {/* Blank while parked, so the field cannot read as "there is a date
@@ -112,6 +128,13 @@ function EditForm({ todo, onDone }: { todo: Todo; onDone: () => void }) {
             No date (backlog)
           </Label>
         </div>
+        {parked && (
+          <p className="text-xs text-muted-foreground">
+            {projectId === null
+              ? "Parked in the inbox until you give it a day."
+              : "Parked in this project's backlog, on the projects page."}
+          </p>
+        )}
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}

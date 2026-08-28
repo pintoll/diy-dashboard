@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import {
@@ -10,6 +10,12 @@ import {
   timeOfDayPattern,
   appBreakdown,
 } from "@/src/entities/pomodoro-session";
+import {
+  acquireProjects,
+  acquireProjectTime,
+  useProjectStore,
+  useProjectTimeStore,
+} from "@/src/entities/project";
 import {
   Card,
   CardContent,
@@ -26,7 +32,9 @@ import { ContributionHeatmap } from "./ContributionHeatmap";
 import { IntentOutcomeGrid } from "./IntentOutcomeGrid";
 import { TimeOfDayChart } from "./TimeOfDayChart";
 import { AppBreakdownList } from "./AppBreakdownList";
+import { ProjectFocusList } from "./ProjectFocusList";
 import { DayDrillDown } from "./DayDrillDown";
+import { buildProjectFocusRows, unattributedSec } from "../lib/project-focus";
 
 export function FocusAnalyticsPage() {
   const sessions = useSessionLogStore((s) => s.sessions);
@@ -50,6 +58,43 @@ export function FocusAnalyticsPage() {
   const matrix = useMemo(() => intentOutcomeMatrix(sessions), [sessions]);
   const hourly = useMemo(() => timeOfDayPattern(sessions), [sessions]);
   const apps = useMemo(() => appBreakdown(sessions), [sessions]);
+
+  // The project card is the page's only cross-database read: the bars come from
+  // the todos.db ledger over IPC, the verdicts from the session log already in
+  // memory. Two gated stores rather than one call, because both are ordinary
+  // read-through caches on todos.db and both go idle when the page unmounts.
+  useEffect(() => {
+    const releaseProjects = acquireProjects();
+    const releaseTime = acquireProjectTime();
+    return () => {
+      releaseTime();
+      releaseProjects();
+    };
+  }, []);
+  const projects = useProjectStore((s) => s.projects);
+  const projectsStatus = useProjectStore((s) => s.status);
+  const projectsError = useProjectStore((s) => s.error);
+  const projectTime = useProjectTimeStore((s) => s.index);
+  const timeStatus = useProjectTimeStore((s) => s.status);
+  const timeError = useProjectTimeStore((s) => s.error);
+
+  // The card's readiness is the join's: a failure on either side must surface
+  // instead of masquerading as "no time recorded", and the rows are only
+  // trustworthy once both reads have landed - half a join files everything
+  // under "No project".
+  const projectStatus =
+    projectsStatus === "error" || timeStatus === "error"
+      ? ("error" as const)
+      : projectsStatus === "ready" && timeStatus === "ready"
+        ? ("ready" as const)
+        : ("loading" as const);
+  const projectError = projectsStatus === "error" ? projectsError : timeError;
+
+  const projectRows = useMemo(
+    () => buildProjectFocusRows(sessions, projectTime, projects),
+    [sessions, projectTime, projects]
+  );
+  const deskless = useMemo(() => unattributedSec(sessions), [sessions]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -99,6 +144,13 @@ export function FocusAnalyticsPage() {
         <IntentOutcomeGrid matrix={matrix} />
 
         <TimeOfDayChart data={hourly} />
+
+        <ProjectFocusList
+          rows={projectRows}
+          status={projectStatus}
+          error={projectError}
+          unattributedSec={deskless}
+        />
 
         <AppBreakdownList apps={apps} />
       </div>

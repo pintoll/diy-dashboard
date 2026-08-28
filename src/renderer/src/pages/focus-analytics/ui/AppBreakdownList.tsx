@@ -7,6 +7,8 @@ import {
 } from "@/src/shared/ui/card";
 import type { AppUsage } from "@/src/entities/pomodoro-session";
 import { formatSeconds } from "@/src/shared/lib/format-duration";
+import { EmptyState } from "./EmptyState";
+import { MeterBar } from "./MeterBar";
 
 type Props = {
   apps: AppUsage[];
@@ -26,28 +28,18 @@ export function AppBreakdownList({ apps }: Props) {
       </CardHeader>
       <CardContent>
         {apps.length === 0 ? (
-          <div className="rounded-md border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-            No active-window data captured yet.
-          </div>
+          <EmptyState>No active-window data captured yet.</EmptyState>
         ) : (
           <div className="flex flex-col gap-2">
-            {apps.map((app) => {
-              const pct = max > 0 ? (app.seconds / max) * 100 : 0;
-              return (
-                <div key={app.exe} className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between gap-2 text-sm">
-                    <span className="truncate text-muted-foreground">{app.exe}</span>
-                    <span className="tabular-nums">{formatSeconds(app.seconds)}</span>
-                  </div>
-                  <div className="h-2 w-full overflow-hidden rounded-sm bg-muted/60">
-                    <div
-                      className="h-full rounded-sm bg-primary"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
+            {apps.map((app) => (
+              <div key={app.exe} className="flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="truncate text-muted-foreground">{app.exe}</span>
+                  <span className="tabular-nums">{formatSeconds(app.seconds)}</span>
                 </div>
-              );
-            })}
+                <MeterBar value={app.seconds} max={max} />
+              </div>
+            ))}
           </div>
         )}
       </CardContent>

@@ -9,14 +9,9 @@ import {
   updatePlanEntry,
 } from "../todos/plan";
 import type { PlanEntryCreateInput, PlanEntryPatch } from "../todos/types";
-import {
-  asObject,
-  assertOnlyKeys,
-  PLAN_CREATE_KEYS,
-  PLAN_PATCH_KEYS,
-} from "../todos/validate";
+import { asObject, PLAN_CREATE_KEYS, PLAN_PATCH_KEYS } from "../todos/validate";
+import { agentDeleteContext, readAgentWrite } from "./request";
 import { readJsonBody, sendJson, type Route } from "./router";
-import { agentReason } from "./todos-routes";
 
 // The day-record surface of the agent API: the plan (todos penciled onto
 // clock-time ranges) and the fold (the day's closed record). Same discipline
@@ -43,15 +38,11 @@ export const dayRoutes: Route[] = [
     // must 400 here, not silently fall back to planning today under the
     // spec's name "day".
     handler: async (req, res) => {
-      const body = asObject(await readJsonBody(req), "body");
-      assertOnlyKeys(body, [...PLAN_CREATE_KEYS, "reason"], "body");
-      const reason = agentReason(body.reason);
-      delete body.reason;
-      const entry = createPlanEntry(body as PlanEntryCreateInput, {
-        source: "agent",
-        reason,
-      });
-      sendJson(res, 201, { entry });
+      const { input, ctx } = await readAgentWrite<PlanEntryCreateInput>(
+        req,
+        PLAN_CREATE_KEYS
+      );
+      sendJson(res, 201, { entry: createPlanEntry(input, ctx) });
     },
   },
   {
@@ -61,24 +52,15 @@ export const dayRoutes: Route[] = [
     // delete+create per the spec, so those keys must 400, not no-op into a
     // 200 the caller reads as a successful move.
     handler: async (req, res, params) => {
-      const body = asObject(await readJsonBody(req), "body");
-      assertOnlyKeys(body, [...PLAN_PATCH_KEYS, "reason"], "body");
-      const reason = agentReason(body.reason);
-      delete body.reason;
-      const entry = updatePlanEntry(params.id, body as PlanEntryPatch, {
-        source: "agent",
-        reason,
-      });
-      sendJson(res, 200, { entry });
+      const { input, ctx } = await readAgentWrite<PlanEntryPatch>(req, PLAN_PATCH_KEYS);
+      sendJson(res, 200, { entry: updatePlanEntry(params.id, input, ctx) });
     },
   },
   {
     method: "DELETE",
     pattern: "/api/plan/:id",
-    // DELETE reads no body, so the reason travels as a query param.
     handler: (_req, res, params, query) => {
-      const reason = agentReason(query.get("reason"));
-      deletePlanEntry(params.id, { source: "agent", reason });
+      deletePlanEntry(params.id, agentDeleteContext(query));
       sendJson(res, 204, undefined);
     },
   },

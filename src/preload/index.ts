@@ -119,13 +119,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("pomodoro:sessions:record", session),
     updateNote: (id: string, note: string | null) =>
       ipcRenderer.invoke("pomodoro:sessions:update-note", { id, note }),
-    import: (sessions: PomodoroSessionDTO[]) =>
-      ipcRenderer.invoke("pomodoro:sessions:import", sessions),
   },
   todos: {
     list: (filter?: TodoListFilter) => ipcRenderer.invoke("todos:list", filter),
     overdue: (before?: string) => ipcRenderer.invoke("todos:overdue", before),
-    backlog: () => ipcRenderer.invoke("todos:backlog"),
+    inbox: () => ipcRenderer.invoke("todos:inbox"),
     create: (input: TodoCreateInput) => ipcRenderer.invoke("todos:create", input),
     update: (id: string, patch: TodoPatch) =>
       ipcRenderer.invoke("todos:update", { id, patch }),
@@ -163,6 +161,24 @@ contextBridge.exposeInMainWorld("electronAPI", {
       return () => {
         ipcRenderer.removeListener("todos:changed", listener);
       };
+    },
+  },
+  projects: {
+    list: (filter?: ProjectListFilter) => ipcRenderer.invoke("projects:list", filter),
+    create: (input: ProjectCreateInput) => ipcRenderer.invoke("projects:create", input),
+    update: (id: string, patch: ProjectPatch) =>
+      ipcRenderer.invoke("projects:update", { id, patch }),
+    remove: (id: string) => ipcRenderer.invoke("projects:delete", id),
+    todos: (id: string) => ipcRenderer.invoke("projects:todos", id),
+    stats: () => ipcRenderer.invoke("projects:stats"),
+    time: () => ipcRenderer.invoke("projects:time"),
+    docs: {
+      list: (projectId: string) => ipcRenderer.invoke("projects:docs:list", projectId),
+      create: (projectId: string, input: ProjectDocCreateInput) =>
+        ipcRenderer.invoke("projects:docs:create", { projectId, input }),
+      update: (id: string, patch: ProjectDocPatch) =>
+        ipcRenderer.invoke("projects:docs:update", { id, patch }),
+      remove: (id: string) => ipcRenderer.invoke("projects:docs:delete", id),
     },
   },
   memos: {

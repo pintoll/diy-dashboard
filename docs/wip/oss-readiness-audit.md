@@ -48,10 +48,14 @@ Legend: 🟠 high · 🟡 medium.
 
 ## Accepted, not open
 
-The agent API's newer surface (`/api/pomodoro`, `/api/pomodoro/command`, `/api/desk*`) was reviewed
-at `5e89a51` and inherits the existing defenses intact — 127.0.0.1 bind, Host-header allowlist,
-bearer token on every route but `GET /api/health`, 64KB body cap, all SQL parameter-bound, `action`
-and `presetId` allowlisted. Two deliberate exceptions, recorded so they are not re-raised:
+Every route registers through the same `server.ts` middleware and inherits its defenses —
+127.0.0.1 bind, Host-header allowlist, bearer token on every route but `GET /api/health`, 64KB body
+cap, all SQL parameter-bound, `action` and `presetId` allowlisted. The pomodoro/desk routes were
+read under this doc's lens at `5e89a51`; what landed after (`/api/plan`, `/api/days/*`,
+`/api/apply`, `/api/todos/by-ids`, `/api/projects*`, `/api/docs/:id`) has per-phase code review
+only. `/api/apply` is the one with a shape of its own: an outer transaction over a caller-supplied
+op list with `"$N"` back-references. Two deliberate exceptions, recorded so they are not
+re-raised:
 
 - **Token compare is not constant-time.** Over loopback against a `nanoid(32)` secret, not worth
   changing.
@@ -88,3 +92,7 @@ verify:
 - Overtime-while-hidden: the countdown display freezes while hidden by
   design, but the 5s idle poll should still drive correct overtime elapsed/
   threshold alarms.
+- `todos.db` migrations 5 and 6 (`todos.project_id`; the `ops.entity` CHECK
+  rebuilt to admit `project` / `project_doc`) against the real database, plus
+  the `projects` / `project_docs` DDL. Rebuilds cannot be unit-tested —
+  `better-sqlite3` is built against Electron's ABI. Back up `todos.db` first.

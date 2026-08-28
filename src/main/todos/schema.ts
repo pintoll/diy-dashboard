@@ -12,6 +12,10 @@ import type Database from "better-sqlite3";
 // `session_id`), because one pomodoro can now credit several todos and one todo
 // can accrue several in-flight intervals per session (see the "desk" model in
 // docs/design/multi-pomo-todo.md). `todos.worked_sec` is the additive rollup.
+// `session_id` groups one block's rows and is minted by the attribution engine
+// at block start; it is NOT pomodoro.db's `sessions.id`, which is minted
+// separately when the session log record is written. The two databases share no
+// key - the session record's `todo_ids` is the only link between them.
 //
 // `desk` is the set of todos currently receiving the running work clock
 // (replaces the single-row `active_todo`). `joined_at` clamps the start of a
@@ -36,6 +40,18 @@ import type Database from "better-sqlite3";
 // sweeps its entries in the service layer (crud.ts deleteTodo) so each removal
 // lands in `ops` — a cascade would erase them silently. `day_folds` closes a
 // day: a snapshot computed by code plus conversational remarks (fold.ts).
+//
+// `projects` is the steering layer above the day (docs/design/projects-para.md):
+// PARA folded to one table, where `kind` separates a project (has an end) from
+// an area (doesn't) and archiving is a `status`, not a second bucket.
+// `todos.project_id` files a todo under one; it deliberately has no FK, like
+// `plan_entries.todo_id`, so deleting a project detaches its todos through the
+// journaled service layer instead of a silent cascade. An undated todo with no
+// project is the inbox; with one, that project's backlog.
+//
+// `project_docs` holds a project's freeform prose — goals, decisions, state —
+// as rows rather than files, so the agent API stays the single data plane and
+// every edit lands in `ops`. Each project auto-creates one `notes` doc.
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS todos (
   id           TEXT PRIMARY KEY,
@@ -47,6 +63,7 @@ CREATE TABLE IF NOT EXISTS todos (
   sort_order   INTEGER NOT NULL DEFAULT 0,
   worked_sec   INTEGER NOT NULL DEFAULT 0,
   source       TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('user','agent','assistant')),
+  project_id   TEXT,
   created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -64,7 +81,7 @@ CREATE TABLE IF NOT EXISTS reasons (
 
 CREATE TABLE IF NOT EXISTS ops (
   seq        INTEGER PRIMARY KEY AUTOINCREMENT,
-  entity     TEXT NOT NULL CHECK (entity IN ('todo','plan')),
+  entity     TEXT NOT NULL CHECK (entity IN ('todo','plan','project','project_doc')),
   entity_id  TEXT NOT NULL,
   op         TEXT NOT NULL CHECK (op IN ('create','update','delete')),
   before     TEXT,
@@ -117,6 +134,31 @@ CREATE TABLE IF NOT EXISTS day_folds (
   remarks   TEXT,
   folded_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS projects (
+  id          TEXT PRIMARY KEY,
+  kind        TEXT NOT NULL DEFAULT 'project' CHECK (kind IN ('project','area')),
+  title       TEXT NOT NULL,
+  outcome     TEXT,
+  status      TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','someday','done','archived')),
+  target_date TEXT,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  archived_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS project_docs (
+  id         TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  title      TEXT NOT NULL,
+  body       TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_docs_project ON project_docs(project_id);
 `;
 
 function tableExists(db: Database.Database, name: string): boolean {
@@ -288,4 +330,80 @@ export function migrateSchema(db: Database.Database): void {
       db.pragma("foreign_keys = ON");
     }
   }
+
+  // 5. todos.project_id: file a todo under a project
+  //    (docs/design/projects-para.md). Purely additive, so a plain ALTER — no
+  //    rebuild, no pragma dance, and the column lands nullable by definition
+  //    (SQLite forbids adding a NOT NULL column without a default anyway).
+  if (!columnNames(db, "todos").includes("project_id")) {
+    db.exec("ALTER TABLE todos ADD COLUMN project_id TEXT");
+  }
+
+  // 6. ops.entity CHECK: admit 'project' and 'project_doc', so project and doc
+  //    writes land in the same append-only journal as todos and plan entries.
+  //    A CHECK can't be altered in place, so rebuild like migration 4 — with
+  //    two differences worth stating:
+  //
+  //    - `ops` has no foreign key in either direction, so DROP TABLE cascades
+  //      nothing and the migration-3/4 pragma dance is unnecessary.
+  //    - `seq` is AUTOINCREMENT. Copying the rows sets the new table's counter
+  //      to MAX(seq) of what was copied, which silently rewinds it if journal
+  //      rows were ever pruned from the tail — and rewind anchors must never be
+  //      reusable. So the old sqlite_sequence counter is captured first and
+  //      restored by hand afterwards.
+  //
+  //    Guard on 'project_doc' rather than 'project': the latter is a substring
+  //    of the former, so a half-widened CHECK could never be told apart.
+  const opsSql =
+    (
+      db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'ops'")
+        .get() as { sql: string } | undefined
+    )?.sql ?? "";
+  if (!opsSql.includes("'project_doc'")) {
+    const COLUMNS = "seq, entity, entity_id, op, before, after, source, reason_id, at";
+    db.transaction(() => {
+      const counter = tableExists(db, "sqlite_sequence")
+        ? (db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'ops'").get() as
+            | { seq: number }
+            | undefined)
+        : undefined;
+      db.exec(`
+        CREATE TABLE ops_new (
+          seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+          entity     TEXT NOT NULL CHECK (entity IN ('todo','plan','project','project_doc')),
+          entity_id  TEXT NOT NULL,
+          op         TEXT NOT NULL CHECK (op IN ('create','update','delete')),
+          before     TEXT,
+          after      TEXT,
+          source     TEXT NOT NULL CHECK (source IN ('user','agent','assistant')),
+          reason_id  TEXT,
+          at         TEXT NOT NULL
+        );
+        INSERT INTO ops_new (${COLUMNS}) SELECT ${COLUMNS} FROM ops;
+        DROP TABLE ops;
+        ALTER TABLE ops_new RENAME TO ops;
+        CREATE INDEX IF NOT EXISTS idx_ops_at ON ops(at);
+        CREATE INDEX IF NOT EXISTS idx_ops_entity ON ops(entity, entity_id);
+      `);
+      if (counter !== undefined) {
+        // The rebuild always leaves a row for `ops` when any row was copied,
+        // and none when the journal was empty; cover both.
+        db.prepare("UPDATE sqlite_sequence SET seq = max(seq, ?) WHERE name = 'ops'").run(
+          counter.seq
+        );
+        db.prepare(
+          `INSERT INTO sqlite_sequence (name, seq)
+           SELECT 'ops', ?
+           WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'ops')`
+        ).run(counter.seq);
+      }
+    })();
+  }
+
+  // Unconditional, and deliberately not part of SCHEMA: SCHEMA runs before
+  // migration 5, so on a pre-projects DB the column does not exist yet and the
+  // whole db.exec(SCHEMA) would fail. It can't live inside migration 5's guard
+  // either — a fresh DB skips that block entirely.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_todos_project ON todos(project_id)");
 }
