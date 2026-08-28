@@ -4,9 +4,8 @@ A mid/long-term steering layer above the day-scoped todo system, modeled on
 PARA but folded to fit an execution dashboard. Todos stay "finish today";
 projects answer "is the right work moving at all".
 
-Status: **Phase 3 implemented** (schema and plumbing, the `/projects` page, and
-the steering widget plus project attribution in the day fold). Phase 4 not
-started.
+Status: **Phase 4 implemented** — the layer is complete, minus the
+focus-analytics view that phase 4 split out into a phase 5.
 
 ## Why
 
@@ -165,10 +164,12 @@ registration; watch normalizeDate." Dated appends make the worklog automatic —
 nobody maintains it, it accumulates.
 
 **Weekly review (the page's reason to exist).** (1) Empty inbox — assign /
-date / delete each item. (2) Sweep active by last-activity: stale 2 weeks →
-"still worth it?" → demote to someday or archive; empty next action → fill
-one. (3) Sweep someday for promotions. Secretary does the mechanical half via
-one `/api/apply` batch; the user only judges.
+date / delete each item. (2) Sweep active by last-activity: anything the stale
+rule has already flagged (7 days — the sketch said two weeks; the badge is the
+implemented threshold, see phase 2 below) → "still worth it?" → demote to
+someday or archive; empty next action → fill one. (3) Sweep someday for
+promotions. Secretary does the mechanical half via one `/api/apply` batch; the
+user only judges.
 
 **Re-entry after a long gap** (the payoff): open the project — note tail =
 last state and next step, backlog top = next action. Or ask the secretary
@@ -213,9 +214,10 @@ neither works, that's not a tooling problem.
      screen. One grouped query returns progress, invested time, open-backlog
      count and a last-activity day for every project at once. "Activity" means
      work banked, a todo finished, or a note written — never a rename.
-   - The **stale badge fires at 7 days** (the review sweep still talks about
-     two weeks); an active project that has never moved counts as stale, and
-     areas never do, since an area has no end to drift from.
+   - The **stale badge fires at 7 days**, which is now the layer's one
+     threshold: the review sweep above was rewritten to read it rather than
+     keep a second number. An active project that has never moved counts as
+     stale, and areas never do, since an area has no end to drift from.
    - "Master-detail, like finance" turned out to be wrong about finance, which
      is a single stacked column. This page introduces the app's first two-pane
      layout rather than reusing one.
@@ -251,5 +253,45 @@ neither works, that's not a tooling problem.
    - `isStale` / `STALE_AFTER_DAYS` moved from the page's `group-projects.ts`
      down to `entities/project/lib/stale.ts`: two surfaces nag with the rule
      now, and widgets may not import from pages.
-4. **Secretary integration**: apply entities, `dyd projects`, morning brief /
-   evening draft / weekly review flows; focus-analytics per-project view.
+4. **Secretary integration** — *done*: `/api/apply` gained `project.*` and
+   `project_doc.*` ops, `dyd projects` gained a full quick-lane surface, and the
+   secretary workspace (`~/secretary`) learned the layer — a `## Projects`
+   section, the three rituals in `## Session discipline`, and an active-projects
+   block in its SessionStart hook. Deviations:
+   - **The focus-analytics per-project view became phase 5.** It is a different
+     problem from the rest of this phase: pomodoro sessions live in
+     `pomodoro.db` (they carry the attention verdict but no project link) while
+     the time ledger is `todo_sessions` in `todos.db` (accurate `worked_sec`, no
+     verdict), and the two databases have never been joined. Nothing above
+     depends on it.
+   - **A new `GET /api/projects/stats` route.** `listProjectStats` was IPC-only,
+     so a CLI glance would have been 1+N round trips and `nextAction` — the
+     thing the morning pull acts on — was reachable nowhere in one call.
+   - **`isStale` moved again**, from `entities/project/lib/` down to
+     `@shared/project-stale`, and the stats route now emits the verdict. Phase 3
+     moved it for two renderer surfaces; the CLI and the session hook are a
+     third and fourth, and they read over HTTP where **today is the server's
+     call**. Renderer surfaces still call it themselves against `useToday()`,
+     because a dashboard window stays open across the 05:00 boundary.
+   - **`"$N"` works from a todo's `projectId`**, not just from the doc op's.
+     Without it "open the project and file its first actions" could not be one
+     intent, which is the batch's whole purpose. `projectId` is an ordinary body
+     field, so it is lifted out only when it actually carries the sigil.
+   - **The command is `dyd projects`, plural**, against the CLI's 4-of-4
+     singular precedent (`todo`, `source`, `cred`, `pomo`): those act on one of
+     a kind, while this one's headline act is the cross-project glance, and
+     every other name in the system is already plural.
+   - **`p<n>` is a global handle**, a position in the unfiltered project list
+     rather than in the view as printed — the one deliberate departure from
+     `<n>`/`b<n>`. Projects are few and long-lived where todos churn, so a
+     number that survives filtering is worth the visible gaps.
+   - **No `dyd projects rm`.** Deleting detaches todos and destroys docs; that
+     stays an app act or a spelled-out `apply` batch.
+   - **`dyd todo backlog` now groups by project.** The route always returned the
+     rows grouped; the flat renderer threw it away, which left the inbox
+     indistinguishable from filed work and made `file b3 p2` unusable.
+   - Along the way: `dyd day` now prints the fold snapshot's `projects moved`
+     rollup, which had been shipping unread since phase 3, and the repo's two
+     `~/workspace/secretary` references were corrected to `~/secretary`.
+5. **Focus analytics per-project view** — not started. Split out of phase 4;
+   see the note above for why it is a separate problem.

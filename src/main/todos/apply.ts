@@ -2,11 +2,23 @@ import { createTodo, deleteTodo, updateTodo } from "./crud";
 import { getTodosDb } from "./db";
 import { withBufferedTodosChanged } from "./events";
 import { createPlanEntry, deletePlanEntry, updatePlanEntry } from "./plan";
+import {
+  createProjectDoc,
+  deleteProjectDoc,
+  updateProjectDoc,
+} from "./project-docs";
+import { createProject, deleteProject, updateProject } from "./projects";
 import { parseApply, type OpRef, type ParsedOp } from "./apply-ops";
 import type {
   PlanEntry,
   PlanEntryCreateInput,
   PlanEntryPatch,
+  Project,
+  ProjectCreateInput,
+  ProjectDoc,
+  ProjectDocCreateInput,
+  ProjectDocPatch,
+  ProjectPatch,
   Todo,
   TodoCreateInput,
   TodoPatch,
@@ -20,7 +32,12 @@ import type {
 // here, so a failure anywhere rolls back the whole intent, reason row
 // included, and the buffered todos:changed pushes are dropped with it.
 
-export type ApplyOpResult = { todo: Todo } | { entry: PlanEntry } | { deleted: string };
+export type ApplyOpResult =
+  | { todo: Todo }
+  | { entry: PlanEntry }
+  | { project: Project }
+  | { doc: ProjectDoc }
+  | { deleted: string };
 
 export type ApplyResult = {
   // Null when no op journaled anything (every op was a no-change patch): the
@@ -71,6 +88,18 @@ function resolveRef(ref: OpRef, created: (string | null)[]): string {
   return id;
 }
 
+// Puts a lifted "$N" projectId back into a todo body. The parser removed it so
+// it could be resolved here, which is what lets one batch open a project and
+// file its first actions under it.
+function withProject(
+  body: Record<string, unknown>,
+  ref: OpRef | undefined,
+  created: (string | null)[]
+): Record<string, unknown> {
+  if (ref === undefined) return body;
+  return { ...body, projectId: resolveRef(ref, created) };
+}
+
 // What an op produced: the HTTP response entry, plus the id it minted for
 // later "$N" references. Returning both together is what keeps `created` in
 // step with `results` — the id comes from the same typed value the result
@@ -81,13 +110,20 @@ type OpOutcome = { result: ApplyOpResult; createdId?: string };
 function runOp(op: ParsedOp, created: (string | null)[], ctx: WriteContext): OpOutcome {
   switch (op.kind) {
     case "todo.create": {
-      const todo = createTodo(op.input as TodoCreateInput, ctx);
+      const todo = createTodo(
+        withProject(op.input, op.projectRef, created) as TodoCreateInput,
+        ctx
+      );
       return { result: { todo }, createdId: todo.id };
     }
     case "todo.update":
       return {
         result: {
-          todo: updateTodo(resolveRef(op.ref, created), op.patch as TodoPatch, ctx),
+          todo: updateTodo(
+            resolveRef(op.ref, created),
+            withProject(op.patch, op.projectRef, created) as TodoPatch,
+            ctx
+          ),
         },
       };
     case "todo.delete": {
@@ -115,6 +151,51 @@ function runOp(op: ParsedOp, created: (string | null)[], ctx: WriteContext): OpO
     case "plan.delete": {
       const id = resolveRef(op.ref, created);
       deletePlanEntry(id, ctx);
+      return { result: { deleted: id } };
+    }
+    case "project.create": {
+      // Journals two ops, not one: createProject mints the default `notes` doc
+      // in the same transaction and context. Only the project id is minted for
+      // "$N" — that doc is reached through its project afterwards.
+      const project = createProject(op.input as ProjectCreateInput, ctx);
+      return { result: { project }, createdId: project.id };
+    }
+    case "project.update":
+      return {
+        result: {
+          project: updateProject(
+            resolveRef(op.ref, created),
+            op.patch as ProjectPatch,
+            ctx
+          ),
+        },
+      };
+    case "project.delete": {
+      const id = resolveRef(op.ref, created);
+      deleteProject(id, ctx);
+      return { result: { deleted: id } };
+    }
+    case "project_doc.create": {
+      const doc = createProjectDoc(
+        resolveRef(op.projectRef, created),
+        op.input as ProjectDocCreateInput,
+        ctx
+      );
+      return { result: { doc }, createdId: doc.id };
+    }
+    case "project_doc.update":
+      return {
+        result: {
+          doc: updateProjectDoc(
+            resolveRef(op.ref, created),
+            op.patch as ProjectDocPatch,
+            ctx
+          ),
+        },
+      };
+    case "project_doc.delete": {
+      const id = resolveRef(op.ref, created);
+      deleteProjectDoc(id, ctx);
       return { result: { deleted: id } };
     }
   }

@@ -303,6 +303,11 @@ export type ProjectStats = {
   // Null when there is nothing pullable, which is the same emptiness
   // `openBacklog: 0` reports.
   nextAction: { id: string; title: string } | null;
+  // Derived from lastActivityDay against the app's day (@shared/project-stale).
+  // Computed here rather than by each reader because the CLI and the
+  // secretary's session load reach this through HTTP, where today is the
+  // server's call and a bash client has no business deciding it.
+  isStale: boolean;
 };
 
 export type ProjectDocRow = {

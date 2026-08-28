@@ -112,9 +112,22 @@ Same list block as the overview (without the pomodoro line). `dyd todo overdue` 
 Positions are printed as `b<n>` so they cannot be confused with today's:
 
 ```
+── inbox ─────────────
   b1 [ ] mdx 블로그 첫 글 만들기
-  b2 [ ] Read the Postgres locking chapter    35m
+  b2 [ ] 세금 자료 정리
+── Ship the projects layer ─────────────
+  b3 [ ] Read the Postgres locking chapter    35m
 ```
+
+The undated bucket is **split by project** (`docs/design/projects-para.md`), so
+this view groups: the **inbox** (undated, unfiled) first, then one block per
+project. The grouping is the route's own order, not the CLI's — `sortOrder`
+numbers each of those lists separately and therefore repeats across them, so
+sorting the rows here would interleave them.
+
+`b<n>` is unchanged and still addresses the **whole** warehouse in printed
+order, which makes the inbox exactly the `b1..bk` prefix. That is what makes
+`dyd projects file b3 p2` typable.
 
 ### `dyd todo add "<title>" [-d <date>] [-n <note>] [--reason <text>]`
 
@@ -155,6 +168,119 @@ Each prints the resulting desk: `desk: Write migration, Ship release` (or
 `desk: (empty)`). Adding a completed todo errors (exit 1). Adding a **backlog**
 todo un-parks it onto today — it is about to accrue time.
 
+### `dyd projects` — the steering layer
+
+Todos answer "finish today"; **projects** answer "is the right work moving at
+all" ([`projects-para.md`](../design/projects-para.md),
+[`todos-agent-api.md`](todos-agent-api.md#projects--the-steering-layer)). A
+project has an end and an outcome line, an area does not, and archiving is a
+status rather than a second place.
+
+**Execution happens only in today's list.** The single path from a project into
+doing is `pull`, which is an ordinary `PATCH /api/todos/:id` with a date. That
+is why there is no `start`, no `plan`, no project-level timer here, and why
+there should never be one: a project backlog is a supply, not a second task
+list.
+
+#### `dyd projects` · `dyd projects list [--status <s>] [--stale]`
+
+One screen from four concurrent reads (`/api/projects`,
+`/api/projects/stats`, `/api/todos/backlog`, `/api/today`).
+
+```
+── projects 2026-08-28 ─────────────
+  p1 Ship the projects layer
+     3/8     4h20m   2d     -> wire dyd projects
+! p3 Rewrite the ingest job
+     0/4             14d    -> (no next action)
+── areas ─────────────
+  p2 Health
+     6/6     3h10m   today  -> 러닝 루틴 정리
+── someday: 4   done: 2   (dyd projects list --status all)
+── inbox: 5 (dyd todo backlog)
+(1 stale, marked !)
+```
+
+Two lines per project. Line 1 ends with the title, and every padded column on
+line 2 is ASCII, because f-string padding counts codepoints rather than display
+width and a Korean title would otherwise skew the row. Line 2 is
+`done/total`, accrued time, time since the project last moved, and `->` its
+**next action** (the head of its backlog). Footers are omitted at zero, as in
+the overview.
+
+`!` marks a **stale** project, the third mark in the CLI's language after `*`
+(desk member) and `-` (disabled connector). The verdict comes from the API,
+which owns the day the rule turns on; the CLI never re-derives it.
+
+`--status` narrows to one status (or `all`, which prints every block); `--stale`
+prints only stale projects. Filtering **never renumbers** — see Index
+addressing below.
+
+#### `dyd projects show <p<n>|id> [--doc <title>]`
+
+Re-entry after a gap: outcome, progress, last activity, the backlog in pull
+order, the read-only scheduled list, a collapsed completed count, and the tail
+of one doc (default `notes`, last 3 lines). Absent fields are omitted, as in
+`source show`.
+
+An empty backlog prints `(empty — this project is not moving)` rather than
+`(none)`: an active project with no next action is exactly what a weekly review
+is looking for.
+
+The project row comes from the list `resolve_pid` already read — the API exposes
+no `GET /api/projects/:id`, and one project is reached through the list.
+
+#### `dyd projects add "<title>" [--kind <project|area>] [--outcome <t>] [--target <date>] [--someday] [--reason <text>]`
+
+`POST /api/projects`, then a refetch so the new project prints with its `p<n>`
+(same shape as `dyd todo add`). Every project is created with one doc titled
+`notes`; the CLI cannot create a second one.
+
+#### `dyd projects set <p<n>|id> [--title <t>] [--outcome <t>] [--target <date>] [--kind <k>] [--reason <text>]`
+
+`PATCH /api/projects/:id`. No field at all is a usage error, caught before the
+round trip. An empty `--outcome` / `--target` sends `null` (clear), the same
+rule as `dyd fold --remarks ""`.
+
+#### `dyd projects activate | someday | done | archive <p<n>|id> [--reason <text>]`
+
+Four verbs, one status PATCH — a review speaks them as verbs ("park it",
+"archive it"), the way `dyd source enable|disable` does.
+
+#### `dyd projects note <p<n>|id> "<line>" [--doc <title>] [--raw] [--reason <text>]`
+
+`PATCH /api/docs/:id` with `append`, which adds one line rather than replacing
+the body. The line is **prefixed with the app's day** (`2026-08-28: …`) unless
+`--raw` is passed: the server does not date an append, and the date has to be
+the app's 05:00 day, so only the CLI can put it there. Dated appends are what
+make the worklog accumulate without anyone maintaining it.
+
+`--doc` defaults to `notes`; an unknown title is a client-side error naming the
+project, not a 404 on a blank id.
+
+#### `dyd projects notes <p<n>|id> [--doc <title>]`
+
+Prints one doc's whole body. The read for "where was I on X" without opening
+the app.
+
+#### `dyd projects file <n|id|b<n>> <p<n>|id|->`
+
+`PATCH /api/todos/:id` with `projectId`; `-` unfiles back to the inbox. This is
+the weekly review's first step, which is why the backlog view groups by project.
+
+#### `dyd projects pull <p<n>|id> [<k>] [-d <date>] [--reason <text>]`
+
+Pulls the project's **k-th backlog item** (default 1, the next action) onto a
+day (default today). An ordinary date patch — the only project-into-doing verb
+there is. Out of range, or an empty backlog, is a client-side error naming the
+project.
+
+#### No `dyd projects rm`
+
+Deleting a project detaches its todos and destroys its docs. Archiving keeps
+the history the archive exists for, so deletion stays an app act, or an
+`/api/apply` batch under a reason that says why.
+
 ### `dyd log [date|today|yesterday]`
 
 `GET /api/days/:day/log` — a day's journal, rendered to natural language by the
@@ -181,6 +307,23 @@ server ([`todos-agent-api.md`](todos-agent-api.md#get-apidaysdaylog)). Read-only
   count elsewhere.
 
 ### `dyd day [date|today|yesterday]`
+
+A folded day also prints the snapshot's **projects moved** rollup:
+
+```
+  folded at 2026-08-26T23:41:02.113Z
+  remarks: good first day
+── projects moved ─────────────
+  Ship the projects layer  1h25m   1 done
+  Infra                    12m
+```
+
+"Moved" means the day banked time against one of the project's todos or
+completed one — a todo merely *dated* on the day puts no project here. This is
+the evening ritual's input: the block names the projects worth a
+`dyd projects note` line. It is omitted entirely for a day that moved no filed
+work, and for a `v: 1` fold written before project attribution existed
+(re-folding upgrades it).
 
 `GET /api/days/:day` — a day's record: the plan, joined with todo state
 (`GET /api/todos/by-ids`), and its fold state.
@@ -242,9 +385,32 @@ applied 4 op(s)   reason: split C into C-1 and C-2
   + plan 10:00-12:00   (2026-08-26)
 ```
 
+Project and doc ops render the same way, which is what a weekly review looks
+like as one intent:
+
+```
+applied 3 op(s)   reason: weekly review: retire the ingest rewrite
+  ~ project Rewrite the ingest job   (project, archived)
+  ~ doc notes   (14 lines)
+  ~ todo [ ] rotate the API key   (backlog)
+```
+
 ### Index addressing
 
 `<n|id>` args: a small integer is a 1-based position in **today's list as `dyd todo` prints it** (API order: `sortOrder`, then creation). `b<n>` is the same, against **the backlog as `dyd todo backlog` prints it**. Both are resolved by refetching that list at execution time — not from a cached view, so it's only racy against concurrent edits in the same second, acceptable single-user. Anything else is treated as a todo id. Positions do not address the overdue list; use ids there.
+
+`p<n>` addresses a **project**, and it is the one deliberate departure from the
+rule above: it is a position in the **unfiltered** `GET /api/projects` order
+(`sortOrder`, then creation), *not* in the list as printed. So a `p7` seen under
+`--status someday` is still `p7` for `dyd projects archive p7`, and no view ever
+renumbers another. The visible cost is gaps — the active block may print `p1 p3
+p5` — which is the honest reading of a stable handle. Projects are few and
+long-lived, where todos churn daily, so stability is worth more here than
+contiguity.
+
+No collision is possible: only bare digits and `b<digits>` are special to todo
+resolution, and a project reference is only ever accepted in a slot that expects
+a project. `dyd projects file 3 p2` is unambiguous by position and by prefix.
 
 ### `dyd source` — data-source connectors
 
@@ -338,3 +504,6 @@ configured to keep such lines out of history.
 - Review confirmation — app UI only (see pomodoro spec).
 - Watch/daemon mode — `watch -n 5 dyd pomo` covers it; a tmux status-line segment can later shell out to `dyd pomo --json`.
 - Editing todos beyond done/desk membership — the manage-todo agent path (Claude) already covers reconcile/reschedule flows.
+- Deleting a project — it detaches todos and destroys docs; archive instead, or spell it out in an `/api/apply` batch under a reason.
+- Creating extra project docs — every project has `notes`, and a second doc is a shaping act on the page.
+- Reordering projects — `sortOrder` is drag-and-drop semantics; no terminal ritual needs it.

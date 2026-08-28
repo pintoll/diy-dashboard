@@ -1,18 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { Project } from "../model/project.types";
-import { STALE_AFTER_DAYS, isStale } from "./stale";
+import { STALE_AFTER_DAYS, isStale, type StaleSubject } from "./project-stale";
 
-const project = (over: Partial<Project> = {}): Project => ({
-  id: "p1",
+// Only the two fields the rule reads: the module is deliberately structural so
+// the main process and the renderer can both hand it their own Project row.
+const project = (over: Partial<StaleSubject> = {}): StaleSubject => ({
   kind: "project",
-  title: "Ship it",
-  outcome: null,
   status: "active",
-  targetDate: null,
-  sortOrder: 0,
-  createdAt: "2026-08-01 00:00:00",
-  updatedAt: "2026-08-01 00:00:00",
-  archivedAt: null,
   ...over,
 });
 

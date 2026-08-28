@@ -1,4 +1,5 @@
 import { dayOf } from "@shared/day";
+import { isStale, type StaleSubject } from "@shared/project-stale";
 import { sqliteUtcToMs } from "@shared/sqlite-time";
 import { getTodosDb } from "./db";
 import type { ProjectStats } from "./types";
@@ -10,10 +11,12 @@ import type { ProjectStats } from "./types";
 //
 // Rolled up for every project at once rather than per project, because both
 // surfaces need all of them on first paint and listProjectTodos would be one
-// round trip each. Four grouped scans, merged here; `idx_todos_project` covers
-// the rollups and `idx_todos_open` the next-action pick. `nextAction` is the odd
-// one out: not an aggregate but a pick — the row that would come first out of
-// the backlog.
+// round trip each. One project scan plus four grouped ones, merged here;
+// `idx_todos_project` covers the rollups and `idx_todos_open` the next-action
+// pick. `nextAction` is the odd one out: not an aggregate but a pick — the row
+// that would come first out of the backlog. `isStale` is the other: derived
+// from lastActivityDay against the app's day, resolved here because the CLI and
+// the secretary read this over HTTP, where today is the server's call.
 //
 // "Activity" means the project moved: time banked against one of its todos, a
 // todo finished, or a note written. `projects.updated_at` is deliberately not a
@@ -29,6 +32,7 @@ type TodoRollup = {
   lastCompletedOn: string | null;
 };
 
+type Subject = StaleSubject & { projectId: string };
 type LastMs = { projectId: string; ms: number | null };
 type LastAt = { projectId: string; at: string | null };
 type NextAction = { projectId: string; id: string; title: string };
@@ -42,6 +46,15 @@ function laterDay(a: string | null, b: string | null): string | null {
 
 export function listProjectStats(): ProjectStats[] {
   const db = getTodosDb();
+
+  // Read first so every project gets a row even with nothing filed under it,
+  // and so the stale verdict has the status and kind it turns on. An id that
+  // appears only in a rollup is an orphan the service layer should have
+  // detached; it still gets stats, but never a stale verdict invented for a
+  // project that is not there.
+  const subjects = db
+    .prepare("SELECT id AS projectId, status, kind FROM projects")
+    .all() as Subject[];
 
   const rollups = db
     .prepare(
@@ -114,6 +127,7 @@ export function listProjectStats(): ProjectStats[] {
         workedSec: 0,
         lastActivityDay: null,
         nextAction: null,
+        isStale: false,
       };
       byId.set(projectId, stats);
     }
@@ -144,6 +158,13 @@ export function listProjectStats(): ProjectStats[] {
     if (ms === null) continue;
     const stats = ensure(row.projectId);
     stats.lastActivityDay = laterDay(stats.lastActivityDay, dayOf(ms));
+  }
+
+  // Last, because it reads lastActivityDay after every source has folded in.
+  const today = dayOf(Date.now());
+  for (const subject of subjects) {
+    const stats = ensure(subject.projectId);
+    stats.isStale = isStale(subject, stats.lastActivityDay, today);
   }
 
   return [...byId.values()];

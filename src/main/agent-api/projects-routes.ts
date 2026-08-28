@@ -4,6 +4,7 @@ import {
   listProjectDocs,
   updateProjectDoc,
 } from "../todos/project-docs";
+import { listProjectStats } from "../todos/project-stats";
 import {
   asProjectStatus,
   createProject,
@@ -45,6 +46,19 @@ export const projectsRoutes: Route[] = [
       const projects =
         status === null ? listProjects() : listProjects({ status: asProjectStatus(status) });
       sendJson(res, 200, { projects });
+    },
+  },
+  {
+    // The steering glance in one call: progress, invested time, open backlog,
+    // last activity, the next action and the stale verdict for every project.
+    // Reading it per project would be one round trip each, which is what a
+    // glance cannot afford. Derived state — no reason, no journal — and the
+    // literal path is registered ahead of the `:id` routes so a later
+    // GET /api/projects/:id could not shadow it.
+    method: "GET",
+    pattern: "/api/projects/stats",
+    handler: (_req, res) => {
+      sendJson(res, 200, { stats: listProjectStats() });
     },
   },
   {

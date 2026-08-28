@@ -4,6 +4,10 @@ import {
   assertOnlyKeys,
   PLAN_CREATE_KEYS,
   PLAN_PATCH_KEYS,
+  PROJECT_CREATE_KEYS,
+  PROJECT_DOC_CREATE_KEYS,
+  PROJECT_DOC_PATCH_KEYS,
+  PROJECT_PATCH_KEYS,
   TODO_CREATE_KEYS,
   TODO_PATCH_KEYS,
 } from "./validate";
@@ -24,12 +28,23 @@ import {
 export type OpRef = { kind: "id"; id: string } | { kind: "created"; index: number };
 
 export type ParsedOp =
-  | { kind: "todo.create"; input: Record<string, unknown> }
-  | { kind: "todo.update"; ref: OpRef; patch: Record<string, unknown> }
+  | { kind: "todo.create"; input: Record<string, unknown>; projectRef?: OpRef }
+  | {
+      kind: "todo.update";
+      ref: OpRef;
+      patch: Record<string, unknown>;
+      projectRef?: OpRef;
+    }
   | { kind: "todo.delete"; ref: OpRef }
   | { kind: "plan.create"; todoRef: OpRef; input: Record<string, unknown> }
   | { kind: "plan.update"; ref: OpRef; patch: Record<string, unknown> }
-  | { kind: "plan.delete"; ref: OpRef };
+  | { kind: "plan.delete"; ref: OpRef }
+  | { kind: "project.create"; input: Record<string, unknown> }
+  | { kind: "project.update"; ref: OpRef; patch: Record<string, unknown> }
+  | { kind: "project.delete"; ref: OpRef }
+  | { kind: "project_doc.create"; projectRef: OpRef; input: Record<string, unknown> }
+  | { kind: "project_doc.update"; ref: OpRef; patch: Record<string, unknown> }
+  | { kind: "project_doc.delete"; ref: OpRef };
 
 export type ParsedApply = {
   reason: string;
@@ -48,6 +63,12 @@ const OP_KINDS = [
   "plan.create",
   "plan.update",
   "plan.delete",
+  "project.create",
+  "project.update",
+  "project.delete",
+  "project_doc.create",
+  "project_doc.update",
+  "project_doc.delete",
 ] as const;
 
 // The plan.create body minus the id: it travels as a parsed ref instead, and
@@ -68,12 +89,33 @@ function pick(
 
 const REF_PATTERN = /^\$(0|[1-9]\d*)$/;
 
+/**
+ * Lifts a `"$N"` out of a todo body's `projectId` so filing into a project
+ * created earlier in the same batch stays one intent.
+ *
+ * Unlike plan.create's `todoId`, `projectId` is an ordinary field of the todo
+ * body, so it is only lifted when it actually carries the sigil: a literal id
+ * and a `null` (unfile) stay in the body and reach the domain layer untouched.
+ * Mutates `body`, which is the freshly picked copy, never the caller's object.
+ */
+function liftProjectRef(
+  obj: Record<string, unknown>,
+  body: Record<string, unknown>,
+  index: number,
+  prior: ParsedOp[]
+): OpRef | undefined {
+  const value = obj.projectId;
+  if (typeof value !== "string" || !value.startsWith("$")) return undefined;
+  delete body.projectId;
+  return parseRef(value, "projectId", index, prior, "project");
+}
+
 function parseRef(
   value: unknown,
   field: string,
   index: number,
   prior: ParsedOp[],
-  entity: "todo" | "plan"
+  entity: "todo" | "plan" | "project" | "project_doc"
 ): OpRef {
   if (typeof value !== "string" || value.length === 0) {
     throw new ValidationError(`ops[${index}]: ${field} must be a non-empty string`);
@@ -104,12 +146,21 @@ function parseOp(raw: unknown, index: number, prior: ParsedOp[]): ParsedOp {
   const what = `ops[${index}]`;
   const obj = asObject(raw, what);
   switch (obj.op) {
-    case "todo.create":
+    case "todo.create": {
       assertOnlyKeys(obj, ["op", ...TODO_CREATE_KEYS], what);
-      return { kind: "todo.create", input: pick(obj, TODO_CREATE_KEYS) };
+      const input = pick(obj, TODO_CREATE_KEYS);
+      return {
+        kind: "todo.create",
+        input,
+        projectRef: liftProjectRef(obj, input, index, prior),
+      };
+    }
     case "todo.update": {
       assertOnlyKeys(obj, ["op", "id", ...TODO_PATCH_KEYS], what);
       const patch = pick(obj, TODO_PATCH_KEYS);
+      // Emptiness is judged on the patch as sent, before a "$N" projectId is
+      // lifted out of it: the executor puts the resolved id back, so a patch
+      // that is only a project ref is a real one.
       if (Object.keys(patch).length === 0) {
         throw new ValidationError(
           `${what}: todo.update needs at least one of ${TODO_PATCH_KEYS.join(", ")}`
@@ -119,6 +170,7 @@ function parseOp(raw: unknown, index: number, prior: ParsedOp[]): ParsedOp {
         kind: "todo.update",
         ref: parseRef(obj.id, "id", index, prior, "todo"),
         patch,
+        projectRef: liftProjectRef(obj, patch, index, prior),
       };
     }
     case "todo.delete":
@@ -148,6 +200,62 @@ function parseOp(raw: unknown, index: number, prior: ParsedOp[]): ParsedOp {
     case "plan.delete":
       assertOnlyKeys(obj, ["op", "id"], what);
       return { kind: "plan.delete", ref: parseRef(obj.id, "id", index, prior, "plan") };
+    case "project.create":
+      assertOnlyKeys(obj, ["op", ...PROJECT_CREATE_KEYS], what);
+      return { kind: "project.create", input: pick(obj, PROJECT_CREATE_KEYS) };
+    case "project.update": {
+      assertOnlyKeys(obj, ["op", "id", ...PROJECT_PATCH_KEYS], what);
+      const patch = pick(obj, PROJECT_PATCH_KEYS);
+      if (Object.keys(patch).length === 0) {
+        throw new ValidationError(
+          `${what}: project.update needs at least one of ${PROJECT_PATCH_KEYS.join(", ")}`
+        );
+      }
+      return {
+        kind: "project.update",
+        ref: parseRef(obj.id, "id", index, prior, "project"),
+        patch,
+      };
+    }
+    case "project.delete":
+      assertOnlyKeys(obj, ["op", "id"], what);
+      return {
+        kind: "project.delete",
+        ref: parseRef(obj.id, "id", index, prior, "project"),
+      };
+    // The project id travels as a ref, like plan.create's todoId. Unlike
+    // PLAN_CREATE_KEYS it is not part of the create body to filter back out:
+    // the single-op route takes it from the path, so it is added to the
+    // allowlist here and never reaches the domain input.
+    case "project_doc.create":
+      assertOnlyKeys(obj, ["op", "projectId", ...PROJECT_DOC_CREATE_KEYS], what);
+      return {
+        kind: "project_doc.create",
+        projectRef: parseRef(obj.projectId, "projectId", index, prior, "project"),
+        input: pick(obj, PROJECT_DOC_CREATE_KEYS),
+      };
+    case "project_doc.update": {
+      assertOnlyKeys(obj, ["op", "id", ...PROJECT_DOC_PATCH_KEYS], what);
+      const patch = pick(obj, PROJECT_DOC_PATCH_KEYS);
+      if (Object.keys(patch).length === 0) {
+        throw new ValidationError(
+          `${what}: project_doc.update needs at least one of ${PROJECT_DOC_PATCH_KEYS.join(", ")}`
+        );
+      }
+      // body/append exclusivity is resolveDocBodyPatch's call, inside the
+      // batch transaction — duplicating it here would fork the rule.
+      return {
+        kind: "project_doc.update",
+        ref: parseRef(obj.id, "id", index, prior, "project_doc"),
+        patch,
+      };
+    }
+    case "project_doc.delete":
+      assertOnlyKeys(obj, ["op", "id"], what);
+      return {
+        kind: "project_doc.delete",
+        ref: parseRef(obj.id, "id", index, prior, "project_doc"),
+      };
     default:
       throw new ValidationError(
         `${what}: unknown op ${JSON.stringify(obj.op)}; expected one of ${OP_KINDS.join(", ")}`

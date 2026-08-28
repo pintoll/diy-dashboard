@@ -143,7 +143,7 @@ day_folds (
 
 The original design embedded a LangGraph JS loop with a Gemini provider in
 the main process. Before implementation it was replaced by Claude Code acting
-as the assistant from a dedicated workspace (`~/workspace/secretary`),
+as the assistant from a dedicated workspace (`~/secretary`),
 talking to the app through `dyd` over the agent API. Phases 1-6 carried over
 untouched — they never contained model code.
 
@@ -232,10 +232,11 @@ LangChain base-URL gate the original design carried is moot.
    apply.ts (outer transaction over the same crud/plan functions, whose inner
    transactions become savepoints) + events.ts emit buffering;
    docs/spec/todos-agent-api.md and dyd-cli.md updated)*
-8. **Secretary workspace** — `~/workspace/secretary`: CLAUDE.md (the
+8. **Secretary workspace** — `~/secretary`: CLAUDE.md (the
    distilled contract), SessionStart hook (loads the triple + session id),
    `dyd` allowlist. Outside this repo by design — the workspace is user
-   configuration, not app code. *(done)*
+   configuration, not app code, which is also why it sits beside `~/workspace`
+   rather than inside it. *(done)*
 9. **Rewind** — deferred until compensating ops (see Sessions & rewind) hurt.
 
 Steps 1–7 carry no model code: the day record, its journal, and the batch

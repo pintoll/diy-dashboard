@@ -21,6 +21,16 @@ usage:
   dyd todo move <n|id|b<n>> <date|today|tomorrow|backlog> [--reason <text>]
   dyd todo use <n|id|->       add a todo to the desk (- clears the desk)
   dyd todo drop <n|id>        remove a todo from the desk
+  dyd projects                the steering glance: progress, next action, stale mark
+  dyd projects list [--status <active|someday|done|archived|all>] [--stale]
+  dyd projects show <p<n>|id>
+  dyd projects add "<title>" [--kind <project|area>] [--outcome <t>] [--target <date>] [--someday] [--reason <text>]
+  dyd projects set <p<n>|id> [--title <t>] [--outcome <t>] [--target <date>] [--kind <k>] [--reason <text>]
+  dyd projects <activate|someday|done|archive> <p<n>|id> [--reason <text>]
+  dyd projects note <p<n>|id> "<line>" [--doc <title>] [--raw] [--reason <text>]
+  dyd projects notes <p<n>|id> [--doc <title>]   read a project doc
+  dyd projects file <n|id|b<n>> <p<n>|id|->      file a todo under a project (- unfiles)
+  dyd projects pull <p<n>|id> [<k>] [-d <date>] [--reason <text>]   next action -> a day
   dyd log [date|today|yesterday]  a day's journal, rendered
   dyd day [date|today|yesterday]  a day's record: plan + fold state
   dyd yesterday               the unfolded day pending a fold, if any
@@ -232,6 +242,7 @@ print(date.fromisoformat(os.environ["TODAY"]) - timedelta(days=1))' ;;
 # --- formatter (all human output) -----------------------------------------
 FORMATTER=$(cat <<'PY'
 import json, sys
+from datetime import date
 
 def load(s):
     s = (s or "").strip()
@@ -246,6 +257,49 @@ def mmss(sec):
 def worked(sec):
     sec = int(sec)
     return f"{sec//60}m" if sec >= 60 else ""
+
+# worked() prints raw minutes, which stops reading at project scale (260m).
+def hours(sec):
+    sec = int(sec or 0)
+    if sec < 60:
+        return ""
+    m = sec // 60
+    return f"{m}m" if m < 60 else f"{m//60}h{m%60:02d}m"
+
+# How long ago a day was, against the app's day (never this machine's clock).
+def days_since(day, today):
+    if not day:
+        return "never"
+    n = (date.fromisoformat(today) - date.fromisoformat(day)).days
+    if n <= 0:
+        return "today"
+    return f"{n}d"
+
+def progress(st):
+    return f"{st.get('done', 0)}/{st.get('total', 0)}"
+
+# Two lines per project: the title ends line 1 so a Korean title cannot skew a
+# column (f-string padding counts codepoints, not display width), and every
+# padded column on line 2 is ASCII. `isStale` comes from the API, which owns
+# the day the rule turns on -- the CLI never re-derives it.
+def project_rows(ps, stats, today):
+    for p in ps:
+        st = stats.get(p["id"], {})
+        mark = "!" if st.get("isStale") else " "
+        print(f"{mark} p{p['_n']} {p['title']}")
+        nxt = st.get("nextAction")
+        arrow = nxt["title"] if nxt else "(no next action)"
+        print(f"     {progress(st):<7} {hours(st.get('workedSec')):<7} "
+              f"{days_since(st.get('lastActivityDay'), today):<6} -> {arrow}")
+
+# p<n> is a GLOBAL handle: the position in the unfiltered /api/projects order,
+# stamped once here so filtering a view never renumbers it. This is the one
+# deliberate departure from <n>/b<n>, which are positions in the list as
+# printed (docs/spec/dyd-cli.md).
+def numbered(projects):
+    for i, p in enumerate(projects, 1):
+        p["_n"] = i
+    return projects
 
 PHASE = {"work": "work", "shortBreak": "break", "longBreak": "long break"}
 def phase_label(p): return PHASE.get(p, p)
@@ -353,11 +407,25 @@ elif mode == "overdue":
 
 elif mode == "backlog":
     ts = (load(sys.argv[2]) or {}).get("todos", [])
+    titles = {p["id"]: p["title"]
+              for p in (load(sys.argv[3]) or {}).get("projects", [])}
     if not ts:
         print("backlog is empty")
     else:
-        # b<n> is how these are addressed: `dyd todo move b2 today`.
+        # The route already returns this grouped -- unfiled first, then by
+        # project title -- because sort_order repeats across those lists. So
+        # the inbox is exactly the b1..bk prefix, which is what makes
+        # `dyd projects file b3 p2` typable. b<n> is unchanged and still
+        # addresses the whole warehouse: `dyd todo move b2 today`.
+        group = object()
         for i, t in enumerate(ts, 1):
+            pid = t["projectId"]
+            if pid != group:
+                group = pid
+                # An id with no project row should not occur (deleting a
+                # project detaches its todos); show it rather than hide it.
+                print("── " + ("inbox" if pid is None else titles.get(pid, pid))
+                      + " ─────────────")
             box = "[x]" if t["done"] else "[ ]"
             w = worked(t["workedSec"])
             line = f"  b{i} {box} {t['title']}"
@@ -402,6 +470,17 @@ elif mode == "day":
         print(f"  folded at {fold['foldedAt']}")
         if fold.get("remarks"):
             print(f"  remarks: {fold['remarks']}")
+        # The evening ritual's input: the projects the day actually MOVED (time
+        # banked or a todo completed), not merely the ones it was dated under.
+        # Absent on a v:1 fold written before project attribution; re-folding
+        # upgrades it. Omitted entirely when empty, like the overview's counts.
+        moved = snap.get("projects") or []
+        if moved:
+            print("── projects moved ─────────────")
+            wp = max(len(p["title"]) for p in moved)
+            for p in moved:
+                done = f"{p['doneCount']} done" if p["doneCount"] else ""
+                print(f"  {p['title']:<{wp}}  {hours(p['workedSec']):<7} {done}".rstrip())
     else:
         plan = d.get("plan", [])
         if not plan:
@@ -441,8 +520,16 @@ elif mode == "applied":
         elif "entry" in r:
             e = r["entry"]
             print(f"  {verb} plan {e['start']}-{e['end']}   ({e['day']})")
+        elif "project" in r:
+            p = r["project"]
+            print(f"  {verb} project {p['title']}   ({p['kind']}, {p['status']})")
+        elif "doc" in r:
+            d = r["doc"]
+            n = len([ln for ln in d["body"].splitlines() if ln.strip()])
+            print(f"  {verb} doc {d['title']}   ({n} lines)")
         else:
-            print(f"  {verb} {kind.split('.')[0]} {r.get('deleted', '')}")
+            entity = kind.split(".")[0].replace("project_doc", "doc")
+            print(f"  {verb} {entity} {r.get('deleted', '')}")
 
 elif mode == "pomo":
     p = load(sys.argv[2])
@@ -498,6 +585,163 @@ elif mode == "moved":
 elif mode == "desk_set":
     d = load(sys.argv[2]); ts = (d or {}).get("todos", [])
     print("desk: " + ", ".join(t["title"] for t in ts) if ts else "desk: (empty)")
+
+elif mode == "projects":
+    projects = numbered((load(sys.argv[2]) or {}).get("projects", []))
+    stats = {s["projectId"]: s for s in (load(sys.argv[3]) or {}).get("stats", [])}
+    backlog = (load(sys.argv[4]) or {}).get("todos", [])
+    today = sys.argv[5]
+    want = sys.argv[6]          # a status, "all", or "" for the default glance
+    stale_only = sys.argv[7] == "1"
+
+    if stale_only:
+        rows = [p for p in projects if stats.get(p["id"], {}).get("isStale")]
+        print("── stale ─────────────")
+        if not rows:
+            print("nothing stale")
+        else:
+            project_rows(rows, stats, today)
+    elif want and want != "all":
+        rows = [p for p in projects if p["status"] == want]
+        print(f"── {want} ─────────────")
+        if not rows:
+            print(f"no {want} projects")
+        else:
+            project_rows(rows, stats, today)
+    else:
+        # The default glance is active work; "all" adds every other status
+        # block under it. Areas are split out because an area never goes stale
+        # and would otherwise read as permanently fine.
+        blocks = [
+            ("projects " + today,
+             [p for p in projects if p["status"] == "active" and p["kind"] == "project"]),
+            ("areas",
+             [p for p in projects if p["status"] == "active" and p["kind"] == "area"]),
+        ]
+        if want == "all":
+            for st in ("someday", "done", "archived"):
+                blocks.append((st, [p for p in projects if p["status"] == st]))
+        shown = False
+        for title, rows in blocks:
+            if not rows:
+                continue
+            shown = True
+            print(f"── {title} ─────────────")
+            project_rows(rows, stats, today)
+        if not shown:
+            print("no active projects")
+        if want != "all":
+            rest = [(st, sum(1 for p in projects if p["status"] == st))
+                    for st in ("someday", "done", "archived")]
+            rest = [f"{st}: {n}" for st, n in rest if n]
+            if rest:
+                print("── " + "   ".join(rest) + "   (dyd projects list --status all)")
+        inbox = sum(1 for t in backlog if t["projectId"] is None)
+        if inbox:
+            print(f"── inbox: {inbox} (dyd todo backlog)")
+        stale = sum(1 for p in projects if stats.get(p["id"], {}).get("isStale"))
+        if stale:
+            print(f"({stale} stale, marked !)")
+
+elif mode == "project_show":
+    p = load(sys.argv[2])["project"]
+    lists = load(sys.argv[3]) or {}
+    docs = (load(sys.argv[4]) or {}).get("docs", [])
+    stats = {s["projectId"]: s for s in (load(sys.argv[5]) or {}).get("stats", [])}
+    today = sys.argv[6]
+    label = sys.argv[7]
+    want_doc = sys.argv[8]
+    st = stats.get(p["id"], {})
+
+    print(f"title      {p['title']}")
+    print(f"id         {p['id']}   ({label})")
+    print(f"kind       {p['kind']}")
+    print(f"status     {p['status']}")
+    if p.get("outcome"):
+        print(f"outcome    {p['outcome']}")
+    if p.get("targetDate"):
+        print(f"target     {p['targetDate']}")
+    if p.get("archivedAt"):
+        print(f"archived   {p['archivedAt']}")
+    bits = [f"{progress(st)} done", f"{st.get('openBacklog', 0)} in backlog"]
+    w = hours(st.get("workedSec"))
+    if w:
+        bits.append(f"{w} worked")
+    print("progress   " + " · ".join(bits))
+    last = st.get("lastActivityDay")
+    age = days_since(last, today) + (", stale" if st.get("isStale") else "")
+    print(f"activity   {last or '(never)'} ({age})")
+    if docs:
+        print("docs       " + ", ".join(d["title"] for d in docs))
+
+    print("── backlog ─────────────")
+    backlog = lists.get("backlog", [])
+    if not backlog:
+        # Not "(none)": an active project with no next action is the thing a
+        # weekly review is looking for.
+        print("  (empty — this project is not moving)")
+    for i, t in enumerate(backlog, 1):
+        line = f"  {i} [ ] {t['title']}"
+        wk = worked(t["workedSec"])
+        print(f"{line:<40} {wk}".rstrip() if wk else line)
+    sched = lists.get("scheduled", [])
+    if sched:
+        print("── scheduled ─────────────")
+        for t in sched:
+            print(f"    [ ] {t['title']}   ({t['date']})")
+    comp = lists.get("completed", [])
+    if comp:
+        latest = comp[0].get("completedOn") or "?"
+        print(f"── completed: {len(comp)}   (latest {latest})")
+
+    doc = None
+    for d in docs:
+        if d["title"] == want_doc:
+            doc = d
+            break
+    if doc is not None:
+        print(f"── {doc['title']} ─────────────")
+        body = [ln for ln in doc["body"].splitlines() if ln.strip()]
+        if not body:
+            print("  (empty)")
+        else:
+            if len(body) > 3:
+                print(f"  … ({len(body)} lines, dyd projects notes {label})")
+            for ln in body[-3:]:
+                print(f"  {ln}")
+
+elif mode == "project_added":
+    projects = numbered((load(sys.argv[2]) or {}).get("projects", []))
+    new_id = sys.argv[3]
+    for p in projects:
+        if p["id"] == new_id:
+            print(f"added  p{p['_n']} {p['title']}   ({p['kind']}, {p['status']})")
+            break
+
+elif mode == "project_line":
+    p = load(sys.argv[2])["project"]
+    print(f"{sys.argv[3]}: {p['title']}   ({p['kind']}, {p['status']})")
+
+elif mode == "project_doc":
+    d = load(sys.argv[2])["doc"]
+    print(f"── {sys.argv[3]} / {d['title']} ─────────────")
+    body = [ln for ln in d["body"].splitlines() if ln.strip()]
+    if not body:
+        print("  (empty)")
+    for ln in body:
+        print(f"  {ln}")
+
+elif mode == "project_noted":
+    d = load(sys.argv[2])["doc"]
+    print(f"noted  {sys.argv[3]} / {d['title']}")
+    body = [ln for ln in d["body"].splitlines() if ln.strip()]
+    if body:
+        print(f"  {body[-1]}")
+
+elif mode == "project_todo":
+    t = load(sys.argv[2])["todo"]
+    box = "[x]" if t["done"] else "[ ]"
+    print(f"{sys.argv[3]}: {box} {t['title']}   -> {sys.argv[4]}")
 
 elif mode == "sources":
     cs = (load(sys.argv[2]) or {}).get("connectors", [])
@@ -601,6 +845,57 @@ print(ts[n-1]["id"] if 1 <= n <= len(ts) else "")' "$pos")
     return 1
   fi
   RESOLVED_ID="$id"
+  return 0
+}
+
+resolve_pid() { # resolve_pid <p<n>|id> -> sets RESOLVED_PID/PLABEL/PTITLE/PROW.
+  # Same "sets globals, never echoes" contract as resolve_id, and for the same
+  # reason: exit inside a command substitution only ends the subshell.
+  #
+  # `p<n>` is a position in the UNFILTERED /api/projects order, not in the list
+  # as printed -- so a p7 seen under `--status someday` is still p7 here. That
+  # is the one deliberate departure from <n>/b<n> (docs/spec/dyd-cli.md), and
+  # it is why every projects view numbers from the same read.
+  #
+  # The list is fetched even for a raw id, because every project verb's output
+  # line needs the title anyway -- and RESOLVED_PROW carries the whole row, so
+  # `show` does not need a per-project read (the API exposes no
+  # GET /api/projects/:id; one id is reached through the list). An id the list
+  # does not carry is passed through so the API answers with its own 404, same
+  # tolerance as resolve_id.
+  local arg="$1" pos=""
+  case "$arg" in
+    p*)
+      pos="${arg#p}"
+      case "$pos" in
+        ''|*[!0-9]*) pos="" ;;  # not p<n>: an id that happens to start with p
+      esac ;;
+  esac
+  api GET /api/projects; api_ok_or_die
+  { read -r RESOLVED_PID; read -r RESOLVED_PLABEL; read -r RESOLVED_PTITLE
+    read -r RESOLVED_PROW; } < <(
+    printf '%s' "$BODY" | python3 -c '
+import json, sys
+ps = json.load(sys.stdin)["projects"]
+arg, pos = sys.argv[1], sys.argv[2]
+if pos:
+    n = int(pos)
+    p = ps[n - 1] if 1 <= n <= len(ps) else None
+else:
+    p = next((x for x in ps if x["id"] == arg), None)
+    n = (ps.index(p) + 1) if p else 0
+if p is None:
+    # A bad p<n> is a client-side error; an unknown id goes to the API.
+    print("" if pos else arg); print(""); print(""); print("null")
+else:
+    # json.dumps escapes any newline, so the row stays one readable line.
+    print(p["id"]); print(f"p{n}"); print(p["title"]); print(json.dumps(p))' "$arg" "$pos"
+  )
+  if [ -z "$RESOLVED_PID" ]; then
+    echo "${PROG}: no project at position $arg" >&2
+    return 1
+  fi
+  [ -n "$RESOLVED_PLABEL" ] || RESOLVED_PLABEL="$arg"
   return 0
 }
 
@@ -718,9 +1013,18 @@ cmd_todo() {
       if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
       api_ok_or_die; fmt overdue "$BODY" ;;
     backlog)
-      api GET /api/todos/backlog
-      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
-      api_ok_or_die; fmt backlog "$BODY" ;;
+      if [ "$JSON_OUT" = 1 ]; then
+        api GET /api/todos/backlog
+        printf '%s\n' "$BODY"; api_ok_or_die; return
+      fi
+      # The projects read only supplies the group headers; the API already
+      # returns the rows grouped, so the numbering does not depend on it.
+      api_get_all /api/todos/backlog /api/projects
+      local i
+      for i in 0 1; do
+        HTTP_STATUS="${PAR_STATUS[$i]}"; BODY="${PAR_BODY[$i]}"; api_ok_or_die
+      done
+      fmt backlog "${PAR_BODY[0]}" "${PAR_BODY[1]}" ;;
     add)
       [ $# -ge 1 ] || die_usage
       local title="$1"; shift
@@ -835,6 +1139,311 @@ print(json.dumps(out))')
 # The day record: plan + fold state for one day (GET /api/days/:day). Titles
 # for unfolded plan entries come from /api/todos/by-ids; a folded day carries
 # its own denormalized titles in the snapshot.
+# The steering layer (docs/design/projects-para.md). Nothing here executes work:
+# the only path from a project into doing is `pull`, which is an ordinary
+# PATCH /api/todos/:id with a date. That is why there is no start/plan/timer
+# verb, and why there should never be one.
+cmd_projects() {
+  local sub="${1:-list}"; [ $# -gt 0 ] && shift
+  case "$sub" in
+    list)
+      local want="" stale_only=0
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --status) [ $# -ge 2 ] || die_usage; want="$2"; shift 2 ;;
+          --stale) stale_only=1; shift ;;
+          *) die_usage ;;
+        esac
+      done
+      # One screen, one round trip: the list names them, stats carries every
+      # number, the backlog yields the inbox count, and /api/today is the day
+      # the ages are measured against (never this machine's).
+      api_get_all /api/projects /api/projects/stats /api/todos/backlog /api/today
+      local i
+      for i in 0 1 2 3; do
+        HTTP_STATUS="${PAR_STATUS[$i]}"; BODY="${PAR_BODY[$i]}"; api_ok_or_die
+      done
+      if [ "$JSON_OUT" = 1 ]; then
+        python3 -c '
+import json, sys
+def load(s):
+    s=(s or "").strip(); return json.loads(s) if s else None
+print(json.dumps({
+  "projects": load(sys.argv[1]),
+  "stats": load(sys.argv[2]),
+  "backlog": load(sys.argv[3]),
+  "today": load(sys.argv[4]),
+}))' "${PAR_BODY[0]}" "${PAR_BODY[1]}" "${PAR_BODY[2]}" "${PAR_BODY[3]}"
+        return
+      fi
+      fmt projects "${PAR_BODY[0]}" "${PAR_BODY[1]}" "${PAR_BODY[2]}" \
+        "$(jget "${PAR_BODY[3]}" 'd["date"]')" "$want" "$stale_only" ;;
+    show)
+      [ $# -ge 1 ] && [ $# -le 3 ] || die_usage
+      local target="$1"; shift
+      local doc="notes"
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --doc) [ $# -ge 2 ] || die_usage; doc="$2"; shift 2 ;;
+          *) die_usage ;;
+        esac
+      done
+      resolve_pid "$target" || exit 1
+      local prow="{\"project\":$RESOLVED_PROW}"
+      api_get_all "/api/projects/$(urlenc "$RESOLVED_PID")/todos" \
+        "/api/projects/$(urlenc "$RESOLVED_PID")/docs" /api/projects/stats /api/today
+      local i
+      for i in 0 1 2 3; do
+        HTTP_STATUS="${PAR_STATUS[$i]}"; BODY="${PAR_BODY[$i]}"; api_ok_or_die
+      done
+      if [ "$JSON_OUT" = 1 ]; then
+        python3 -c '
+import json, sys
+def load(s):
+    s=(s or "").strip(); return json.loads(s) if s else None
+print(json.dumps({
+  "project": load(sys.argv[1]),
+  "todos": load(sys.argv[2]),
+  "docs": load(sys.argv[3]),
+  "stats": load(sys.argv[4]),
+}))' "$RESOLVED_PROW" "${PAR_BODY[0]}" "${PAR_BODY[1]}" "${PAR_BODY[2]}"
+        return
+      fi
+      fmt project_show "$prow" "${PAR_BODY[0]}" "${PAR_BODY[1]}" "${PAR_BODY[2]}" \
+        "$(jget "${PAR_BODY[3]}" 'd["date"]')" "$RESOLVED_PLABEL" "$doc" ;;
+    add)
+      [ $# -ge 1 ] || die_usage
+      local title="$1"; shift
+      local kind="" outcome="" outcome_set=0 target="" target_set=0
+      local status="" reason="" reason_set=0
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --kind) kind="${2:-}"; shift 2 || die_usage ;;
+          --outcome) outcome="${2:-}"; outcome_set=1; shift 2 || die_usage ;;
+          --target) target="${2:-}"; target_set=1; shift 2 || die_usage ;;
+          --someday) status="someday"; shift ;;
+          --reason) reason="${2:-}"; reason_set=1; shift 2 || die_usage ;;
+          *) die_usage ;;
+        esac
+      done
+      local body
+      body=$(TITLE="$title" KIND="$kind" OUTCOME="$outcome" OUTCOME_SET="$outcome_set" \
+             TARGET="$target" TARGET_SET="$target_set" STATUS="$status" \
+             REASON="$reason" REASON_SET="$reason_set" python3 -c '
+import json, os
+out = {"title": os.environ["TITLE"]}
+if os.environ["KIND"]:
+    out["kind"] = os.environ["KIND"]
+if os.environ["STATUS"]:
+    out["status"] = os.environ["STATUS"]
+# An empty --outcome/--target sends null (clear), like dyd fold --remarks "".
+if os.environ["OUTCOME_SET"] == "1":
+    out["outcome"] = os.environ["OUTCOME"] or None
+if os.environ["TARGET_SET"] == "1":
+    out["targetDate"] = os.environ["TARGET"] or None
+if os.environ["REASON_SET"] == "1":
+    out["reason"] = os.environ["REASON"]
+print(json.dumps(out))')
+      api POST /api/projects "$body"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die
+      local new_id; new_id=$(jget "$BODY" 'd["project"]["id"]')
+      # Refetch so the created project prints with its p<n>, the handle every
+      # other verb takes. Same shape as `dyd todo add`.
+      api GET /api/projects; api_ok_or_die
+      fmt project_added "$BODY" "$new_id" ;;
+    set)
+      [ $# -ge 3 ] || die_usage
+      local target_p="$1"; shift
+      local title="" title_set=0 outcome="" outcome_set=0 tdate="" tdate_set=0
+      local kind="" reason="" reason_set=0
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --title) title="${2:-}"; title_set=1; shift 2 || die_usage ;;
+          --outcome) outcome="${2:-}"; outcome_set=1; shift 2 || die_usage ;;
+          --target) tdate="${2:-}"; tdate_set=1; shift 2 || die_usage ;;
+          --kind) kind="${2:-}"; shift 2 || die_usage ;;
+          --reason) reason="${2:-}"; reason_set=1; shift 2 || die_usage ;;
+          *) die_usage ;;
+        esac
+      done
+      # No field at all would be a 400 anyway; fail before the round trip.
+      [ "$title_set$outcome_set$tdate_set" = "000" ] && [ -z "$kind" ] && die_usage
+      resolve_pid "$target_p" || exit 1
+      local body
+      body=$(TITLE="$title" TITLE_SET="$title_set" OUTCOME="$outcome" \
+             OUTCOME_SET="$outcome_set" TARGET="$tdate" TARGET_SET="$tdate_set" \
+             KIND="$kind" REASON="$reason" REASON_SET="$reason_set" python3 -c '
+import json, os
+out = {}
+if os.environ["TITLE_SET"] == "1":
+    out["title"] = os.environ["TITLE"]
+if os.environ["OUTCOME_SET"] == "1":
+    out["outcome"] = os.environ["OUTCOME"] or None
+if os.environ["TARGET_SET"] == "1":
+    out["targetDate"] = os.environ["TARGET"] or None
+if os.environ["KIND"]:
+    out["kind"] = os.environ["KIND"]
+if os.environ["REASON_SET"] == "1":
+    out["reason"] = os.environ["REASON"]
+print(json.dumps(out))')
+      api PATCH "/api/projects/$(urlenc "$RESOLVED_PID")" "$body"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt project_line "$BODY" "updated" ;;
+    activate|someday|done|archive)
+      # Four verbs, one PATCH: a review speaks them as verbs ("demote to
+      # someday", "archive it"), the way `dyd source enable|disable` does.
+      [ $# -ge 1 ] || die_usage
+      local target_p="$1"; shift
+      local reason="" reason_set=0
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --reason) reason="${2:-}"; reason_set=1; shift 2 || die_usage ;;
+          *) die_usage ;;
+        esac
+      done
+      local status="$sub" lead="$sub"
+      case "$sub" in
+        activate) status="active"; lead="activated" ;;
+        archive) status="archived"; lead="archived" ;;
+        someday) lead="parked" ;;
+        done) lead="done" ;;
+      esac
+      resolve_pid "$target_p" || exit 1
+      local body
+      body=$(STATUS="$status" REASON="$reason" REASON_SET="$reason_set" python3 -c '
+import json, os
+out = {"status": os.environ["STATUS"]}
+if os.environ["REASON_SET"] == "1":
+    out["reason"] = os.environ["REASON"]
+print(json.dumps(out))')
+      api PATCH "/api/projects/$(urlenc "$RESOLVED_PID")" "$body"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt project_line "$BODY" "$lead" ;;
+    note|notes)
+      [ $# -ge 1 ] || die_usage
+      local target_p="$1"; shift
+      local line="" doc="notes" raw=0 reason="" reason_set=0
+      if [ "$sub" = "note" ]; then
+        [ $# -ge 1 ] || die_usage
+        line="$1"; shift
+      fi
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --doc) [ $# -ge 2 ] || die_usage; doc="$2"; shift 2 ;;
+          --raw) raw=1; shift ;;
+          --reason) reason="${2:-}"; reason_set=1; shift 2 || die_usage ;;
+          *) die_usage ;;
+        esac
+      done
+      resolve_pid "$target_p" || exit 1
+      api GET "/api/projects/$(urlenc "$RESOLVED_PID")/docs"; api_ok_or_die
+      local docs_body="$BODY" doc_id
+      doc_id=$(DOC="$doc" python3 -c '
+import json, os, sys
+d = json.load(sys.stdin)["docs"]
+want = os.environ["DOC"]
+print(next((x["id"] for x in d if x["title"] == want), ""))' <<< "$docs_body")
+      if [ -z "$doc_id" ]; then
+        echo "${PROG}: no doc titled \"$doc\" on $RESOLVED_PTITLE" >&2
+        exit 1
+      fi
+      if [ "$sub" = "notes" ]; then
+        local one
+        one=$(DOC_ID="$doc_id" python3 -c '
+import json, os, sys
+d = json.load(sys.stdin)["docs"]
+print(json.dumps({"doc": next(x for x in d if x["id"] == os.environ["DOC_ID"])}))' <<< "$docs_body")
+        if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$one"; return; fi
+        fmt project_doc "$one" "$RESOLVED_PTITLE"
+        return
+      fi
+      # Dated by default: the server does not date an append, and the date must
+      # be the app's 05:00 day, so only the CLI can put it there. --raw opts out.
+      local prefix=""
+      if [ "$raw" = 0 ]; then
+        local today; today=$(app_today) || exit
+        prefix="$today: "
+      fi
+      local body
+      body=$(LINE="${prefix}${line}" REASON="$reason" REASON_SET="$reason_set" python3 -c '
+import json, os
+out = {"append": os.environ["LINE"]}
+if os.environ["REASON_SET"] == "1":
+    out["reason"] = os.environ["REASON"]
+print(json.dumps(out))')
+      api PATCH "/api/docs/$(urlenc "$doc_id")" "$body"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt project_noted "$BODY" "$RESOLVED_PTITLE" ;;
+    file)
+      [ $# -ge 2 ] || die_usage
+      local todo_arg="$1" proj_arg="$2"; shift 2
+      local reason="" reason_set=0
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --reason) reason="${2:-}"; reason_set=1; shift 2 || die_usage ;;
+          *) die_usage ;;
+        esac
+      done
+      resolve_id "$todo_arg" || exit 1
+      local todo_id="$RESOLVED_ID" pid="" label="(inbox)"
+      if [ "$proj_arg" != "-" ]; then
+        resolve_pid "$proj_arg" || exit 1
+        pid="$RESOLVED_PID"; label="$RESOLVED_PTITLE"
+      fi
+      local body
+      body=$(PID="$pid" REASON="$reason" REASON_SET="$reason_set" python3 -c '
+import json, os
+out = {"projectId": os.environ["PID"] or None}
+if os.environ["REASON_SET"] == "1":
+    out["reason"] = os.environ["REASON"]
+print(json.dumps(out))')
+      api PATCH "/api/todos/$(urlenc "$todo_id")" "$body"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die; fmt project_todo "$BODY" "filed" "$label" ;;
+    pull)
+      [ $# -ge 1 ] || die_usage
+      local target_p="$1"; shift
+      local k=1 dspec="today" reason="" reason_set=0
+      case "${1:-}" in
+        ''|-*) ;;
+        *) k="$1"; shift ;;
+      esac
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          -d) [ $# -ge 2 ] || die_usage; dspec="$2"; shift 2 ;;
+          --reason) reason="${2:-}"; reason_set=1; shift 2 || die_usage ;;
+          *) die_usage ;;
+        esac
+      done
+      case "$k" in ''|*[!0-9]*) die_usage ;; esac
+      resolve_pid "$target_p" || exit 1
+      api GET "/api/projects/$(urlenc "$RESOLVED_PID")/todos"; api_ok_or_die
+      local todo_id
+      todo_id=$(printf '%s' "$BODY" | python3 -c '
+import json, sys
+b = json.load(sys.stdin)["backlog"]; n = int(sys.argv[1])
+print(b[n - 1]["id"] if 1 <= n <= len(b) else "")' "$k")
+      if [ -z "$todo_id" ]; then
+        echo "${PROG}: no backlog item $k in $RESOLVED_PTITLE" >&2
+        exit 1
+      fi
+      local datejson; datejson=$(date_json "$dspec") || exit
+      local body
+      body=$(DATE="$datejson" REASON="$reason" REASON_SET="$reason_set" python3 -c '
+import json, os
+out = {"date": json.loads(os.environ["DATE"])}
+if os.environ["REASON_SET"] == "1":
+    out["reason"] = os.environ["REASON"]
+print(json.dumps(out))')
+      api PATCH "/api/todos/$(urlenc "$todo_id")" "$body"
+      if [ "$JSON_OUT" = 1 ]; then printf '%s\n' "$BODY"; api_ok_or_die; return; fi
+      api_ok_or_die
+      fmt project_todo "$BODY" "pulled" "$(jget "$BODY" 'd["todo"]["date"] or "backlog"')" ;;
+    *) die_usage ;;
+  esac
+}
+
 cmd_day() {
   [ $# -le 1 ] || die_usage
   local day
@@ -1008,6 +1617,7 @@ top="$1"; shift
 case "$top" in
   pomo) cmd_pomo "$@" ;;
   todo) cmd_todo "$@" ;;
+  project|projects) cmd_projects "$@" ;;
   log) cmd_log "$@" ;;
   day) cmd_day "$@" ;;
   yesterday) cmd_yesterday "$@" ;;
