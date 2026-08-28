@@ -81,5 +81,12 @@ Observation exists to remove repeated input, not to monitor.
 
 ## Deferred (see backlog.md)
 
-- PARA layer for long-term planning above days.
 - Widening widget access beyond todos/pomodoro, with isolation.
+
+The PARA layer for long-term planning above days is no longer deferred: it
+shipped as projects and areas with their own backlogs and docs
+(`projects-para.md`). It leaves this contract intact — projects never execute,
+so the day model above is unchanged — and adds three rituals the assistant
+assists with: the morning pull of a next action onto today, the evening
+per-project worklog append after a fold, and the weekly review sweep (empty the
+inbox, judge the stale, promote from someday).

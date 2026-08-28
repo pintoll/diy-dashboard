@@ -1,6 +1,6 @@
 # Focus Analytics Page
 
-A dedicated **page** (not a widget) that analyzes the collected pomodoro/focus session log, reached via a "See more" link from the `pomodoro-stats` widget. Read-only view over `useSessionLogStore`; the intent-declaration and site/app blocking mechanism it visualizes is documented separately in [`focus-mode.md`](focus-mode.md).
+A dedicated **page** (not a widget) that analyzes the collected pomodoro/focus session log, reached via a "See more" link from the `pomodoro-stats` widget. Read-only, and no longer over one store: the pomodoro session log (`useSessionLogStore`) carries the page, and the projects card adds a second, cross-database read of the todos.db time ledger (`use-project-time-store`) — see **Project attribution** below. The intent-declaration and site/app blocking mechanism the page visualizes is documented separately in [`focus-mode.md`](focus-mode.md).
 
 ## Purpose — two lenses
 

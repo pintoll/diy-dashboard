@@ -7,6 +7,13 @@ moves in and out freely without losing its id, `workedSec`, or its
 
 Status: **implemented.** Branch `feature/todo-backlog`.
 
+The bucket was later partitioned by the projects layer
+([`projects-para.md`](projects-para.md)): `date IS NULL` still means backlog,
+but a row that also carries a `project_id` is that **project's backlog**, and
+only a row without one is the **inbox**. Nothing below changes — the split
+sorts the warehouse, it does not touch what a null date means or which queries
+skip it.
+
 ## Why
 
 `todos.date` was `NOT NULL`, so the only way to record "해야 하는데 기약이 없다"
@@ -75,6 +82,9 @@ assumes.
 A todo that changes bucket also gets `sort_order` reassigned to the end of its
 destination (unless the patch sets `sortOrder` explicitly). Carrying the old
 number over would drop a pulled item into the middle of the destination list.
+Filing counts as changing bucket for this rule: since the undated side is split
+by project, an inbox number carried into a project backlog would land the row
+mid-list just the same.
 
 ## Migration
 
@@ -95,10 +105,14 @@ confirming the analytics day drill-down still resolves per-session todo titles.
 ## Surfaces
 
 **UI** (`pages/todos/ui/BacklogSection.tsx`) — a collapsed-by-default section
-below the day list on `/todos`, shown on every date. The header carries the
-count, deliberately: a warehouse with no visible size becomes a black hole.
-Rows are drag-orderable like a day (`SortableTodoList` takes `date: null`), and
-`AddTodoForm date={null}` writes straight into it.
+below the day list on `/todos`, shown on every date. Since the projects layer
+it shows the **inbox** only (`date IS NULL AND project_id IS NULL`, its own
+query and IPC channel); a filed row is on its project's backlog on
+`/projects`. Capture still writes here unfiled — filing is review's job, not
+capture's. The header carries the count, deliberately: a warehouse with no
+visible size becomes a black hole. Rows are drag-orderable like a day
+(`SortableTodoList` takes `date: null`), and `AddTodoForm date={null}` writes
+straight into it.
 
 The two directions are asymmetric on purpose:
 
@@ -110,10 +124,16 @@ The two directions are asymmetric on purpose:
   hard-coded today, so the section works the same on any day.
 
 **Agent API** — `GET /api/todos/backlog`, and `"date": null` on POST/PATCH.
+The route kept its whole-warehouse meaning through the projects layer —
+project-filed rows included, returned grouped with the inbox first — so a
+secretary partitions it itself rather than making one call per project
+([`todos-agent-api.md`](../spec/todos-agent-api.md)).
 Null on the wire, never a magic string. Omitting `date` on create still means
 today; only an explicit null parks.
 
-**`dyd`** — `dyd todo backlog` lists it, `-d backlog` creates into it, and
+**`dyd`** — `dyd todo backlog` lists it grouped by project (inbox first, since
+a flat print left the inbox indistinguishable from filed work), `dyd projects
+file b3 p2` files a row into a project, `-d backlog` creates into it, and
 `dyd todo move <n|id|b<n>> <backlog|today|tomorrow|YYYY-MM-DD>` moves between
 buckets. `move` is one verb for park, pull, and reschedule, which also fills a
 gap: `dyd` previously could not re-plan a todo at all. Backlog positions are
