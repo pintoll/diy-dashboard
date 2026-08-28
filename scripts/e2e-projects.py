@@ -2,7 +2,7 @@
 """E2E check for the projects steering layer over the agent API (phase 4).
 
 Covers what the pure parser cannot: the batch executor's project ops, the
-stats route's rollup, and the fold snapshot's project attribution. Drives a
+stats and time routes, and the fold snapshot's project attribution. Drives a
 RUNNING dev app and verifies journal ground truth by reading todos.db
 read-only. The parser itself is unit-tested in src/main/todos/apply-ops.test.ts.
 
@@ -45,6 +45,44 @@ def rows(body: Any, key: str) -> list[Any]:
     if isinstance(body, dict) and isinstance(body.get(key), list):
         return body[key]
     return []
+
+
+def credited(lo: int, hi: int, sec: int) -> tuple[int, int] | None:
+    """The head of an interval, worked_sec long - what the merge actually counts.
+
+    worked_sec excludes idle and trimmed/capped overtime while ended_at does
+    not, so the raw span over-reports; a manual overtime top-up can push
+    worked_sec the other way, hence the clamp. Mirrors creditedWindow() in
+    src/main/todos/project-time.ts.
+    """
+    if sec <= 0 or hi <= lo:
+        return None
+    return (lo, lo + min(sec * 1000, hi - lo))
+
+
+def merge_seconds(intervals: list[tuple[int, int]]) -> int:
+    """The oracle for /api/projects/time: overlapping windows merged.
+
+    Deliberately a second, independent implementation of
+    src/main/todos/project-time.ts. Comparing the route against a re-sum of
+    todos.db is the only way to check the merge on real data - no route banks
+    a pomodoro interval, so the scenario cannot seed one.
+    """
+    total = 0
+    start = end = None
+    for lo, hi in sorted(intervals):
+        if hi <= lo:
+            continue
+        if start is None:
+            start, end = lo, hi
+        elif lo <= end:
+            end = max(end, hi)
+        else:
+            total += end - start
+            start, end = lo, hi
+    if start is not None:
+        total += end - start
+    return round(total / 1000)
 
 
 def main() -> int:
@@ -147,6 +185,51 @@ def main() -> int:
         check(backlog and mine["nextAction"]
               and backlog[0]["id"] == mine["nextAction"]["id"],
               "listProjectTodos and the rollup pick the same todo")
+
+        section("time route: the merged ledger")
+        status, tm = api.get("/api/projects/time")
+        check(status == 200, "GET /api/projects/time returns 200", status)
+        # A literal path registered after `/api/projects/:id` would be
+        # swallowed by it and answer 404 for the project named "time".
+        check(isinstance(tm, dict) and "time" in tm,
+              "the literal path is not shadowed by /api/projects/:id", tm)
+        served = rows(tm, "time")
+        check(all(isinstance(r.get("seconds"), int) and r["seconds"] >= 0
+                  and (r.get("projectId") is None
+                       or isinstance(r["projectId"], str))
+                  for r in served),
+              "every row is a project id (or null) and whole seconds", served)
+        check(len({r["projectId"] for r in served}) == len(served),
+              "one row per project", served)
+
+        with db() as conn:
+            ledger: dict[Any, list[tuple[int, int]]] = {}
+            additive: dict[Any, int] = {}
+            for row in conn.execute(
+                    "SELECT t.project_id AS pid, s.started_at AS lo, "
+                    "s.ended_at AS hi, s.worked_sec AS sec "
+                    "FROM todo_sessions s JOIN todos t ON t.id = s.todo_id"):
+                window = credited(row["lo"], row["hi"], row["sec"])
+                if window is not None:
+                    ledger.setdefault(row["pid"], []).append(window)
+                additive[row["pid"]] = additive.get(row["pid"], 0) + row["sec"]
+            known = {r["id"] for r in conn.execute("SELECT id FROM projects")}
+
+        expected = {pid_: merge_seconds(iv) for pid_, iv in ledger.items()}
+        check({r["projectId"]: r["seconds"] for r in served} == expected,
+              "the route reproduces an independent merge of todo_sessions",
+              (sorted(expected.items(), key=lambda kv: str(kv[0]))[:5],
+               sorted(((r["projectId"], r["seconds"]) for r in served),
+                      key=lambda kv: str(kv[0]))[:5]))
+        # The whole reason the merge exists: two todos of one project on the
+        # desk together make the additive worked_sec sum overshoot.
+        check(all(sec <= additive[pid_] for pid_, sec in expected.items()),
+              "merged credited time never exceeds the additive worked_sec rollup")
+        check(all(r["projectId"] is None or r["projectId"] in known
+                  for r in served),
+              "no row names a project that no longer exists", served)
+        check(not any(r["projectId"] == pid for r in served),
+              "a project with no banked interval gets no row", served)
 
         section("atomicity: a mid-batch failure rolls the project back")
         status, err = api.post("/api/apply", {

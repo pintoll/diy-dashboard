@@ -585,6 +585,29 @@ interface ProjectStatsItem {
   // GET /api/projects/stats instead.
 }
 
+// Wall-clock time invested in one project: every banked ledger interval merged,
+// so a desk holding two todos of the same project counts the block once. This is
+// NOT ProjectStatsItem.workedSec, which is the additive todos.worked_sec sum and
+// double-counts exactly that case.
+//
+// Two *different* projects on the desk at once each keep the overlap (the desk
+// model does not divide time), so these seconds can sum past the wall clock.
+// Read them as a ranked list, never as shares of a whole.
+interface ProjectTimeItem {
+  // Null is the unfiled bucket, not a missing project.
+  projectId: string | null;
+  seconds: number;
+}
+
+// Both halves of the focus-analytics project card in one call. `todoProject`
+// (todo id -> project id, filed todos only) is what lets the renderer resolve a
+// pomodoro session's desk union onto projects: `sessions.todoIds` is the sole
+// link between pomodoro.db and todos.db, which share no session key.
+interface ProjectTimeIndexDTO {
+  time: ProjectTimeItem[];
+  todoProject: Record<string, string>;
+}
+
 // A project's freeform prose — goals, decisions, current state. Every project
 // starts with one doc titled "notes".
 interface ProjectDocItem {
@@ -618,6 +641,7 @@ interface ProjectsAPI {
   remove: (id: string) => Promise<void>;
   todos: (id: string) => Promise<ProjectTodos>;
   stats: () => Promise<ProjectStatsItem[]>;
+  time: () => Promise<ProjectTimeIndexDTO>;
   docs: {
     list: (projectId: string) => Promise<ProjectDocItem[]>;
     create: (projectId: string, input: ProjectDocCreateInput) => Promise<ProjectDocItem>;

@@ -317,6 +317,26 @@ export type ProjectStats = {
 // useToday() rather than read a verdict frozen at fetch time.
 export type ProjectStatsWithStale = ProjectStats & { isStale: boolean };
 
+// Wall-clock time invested in one project, overlapping ledger intervals merged
+// (project-time.ts). Deliberately not a field on ProjectStats: that rollup's
+// `workedSec` is the additive `todos.worked_sec` sum, which double-counts a desk
+// holding two todos of the same project, and the two numbers answer different
+// questions. `projectId: null` is the unfiled bucket, not an absence.
+export type ProjectTime = {
+  projectId: string | null;
+  seconds: number;
+};
+
+// Both halves of the focus-analytics project view in one round trip. `time` is
+// the todos.db side; `todoProject` lets the renderer resolve a pomodoro session
+// record's desk union (`todoIds`, the only link the two databases have) onto
+// projects without a second call. Ids missing from the map are unfiled or
+// deleted - the consumer treats both as the unfiled bucket.
+export type ProjectTimeIndex = {
+  time: ProjectTime[];
+  todoProject: Record<string, string>;
+};
+
 export type ProjectDocRow = {
   id: string;
   project_id: string;

@@ -2,7 +2,12 @@ import { dayOf } from "@shared/day";
 import { isStale, type StaleSubject } from "@shared/project-stale";
 import { sqliteUtcToMs } from "@shared/sqlite-time";
 import { getTodosDb } from "./db";
-import type { ProjectStats, ProjectStatsWithStale } from "./types";
+import { mergeProjectSeconds, type ProjectInterval } from "./project-time";
+import type {
+  ProjectStats,
+  ProjectStatsWithStale,
+  ProjectTime,
+} from "./types";
 
 // The steering numbers behind the projects page and the projects widget
 // (docs/design/projects-para.md): progress for the detail pane, a last-activity
@@ -163,6 +168,53 @@ export function listProjectStats(): ProjectStats[] {
   for (const subject of subjects) ensure(subject.projectId);
 
   return [...byId.values()];
+}
+
+/**
+ * Wall-clock seconds per project for the focus-analytics view: every banked
+ * interval, resolved to its todo's *current* project and merged
+ * (project-time.ts). Refiling a todo therefore moves its history, exactly as
+ * listProjectStats already behaves.
+ *
+ * `worked_sec` travels with the bounds because the merge runs on the credited
+ * window, not the raw span - the two differ once overtime is trimmed or idle is
+ * excluded. project-time.ts explains why.
+ *
+ * No `WHERE project_id IS NOT NULL` - the NULL group is the unfiled bucket, the
+ * one row on that card that is not a project. A full `todo_sessions` scan plus
+ * PK lookups on todos; at one row per desk member per interval that stays small
+ * enough not to be worth an index of its own, and the whole ledger is the point
+ * (the card is all-time).
+ */
+export function listProjectTime(): ProjectTime[] {
+  const rows = getTodosDb()
+    .prepare(
+      `SELECT t.project_id AS projectId,
+              s.started_at  AS startedAt,
+              s.ended_at    AS endedAt,
+              s.worked_sec  AS workedSec
+       FROM todo_sessions s
+       JOIN todos t ON t.id = s.todo_id`
+    )
+    .all() as ProjectInterval[];
+  return mergeProjectSeconds(rows);
+}
+
+/**
+ * Every filed todo's project, as a lookup. The renderer needs it to turn a
+ * pomodoro session record's `todoIds` (the desk union, and the only thing
+ * pomodoro.db knows about todos.db) into the set of projects that session
+ * touched. Unfiled todos are omitted rather than mapped to null: an absent key
+ * and a null value would mean the same thing, and omitting keeps the payload to
+ * the todos that can actually answer.
+ */
+export function listTodoProjectIndex(): Record<string, string> {
+  const rows = getTodosDb()
+    .prepare(
+      "SELECT id, project_id AS projectId FROM todos WHERE project_id IS NOT NULL"
+    )
+    .all() as { id: string; projectId: string }[];
+  return Object.fromEntries(rows.map((row) => [row.id, row.projectId]));
 }
 
 /**

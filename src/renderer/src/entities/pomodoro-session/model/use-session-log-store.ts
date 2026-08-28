@@ -45,8 +45,12 @@ const RECORD_DEFAULTS: Pick<PomodoroSessionRecord, DefaultedField> = {
 
 type SessionLogState = {
   sessions: PomodoroSessionRecord[];
-  // Returns the created record so callers can reference its id (the todo
-  // accrual links todo_sessions rows by session id).
+  // Returns the created record so the caller can read back what it wrote.
+  //
+  // Its `id` is NOT the todo accrual's `session_id`: the ledger's is minted at
+  // work-block start (use-pomodoro-store's startBlock), this one at record
+  // time, and the two are never reconciled. The only link between the session
+  // log and the todo layer is `todoIds`, the desk union stamped below.
   recordSession: (record: RecordSessionInput) => PomodoroSessionRecord;
   updateSessionNote: (id: string, note: string) => void;
 };
@@ -60,9 +64,8 @@ export const useSessionLogStore = create<SessionLogState>((set) => ({
       ...RECORD_DEFAULTS,
       ...record,
     };
-    // In-memory first so the caller gets the id synchronously (the todo accrual
-    // needs it) and every subscriber updates immediately; SQLite is the durable
-    // record, written through without blocking the UI.
+    // In-memory first so every subscriber updates immediately; SQLite is the
+    // durable record, written through without blocking the UI.
     set((state) => ({ sessions: [...state.sessions, entry] }));
     window.electronAPI?.pomodoro
       ?.record(entry)

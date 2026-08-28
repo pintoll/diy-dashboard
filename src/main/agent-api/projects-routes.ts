@@ -6,7 +6,10 @@ import {
   listProjectDocs,
   updateProjectDoc,
 } from "../todos/project-docs";
-import { listProjectStatsWithStale } from "../todos/project-stats";
+import {
+  listProjectStatsWithStale,
+  listProjectTime,
+} from "../todos/project-stats";
 import {
   asProjectStatus,
   createProject,
@@ -68,6 +71,24 @@ export const projectsRoutes: Route[] = [
         stats: listProjectStatsWithStale(today()),
         inboxCount: countInbox(),
       });
+    },
+  },
+  {
+    // Where the time actually went, per project: every banked interval merged
+    // so a desk holding two todos of one project counts once
+    // (todos/project-time.ts). The weekly review's other half - `stats` says
+    // what moved, this says what it cost.
+    //
+    // Two different projects on the desk at once each keep the overlap, so
+    // these seconds can sum past the wall clock; that is the desk model's own
+    // rule, not a bug (docs/design/multi-pomo-todo.md). `projectId: null` is
+    // the unfiled bucket. No attention verdict here - it lives in pomodoro.db,
+    // which this server does not serve. Derived state: no reason, no journal,
+    // and the literal path is registered ahead of the `:id` routes.
+    method: "GET",
+    pattern: "/api/projects/time",
+    handler: (_req, res) => {
+      sendJson(res, 200, { time: listProjectTime() });
     },
   },
   {

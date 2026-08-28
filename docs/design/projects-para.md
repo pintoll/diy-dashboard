@@ -4,8 +4,7 @@ A mid/long-term steering layer above the day-scoped todo system, modeled on
 PARA but folded to fit an execution dashboard. Todos stay "finish today";
 projects answer "is the right work moving at all".
 
-Status: **Phase 4 implemented** — the layer is complete, minus the
-focus-analytics view that phase 4 split out into a phase 5.
+Status: **Phase 5 implemented** — the layer is complete.
 
 ## Why
 
@@ -99,7 +98,8 @@ of finished things, useful for retrospectives and estimating the next project.
 
 `todo_sessions` already accrues `worked_sec` per todo; with `project_id` one
 join yields per-project invested time. Progress = done/total todos + total
-time. Focus analytics can add a per-project view later with no schema change.
+time. Focus analytics adds a per-project view with no schema change (phase 5),
+though not by summing `worked_sec` — see that phase for why.
 
 ## Project docs (rough notes)
 
@@ -302,5 +302,45 @@ neither works, that's not a tooling problem.
      stays transport-neutral; the IPC payload can no longer carry a day frozen
      at fetch time), and the stats route grew `inboxCount` so the CLI glance
      stopped fetching the whole backlog for one badge.
-5. **Focus analytics per-project view** — not started. Split out of phase 4;
-   see the note above for why it is a separate problem.
+5. **Focus analytics per-project view** — *done*: a `Projects` card in the
+   page's Diagnosis half, ranking projects by wall-clock time with each one's
+   focus share and collapse count, plus `GET /api/projects/time` so the weekly
+   review can read the same numbers. Deviations:
+   - **There is no session join to build on, and there never was.** The obvious
+     key — `todo_sessions.session_id` — does not address the pomodoro session
+     record: the ledger's id is minted by the attribution engine at work-block
+     start, the log record's at record time, and nothing reconciles them. A
+     comment in `use-session-log-store.ts` asserted the link outright; it is
+     corrected, as is the `todo_sessions` note in `todos/schema.ts`. The real
+     link is the session record's **`todoIds`**, the desk union already used
+     cross-database by the day drill-down.
+   - **So the card carries two numbers on two bases**, and says so. The bar is
+     todos.db: every banked interval **merged** per project
+     (`todos/project-time.ts`), because the ledger banks each desk member in
+     full and summing `worked_sec` would report 50 minutes for a 25-minute
+     block shared by two todos of one project. On a real ledger the merge cut
+     42% of the additive total, which is how much of it was one desk counted
+     twice. The focus share and collapse count are pomodoro.db, resolved per
+     **session** through `todoIds`. They are never divided into one another.
+   - **The merge runs on the credited window, not the interval span.** Checking
+     the first cut against the real Windows ledger caught the assumption: a
+     row's `ended_at - started_at` is *not* its `worked_sec`, because the
+     credited figure is block overlap capped at the phase end plus a share of
+     an already idle-excluded, capped `overtime_sec`. Spans over-reported by
+     ~0.6%, and a card that disagreed with `todos.worked_sec` would have been
+     wrong in the direction of flattering idle time. Each row now contributes
+     `[started_at, started_at + worked_sec]` — its head, since the uncredited
+     part is always the tail.
+   - **Merging does not remove all overlap, deliberately.** Two *different*
+     projects on one desk each keep the whole block — the desk model's own
+     no-division rule — so the rows can sum past the day's wall clock. Hence a
+     ranked bar list and never a pie, and hence a footnote for session time
+     that had nothing on the desk at all.
+   - **A second read-through store** (`use-project-time-store`) rather than a
+     field on `useProjectStore`: only this page wants the whole ledger merged,
+     and the projects page and every todo picker would otherwise pay for a full
+     `todo_sessions` scan on each refresh.
+   - `sessionActiveSec`, `bucketOf` and a new **`isCollapse`** were promoted out
+     of `aggregations.ts`'s private scope. The collapse question was already
+     asked in two places with the condition written out twice; the card would
+     have been a third.

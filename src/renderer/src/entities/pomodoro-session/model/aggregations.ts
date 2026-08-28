@@ -92,14 +92,30 @@ export type WeeklyHoursComparison = {
 
 // Active engaged time: planned work plus real overtime. idleSec is already
 // excluded from both fields at record time, so it is not subtracted here.
-function sessionActiveSec(s: PomodoroSessionRecord): number {
+// Exported because every surface that weighs a session by time has to weigh it
+// the same way - the project card is the fourth.
+export function sessionActiveSec(s: PomodoroSessionRecord): number {
   return s.durationSec + s.overtimeSec;
 }
 
 // Attention is binary (focus/leisure) after the v2 migration; this stays a
 // total function over the union as a defensive normalizer.
-function bucketOf(attention: AttentionVerdict): "focus" | "leisure" {
+export function bucketOf(attention: AttentionVerdict): "focus" | "leisure" {
   return attention === "focus" ? "focus" : "leisure";
+}
+
+/**
+ * The collapse: declared focus, ended leisure. The page's sharpest signal, and
+ * a named predicate because two surfaces ask exactly this question - the hourly
+ * chart and the project card - and a silent fork between them would be
+ * invisible. intentOutcomeMatrix keeps its own dispatch: it partitions all four
+ * quadrants rather than testing one, and this quadrant is its `collapse` cell.
+ *
+ * A null intent is not a collapse. It was never declared, and it is never
+ * backfilled, precisely so it cannot be counted as one.
+ */
+export function isCollapse(s: PomodoroSessionRecord): boolean {
+  return s.intendedMode === "focus" && bucketOf(s.attention) === "leisure";
 }
 
 function sumHours(sessions: PomodoroSessionRecord[]): WeeklyHours {
@@ -243,12 +259,9 @@ export function timeOfDayPattern(
 
   for (const s of sessions) {
     const bucket = buckets[hourOf(s.startedAt)];
-    const outcome = bucketOf(s.attention);
-    if (outcome === "focus") bucket.focusCount++;
+    if (bucketOf(s.attention) === "focus") bucket.focusCount++;
     else bucket.leisureCount++;
-    if (s.intendedMode === "focus" && outcome === "leisure") {
-      bucket.collapseCount++;
-    }
+    if (isCollapse(s)) bucket.collapseCount++;
   }
 
   return buckets;

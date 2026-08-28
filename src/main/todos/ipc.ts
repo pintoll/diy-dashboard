@@ -26,7 +26,11 @@ import {
   listProjectDocs,
   updateProjectDoc,
 } from "./project-docs";
-import { listProjectStats } from "./project-stats";
+import {
+  listProjectStats,
+  listProjectTime,
+  listTodoProjectIndex,
+} from "./project-stats";
 import {
   createProject,
   deleteProject,
@@ -47,6 +51,7 @@ import type {
   ProjectListFilter,
   ProjectPatch,
   ProjectStats,
+  ProjectTimeIndex,
   ProjectTodos,
   RecordWorkInput,
   Todo,
@@ -186,6 +191,19 @@ export function registerTodosIpc(): void {
   // page needs them for its whole left list, and per-project reads would be one
   // round trip each.
   ipcMain.handle("projects:stats", (): ProjectStats[] => listProjectStats());
+
+  // The focus-analytics project card, in one round trip. Two payloads because
+  // the card's two numbers come from two places: `time` is the merged ledger
+  // (todos.db), while the attention half is computed in the renderer from the
+  // session log (pomodoro.db) using `todoProject` to resolve each session's desk
+  // union. The databases have no join key of their own, so the map crosses here.
+  ipcMain.handle(
+    "projects:time",
+    (): ProjectTimeIndex => ({
+      time: listProjectTime(),
+      todoProject: listTodoProjectIndex(),
+    })
+  );
 
   ipcMain.handle("projects:docs:list", (_event, projectId: string): ProjectDoc[] =>
     listProjectDocs(projectId)

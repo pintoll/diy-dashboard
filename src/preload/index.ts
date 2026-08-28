@@ -173,6 +173,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     remove: (id: string) => ipcRenderer.invoke("projects:delete", id),
     todos: (id: string) => ipcRenderer.invoke("projects:todos", id),
     stats: () => ipcRenderer.invoke("projects:stats"),
+    time: () => ipcRenderer.invoke("projects:time"),
     docs: {
       list: (projectId: string) => ipcRenderer.invoke("projects:docs:list", projectId),
       create: (projectId: string, input: ProjectDocCreateInput) =>

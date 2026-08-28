@@ -12,6 +12,10 @@ import type Database from "better-sqlite3";
 // `session_id`), because one pomodoro can now credit several todos and one todo
 // can accrue several in-flight intervals per session (see the "desk" model in
 // docs/design/multi-pomo-todo.md). `todos.worked_sec` is the additive rollup.
+// `session_id` groups one block's rows and is minted by the attribution engine
+// at block start; it is NOT pomodoro.db's `sessions.id`, which is minted
+// separately when the session log record is written. The two databases share no
+// key - the session record's `todo_ids` is the only link between them.
 //
 // `desk` is the set of todos currently receiving the running work clock
 // (replaces the single-row `active_todo`). `joined_at` clamps the start of a
